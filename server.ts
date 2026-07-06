@@ -16,8 +16,17 @@ let supabaseInstance: any = null;
 
 function getSupabaseClient() {
   if (!supabaseInstance) {
-    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const key = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    const rawUrl = process.env.SUPABASE_URL || "";
+    const rawKey = process.env.SUPABASE_ANON_KEY || "";
+    
+    const url = rawUrl && !rawUrl.includes("your-project-id") 
+      ? rawUrl 
+      : process.env.VITE_SUPABASE_URL;
+      
+    const key = rawKey && !rawKey.includes("your-anon-public-key")
+      ? rawKey 
+      : process.env.VITE_SUPABASE_ANON_KEY;
+
     if (!url || !key) {
       console.warn("Supabase credentials not configured in environment variables. Middleware authorization will run in bypass mode.");
       return null;
