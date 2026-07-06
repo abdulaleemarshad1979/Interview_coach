@@ -3,7 +3,7 @@ import path from "path";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import Groq from "groq-sdk";
-import pdf from "pdf-parse";
+import pdf from "pdf-parse/lib/pdf-parse.js";
 import dotenv from "dotenv";
 import fs from "fs";
 
