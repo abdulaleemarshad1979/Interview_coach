@@ -20,6 +20,7 @@ import {
   PenTool
 } from "lucide-react";
 import { InterviewQuestion, AnswerFeedback, StudentProfile, FullAnalysisResult, Scorecard } from "../types";
+import { supabase } from "../lib/supabaseClient";
 
 interface InterviewPageProps {
   studentProfile: StudentProfile;
@@ -259,6 +260,9 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     setError(null);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || "";
+
       const payload = {
         questionId: activeQuestion.id,
         questionText: activeQuestion.text,
@@ -268,7 +272,10 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
       const response = await fetch("/api/interview/submit-answer", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+        },
         body: JSON.stringify(payload)
       });
 
@@ -312,6 +319,9 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     setError(null);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || "";
+
       const payload = {
         studentId: studentProfile.studentId,
         githubUsername: studentProfile.githubUsername,
@@ -321,7 +331,10 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
       const response = await fetch("/api/interview/generate-report", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+        },
         body: JSON.stringify(payload)
       });
 
