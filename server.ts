@@ -555,13 +555,6 @@ wss.on("connection", async (ws: WebSocket) => {
 
   ws.on("close", () => {
     console.log("Client socket closed");
-    if (liveSession) {
-      try {
-        liveSession.close();
-      } catch (e) {
-        // ignore
-      }
-    }
   });
 });
 
