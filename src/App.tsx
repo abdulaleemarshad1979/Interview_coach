@@ -8,7 +8,9 @@ import AnalyzePage from "./components/AnalyzePage";
 import InterviewPage from "./components/InterviewPage";
 import ReportPage from "./components/ReportPage";
 import SettingsPage from "./components/SettingsPage";
+import CustomCursor from "./components/effects/CustomCursor";
 import { StudentProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
+import { supabase } from "./lib/supabaseClient";
 
 export default function App() {
   const [currentView, setCurrentView] = useState<string>("landing");
@@ -17,18 +19,14 @@ export default function App() {
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
 
-  // Load state from local storage on bootstrap
+  // Load state from local storage on bootstrap + listen to Supabase Auth Changes
   useEffect(() => {
+    // Load local cache items if they exist
     try {
-      const storedProfile = localStorage.getItem("studentProfile");
       const storedAnalysis = localStorage.getItem("analysisResult");
       const storedQuestions = localStorage.getItem("interviewQuestions");
       const storedScorecard = localStorage.getItem("scorecard");
 
-      if (storedProfile) {
-        setStudentProfile(JSON.parse(storedProfile));
-        setCurrentView("dashboard"); // Auto-navigate to dashboard if logged in
-      }
       if (storedAnalysis) {
         setAnalysisResult(JSON.parse(storedAnalysis));
       }
@@ -41,10 +39,45 @@ export default function App() {
     } catch (e) {
       console.error("Failed to parse local storage cache", e);
     }
+
+    // Check current Supabase session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session && session.user) {
+        const userRollNo = session.user.user_metadata?.roll_number || session.user.email?.split("@")[0].toUpperCase() || "STUDENT";
+        const profile: StudentProfile = {
+          studentId: userRollNo,
+          githubUsername: session.user.user_metadata?.github_username,
+          resumeFileName: session.user.user_metadata?.resume_file_name,
+        };
+        setStudentProfile(profile);
+        setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+      }
+    });
+
+    // Listen to changes in authentication state
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && session.user) {
+        const userRollNo = session.user.user_metadata?.roll_number || session.user.email?.split("@")[0].toUpperCase() || "STUDENT";
+        const profile: StudentProfile = {
+          studentId: userRollNo,
+          githubUsername: session.user.user_metadata?.github_username,
+          resumeFileName: session.user.user_metadata?.resume_file_name,
+        };
+        setStudentProfile(profile);
+        setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+      } else {
+        setStudentProfile(null);
+        setCurrentView((prev) => (prev === "landing" ? "landing" : "landing"));
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Login Success Event
-  const handleLoginSuccess = (studentId: string) => {
+  const handleLoginSuccess = (studentId: string, email?: string) => {
     const profile: StudentProfile = { studentId };
     setStudentProfile(profile);
     localStorage.setItem("studentProfile", JSON.stringify(profile));
@@ -52,23 +85,25 @@ export default function App() {
   };
 
   // Logout Event
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setStudentProfile(null);
     setAnalysisResult(null);
     setInterviewQuestions([]);
     setScorecard(null);
-    
+
     // Clear cache
     localStorage.removeItem("studentProfile");
     localStorage.removeItem("analysisResult");
     localStorage.removeItem("interviewQuestions");
     localStorage.removeItem("scorecard");
-    
+
     setCurrentView("landing");
   };
 
+
   // Analysis success callback
-  const handleAnalysisSuccess = (result: FullAnalysisResult, githubUser: string, fileName: string) => {
+  const handleAnalysisSuccess = async (result: FullAnalysisResult, githubUser: string, fileName: string) => {
     setAnalysisResult(result);
     localStorage.setItem("analysisResult", JSON.stringify(result));
 
@@ -80,6 +115,17 @@ export default function App() {
       };
       setStudentProfile(updatedProfile);
       localStorage.setItem("studentProfile", JSON.stringify(updatedProfile));
+    }
+
+    try {
+      await supabase.auth.updateUser({
+        data: {
+          github_username: githubUser,
+          resume_file_name: fileName
+        }
+      });
+    } catch (e) {
+      console.error("Failed to update user metadata in Supabase", e);
     }
   };
 
@@ -100,15 +146,15 @@ export default function App() {
     switch (currentView) {
       case "landing":
         return (
-          <LandingPage 
-            onNavigate={setCurrentView} 
-            isLoggedIn={!!studentProfile} 
+          <LandingPage
+            onNavigate={setCurrentView}
+            isLoggedIn={!!studentProfile}
           />
         );
       case "login":
         return (
-          <LoginPage 
-            onLoginSuccess={handleLoginSuccess} 
+          <LoginPage
+            onLoginSuccess={handleLoginSuccess}
           />
         );
       case "dashboard":
@@ -164,9 +210,9 @@ export default function App() {
         );
       default:
         return (
-          <LandingPage 
-            onNavigate={setCurrentView} 
-            isLoggedIn={!!studentProfile} 
+          <LandingPage
+            onNavigate={setCurrentView}
+            isLoggedIn={!!studentProfile}
           />
         );
     }
@@ -181,8 +227,9 @@ export default function App() {
 
   return (
     <div id="main-app-container" className="min-h-screen bg-brand-bg text-gray-100 flex flex-col font-sans selection:bg-brand-primary selection:text-brand-bg relative antialiased">
+      <CustomCursor />
       {/* Universal header navigation */}
-      <Navbar 
+      <Navbar
         studentProfile={studentProfile}
         currentView={currentView}
         onNavigate={setCurrentView}

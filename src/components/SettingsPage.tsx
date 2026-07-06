@@ -31,11 +31,7 @@ export default function SettingsPage({ studentProfile, onNavigate }: SettingsPag
     setPingStatus(null);
     try {
       const start = Date.now();
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId: studentProfile.studentId })
-      });
+      const res = await fetch("/api/ping");
       const latency = Date.now() - start;
       if (res.ok) {
         setPingStatus(`Active Server Connected: Latency ${latency}ms`);

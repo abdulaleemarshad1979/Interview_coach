@@ -15,6 +15,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { FullAnalysisResult, StudentProfile } from "../types";
+import { supabase } from "../lib/supabaseClient";
 
 interface AnalyzePageProps {
   studentProfile: StudentProfile;
@@ -146,18 +147,58 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
     startStageTransitions();
 
     try {
+      // 1. Get user session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || !session.user) {
+        throw new Error("You must be logged in to analyze your profile.");
+      }
+
+      // 2. Upload file to Supabase Storage bucket 'resumes'
+      const fileExt = file.name.split(".").pop();
+      const filePath = `${session.user.id}/${Date.now()}.${fileExt}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("resumes")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error("Storage Upload Error:", uploadError);
+        throw new Error(`Supabase Storage upload failed: ${uploadError.message}. Make sure a bucket named 'resumes' is created in your Supabase dashboard.`);
+      }
+
+      // 3. Create a signed URL for secure backend access (valid for 5 minutes)
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+        .from("resumes")
+        .createSignedUrl(filePath, 300);
+
+      if (signedUrlError) {
+        console.error("Create Signed URL Error:", signedUrlError);
+        throw signedUrlError;
+      }
+
+      const fileUrl = signedUrlData.signedUrl;
+
+      // Convert to base64 for fallback or local compatibility
       const base64PDF = await fileToBase64(file);
       
       const payload = {
         githubUsername: githubUsername.trim(),
         resumeBase64: base64PDF,
+        resumeUrl: fileUrl,
+        resumePath: filePath,
         resumeFileName: file.name,
         resumeMimeType: file.type
       };
 
       const response = await fetch("/api/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`
+        },
         body: JSON.stringify(payload)
       });
 
@@ -169,7 +210,8 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
         setError(data.error || "Analysis failed. Please check your inputs or try again.");
       }
     } catch (err: any) {
-      setError("Connection to the AI Service timed out. Make sure your server is online.");
+      console.error("Analysis handler exception:", err);
+      setError(err.message || "Connection to the AI Service timed out. Make sure your server is online.");
     } finally {
       setLoading(false);
       stopStageTransitions();
@@ -183,9 +225,15 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
     setError(null);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || "";
+
       const response = await fetch("/api/interview/generate-questions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ analysisResult })
       });
 

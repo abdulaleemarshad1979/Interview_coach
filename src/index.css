@@ -1,28 +1,33 @@
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@700,500,400&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Space Grotesk", sans-serif;
+  --font-sans: "Satoshi", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Satoshi", "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
-  --color-brand-bg: #0A0A0C;
-  --color-brand-card: #121216;
-  --color-brand-primary: #00F0FF;
-  --color-brand-accent: #0066FF;
-  --color-brand-glow: rgba(0, 240, 255, 0.15);
+  --color-brand-bg: #050816;
+  --color-brand-card: #090B14;
+  --color-brand-primary: #3B82F6;
+  --color-brand-accent: #06B6D4;
+  --color-brand-glow: rgba(59, 130, 246, 0.15);
+  
+  --color-accent-blue: #3B82F6;
+  --color-accent-cyan: #06B6D4;
+  --color-accent-glow: #1D4ED8;
 }
 
 /* Custom Styles for Glassmorphism and Neon glow */
 .glass-panel {
-  background: rgba(18, 18, 22, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(9, 11, 20, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .glass-nav {
-  background: rgba(10, 10, 12, 0.75);
+  background: rgba(5, 8, 22, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -30,7 +35,7 @@
 
 .neon-border {
   border: 1px solid var(--color-brand-primary);
-  box-shadow: 0 0 15px rgba(0, 240, 255, 0.25);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.25);
 }
 
 .neon-glow-btn {
@@ -39,33 +44,53 @@
 }
 
 .neon-glow-btn:hover {
-  box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
 }
 
 .neon-text-glow {
-  text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+  text-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
 }
 
 /* Custom WebRTC/Camera overlay styles */
 .webcam-overlay {
-  background: linear-gradient(180deg, rgba(10, 10, 12, 0) 60%, rgba(10, 10, 12, 0.8) 100%);
+  background: linear-gradient(180deg, rgba(5, 8, 22, 0) 60%, rgba(5, 8, 22, 0.8) 100%);
 }
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0A0A0C;
+  background: #050816;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #232329;
+  background: #0B1120;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #34343F;
+  background: #3B82F6;
+}
+
+/* Hide default cursor if custom cursor is active */
+@media (min-width: 1024px) {
+  .custom-cursor-active,
+  .custom-cursor-active * {
+    cursor: none !important;
+  }
+}
+
+/* Glow effects */
+.radial-glow {
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
+}
+
+/* Custom keyframes for button shimmer */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }

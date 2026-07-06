@@ -1,133 +1,486 @@
 import React, { useState } from "react";
-import { motion } from "motion/react";
-import { ShieldCheck, ArrowRight, UserPlus, Fingerprint, Loader2 } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Mail, Fingerprint, Check, Star, AlertCircle, GraduationCap, CheckCircle2, Lock } from "lucide-react";
+import InputField from "./ui/InputField";
+import Button from "./ui/Button";
+import { supabase } from "../lib/supabaseClient";
 
 interface LoginPageProps {
-  onLoginSuccess: (studentId: string) => void;
+  onLoginSuccess: (studentId: string, email?: string) => void;
 }
 
+const isValidCollegeEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) return false;
+  const domain = email.split("@")[1].toLowerCase();
+  
+  const isEdu = domain.endsWith(".edu") || 
+                domain.endsWith(".edu.in") || 
+                domain.endsWith(".ac.in") || 
+                domain.endsWith(".ac.uk") ||
+                domain.endsWith(".edu.co") ||
+                domain.endsWith(".edu.mx") ||
+                domain.endsWith(".edu.br") ||
+                domain.endsWith(".edu.sg") ||
+                domain.endsWith(".edu.ph") ||
+                domain.endsWith(".ac.nz") ||
+                domain.endsWith(".ac.za") ||
+                domain.endsWith(".edu.au");
+                
+  const publicDomains = ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com", "zoho.com", "mail.com", "gmx.com", "yandex.com"];
+  if (publicDomains.includes(domain)) {
+    return false;
+  }
+  
+  return isEdu || domain.includes("college") || domain.includes("university") || domain.includes("univ") || domain.includes("school");
+};
+
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
-  const [studentId, setStudentId] = useState("");
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [rollNo, setRollNo] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  const emailTyping = email.length > 0;
+  const emailValid = emailTyping && isValidCollegeEmail(email);
+  const isPublicEmail = emailTyping && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !emailValid;
+  const emailError = isPublicEmail ? "Must use an official college email address." : undefined;
+
+  const confirmPasswordTyping = confirmPassword.length > 0;
+  const confirmPasswordError = isSignUp && confirmPasswordTyping && confirmPassword !== password 
+    ? "Passwords do not match." 
+    : undefined;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!studentId.trim()) {
-      setError("Please enter your Student ID.");
+    
+    if (isSignUp) {
+      if (!rollNo.trim()) {
+        setError("Please enter your Roll Number.");
+        return;
+      }
+      if (rollNo.trim().length < 4) {
+        setError("Roll Number must be at least 4 characters long.");
+        return;
+      }
+    }
+
+    if (!email.trim() || !isValidCollegeEmail(email)) {
+      setError("Please enter a valid college email address.");
       return;
     }
-    if (studentId.trim().length < 4) {
-      setError("Student ID must be at least 4 characters long.");
+    if (!password) {
+      setError("Please enter a password.");
       return;
+    }
+
+    if (isSignUp) {
+      if (password.length < 6) {
+        setError("Password must be at least 6 characters long.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
+        return;
+      }
     }
 
     setLoading(true);
     setError(null);
+    setSuccessMessage(null);
 
     try {
-      const response = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId }),
-      });
+      if (isSignUp) {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password: password,
+          options: {
+            data: {
+              roll_number: rollNo.trim(),
+            },
+          },
+        });
 
-      const data = await response.json();
+        if (signUpError) {
+          setError(signUpError.message);
+          setLoading(false);
+          return;
+        }
 
-      if (response.ok && data.success) {
-        onLoginSuccess(data.studentId);
+        if (data.user) {
+          if (data.session) {
+            setSuccessMessage("Account created successfully! Auto-logging you in...");
+            setTimeout(() => {
+              onLoginSuccess(rollNo.trim(), email);
+            }, 1500);
+          } else {
+            setSuccessMessage("Account created! Please check your email to verify your registration, then sign in.");
+            setLoading(false);
+          }
+        }
       } else {
-        setError(data.error || "Authentication failed. Try again.");
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password: password,
+        });
+
+        if (signInError) {
+          setError(signInError.message);
+          setLoading(false);
+          return;
+        }
+
+        if (data.user) {
+          const userRollNo = data.user.user_metadata?.roll_number || email.split("@")[0].toUpperCase();
+          onLoginSuccess(userRollNo, data.user.email);
+        }
       }
     } catch (err: any) {
-      setError("Unable to connect to the server. Please check your connection.");
-    } finally {
+      setError("Unable to connect to the authentication server. Please check your connection.");
       setLoading(false);
     }
   };
 
-  return (
-    <div id="login-page" className="relative min-h-[calc(100vh-140px)] flex items-center justify-center px-6 py-12">
-      {/* Background radial highlight */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 h-80 rounded-full bg-brand-primary/5 blur-[80px] pointer-events-none" />
 
+  return (
+    <div className="min-h-screen bg-[#050816] flex text-[#F8FAFC] font-sans selection:bg-brand-primary/30 overflow-y-auto lg:overflow-hidden relative">
+      {/* Left Panel (Desktop only) */}
       <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="w-full max-w-md bg-brand-card/75 border border-white/5 p-8 rounded-2xl shadow-2xl glass-panel relative"
+        initial={{ x: -40, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        transition={{ duration: 0.6, ease: [0.25, 0.1, 0.25, 1] }}
+        className="hidden lg:flex lg:w-[45%] bg-gradient-to-b from-[#090B14] to-[#050816] border-r border-white/[0.04] p-16 flex-col justify-between relative text-left"
       >
-        {/* Card Header */}
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 bg-brand-primary/10 rounded-xl flex items-center justify-center mx-auto mb-4 border border-brand-primary/20">
-            <Fingerprint className="w-6 h-6 text-brand-primary" />
+        {/* Logo */}
+        <div className="absolute top-12 left-12 flex items-center gap-3 select-none">
+          <div className="w-9 h-9 rounded-xl bg-linear-to-tr from-brand-accent to-brand-primary flex items-center justify-center shadow-lg">
+            <GraduationCap className="w-5 h-5 text-white" />
           </div>
-          <h2 className="text-2xl font-display font-bold text-white tracking-tight">Student Login</h2>
-          <p className="text-xs text-gray-400 font-mono mt-1.5 uppercase">University Mock Interview Gateway</p>
+          <span className="font-bold text-xl tracking-tight font-sans text-white uppercase">
+            Interview<span className="text-brand-primary font-medium">Coach</span>
+          </span>
         </div>
 
-        {/* Login Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="student-id-input" className="block text-xs font-mono tracking-wider text-gray-400 uppercase mb-2">
-              Student ID
-            </label>
-            <div className="relative">
-              <input
-                id="student-id-input"
-                type="text"
-                placeholder="e.g., STU-2026-8941"
-                value={studentId}
-                onChange={(e) => {
-                  setStudentId(e.target.value);
-                  setError(null);
-                }}
-                disabled={loading}
-                className="w-full bg-brand-bg border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder-gray-600 focus:outline-hidden focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/30 transition-all font-mono text-sm uppercase"
-              />
-            </div>
-            <p className="text-[10px] text-gray-500 font-mono mt-2 leading-relaxed">
-              * Enter any valid ID with at least 4 characters to construct your custom dashboard.
-            </p>
+        {/* Center Brand Content */}
+        <div className="my-auto flex flex-col gap-8 max-w-sm mt-32">
+          <div className="flex flex-col gap-3">
+            <span className="text-[12px] font-semibold text-[#3B82F6] tracking-[2px] uppercase font-mono">
+              AI-Powered Mock Gateway
+            </span>
+            <h1 className="text-5xl font-bold font-sans text-white tracking-tight leading-none">
+              Your interview.
+              <br />
+              <span className="text-[#94A3B8]">Perfected.</span>
+            </h1>
           </div>
 
-          {/* Feedback Messages */}
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -5 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="p-3 bg-red-950/25 border border-red-500/20 text-red-400 text-xs rounded-xl flex items-center"
-            >
-              <span>{error}</span>
-            </motion.div>
-          )}
+          <p className="text-[15px] leading-relaxed text-[#64748B] max-w-[340px] font-sans">
+            Upload your resume, verify your code projects via GitHub, and practice technical speech rounds in real-time.
+          </p>
 
-          {/* Action trigger */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-4 bg-linear-to-r from-brand-accent to-brand-primary text-brand-bg font-bold rounded-xl flex items-center justify-center space-x-2 neon-glow-btn hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer disabled:opacity-50 disabled:hover:shadow-none"
-            id="btn-login-submit"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                <span>Validating Session...</span>
-              </>
-            ) : (
-              <>
-                <span>Enter Portal</span>
-                <ArrowRight className="w-4 h-4 text-brand-bg" />
-              </>
-            )}
-          </button>
-        </form>
+          <ul className="flex flex-col gap-3">
+            {[
+              "Real-time audio speech simulator",
+              "Instant resume claim diagnostics",
+              "Automated scorecard & model answers"
+            ].map((item, idx) => (
+              <li key={idx} className="flex items-center gap-2.5 text-sm text-[#475569] font-sans">
+                <span className="w-5 h-5 rounded-full bg-[#3B82F6]/10 flex items-center justify-center flex-shrink-0">
+                  <Check className="w-3.5 h-3.5 text-[#3B82F6]" />
+                </span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
 
-        <div className="mt-8 pt-6 border-t border-white/5 text-center flex items-center justify-center space-x-2 text-xs text-gray-400">
-          <ShieldCheck className="w-4 h-4 text-emerald-500" />
-          <span>Active Session SSL Sandbox</span>
+        {/* Bottom Review */}
+        <div className="flex flex-col gap-2 mt-auto">
+          <div className="flex gap-0.5">
+            {[...Array(5)].map((_, i) => (
+              <Star key={i} className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
+            ))}
+          </div>
+          <p className="text-[14px] italic text-[#475569] leading-relaxed font-sans">
+            "The low-latency audio feedback felt exactly like mock interviewing with an elite lead tech recruiter."
+          </p>
+          <span className="text-xs font-semibold text-[#475569] uppercase tracking-wider font-mono">
+            — Alice Chen, B.Tech CSE, Stanford University
+          </span>
         </div>
       </motion.div>
+
+      {/* Right Panel (Form) */}
+      <div className="flex-1 flex items-center justify-center p-6 lg:p-16 relative">
+        {/* Glowing backdrop spheres */}
+        <div className="absolute top-1/4 right-1/4 w-80 h-80 rounded-full bg-accent-blue/5 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-1/4 left-1/4 w-80 h-80 rounded-full bg-accent-cyan/5 blur-[120px] pointer-events-none" />
+
+        {/* Login/Signup Container Card */}
+        <div className="w-full max-w-[420px] relative z-10 text-left">
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: {},
+              visible: {
+                transition: {
+                  staggerChildren: 0.08
+                }
+              }
+            }}
+            className="lg:bg-transparent bg-gradient-to-b from-[#090B14]/80 to-[#050816]/90 border border-white/[0.06] lg:border-none p-8 lg:p-0 rounded-[20px] backdrop-blur-xl lg:backdrop-blur-none"
+          >
+            {/* Mobile Header Only */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 15 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+              }}
+              className="lg:hidden flex items-center gap-3 mb-6 select-none"
+            >
+              <div className="w-8 h-8 rounded-xl bg-linear-to-tr from-brand-accent to-brand-primary flex items-center justify-center shadow-lg">
+                <GraduationCap className="w-4.5 h-4.5 text-white" />
+              </div>
+              <span className="font-bold text-lg tracking-tight font-sans text-white uppercase">
+                Interview<span className="text-brand-primary font-medium">Coach</span>
+              </span>
+            </motion.div>
+
+            {/* Main Header */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 15 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+              }}
+              className="flex flex-col mb-8"
+            >
+              <h2 className="text-3xl font-bold font-sans tracking-tight text-white">
+                {isSignUp ? "Create Student Account" : "Welcome back"}
+              </h2>
+              <p className="text-[15px] text-[#64748B] mt-1.5 font-sans">
+                {isSignUp ? "Register with your official college email" : "Sign in to your InterviewCoach gateway"}
+              </p>
+            </motion.div>
+
+            {/* Sliding Switch Tabs */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 15 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+              }}
+              className="mb-8"
+            >
+              <div className="bg-[#0B1120]/80 border border-white/[0.06] rounded-[10px] p-1 flex relative overflow-hidden">
+                {([false, true] as const).map((signupVal) => (
+                  <button
+                    key={signupVal ? "signup" : "login"}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => {
+                      setIsSignUp(signupVal);
+                      setError(null);
+                      setSuccessMessage(null);
+                    }}
+                    className={`flex-1 py-2 text-center text-sm font-medium font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 ${
+                      isSignUp === signupVal ? 'text-white' : 'text-[#64748B]'
+                    }`}
+                    data-interactive="true"
+                  >
+                    {signupVal ? 'Create Account' : 'Sign In'}
+                    {isSignUp === signupVal && (
+                      <motion.div
+                        layoutId="activeTabIndicator"
+                        className="absolute inset-0 bg-[#3B82F6]/15 border border-[#3B82F6]/30 rounded-[8px] -z-10"
+                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* Form Fields */}
+            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+              {/* Roll Number Input */}
+              {isSignUp && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <InputField
+                    label="Roll Number"
+                    type="text"
+                    placeholder="e.g. 24P31A1234"
+                    value={rollNo}
+                    onChange={(val) => {
+                      setRollNo(val);
+                      setError(null);
+                    }}
+                    disabled={loading}
+                    icon={Fingerprint}
+                    required
+                  />
+                </motion.div>
+              )}
+
+              {/* College Email Input */}
+              <motion.div
+                variants={{
+                  hidden: { opacity: 0, y: 15 },
+                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                }}
+              >
+                <InputField
+                  label="College Email Address"
+                  type="email"
+                  placeholder="student@university.edu"
+                  value={email}
+                  onChange={(val) => {
+                    setEmail(val);
+                    setError(null);
+                  }}
+                  disabled={loading}
+                  error={emailError}
+                  icon={Mail}
+                  required
+                />
+
+                {isSignUp && emailValid && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center space-x-1 mt-2 text-[11px] text-emerald-400 font-sans pl-1"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>College email verified.</span>
+                  </motion.div>
+                )}
+              </motion.div>
+
+              {/* Password Input */}
+              <motion.div
+                variants={{
+                  hidden: { opacity: 0, y: 15 },
+                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                }}
+              >
+                <InputField
+                  label="Password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(val) => {
+                    setPassword(val);
+                    setError(null);
+                  }}
+                  disabled={loading}
+                  icon={Lock}
+                  required
+                />
+              </motion.div>
+
+              {/* Dynamic Confirm Password Field */}
+              <AnimatePresence initial={false}>
+                {isSignUp && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <InputField
+                      label="Confirm Password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={confirmPassword}
+                      onChange={(val) => {
+                        setConfirmPassword(val);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      error={confirmPasswordError}
+                      icon={Lock}
+                      required
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {!isSignUp && (
+                <motion.p
+                  variants={{
+                    hidden: { opacity: 0 },
+                    visible: { opacity: 1 }
+                  }}
+                  className="text-[11px] text-gray-500 font-sans tracking-wide leading-relaxed pl-1"
+                >
+                  * Seeded demo accounts: <code className="text-brand-primary">24P31A1234</code> (email: student@university.edu, password: password123)
+                </motion.p>
+              )}
+
+              {/* Error messages */}
+              <AnimatePresence mode="wait">
+                {error && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.2 }}
+                    className="bg-red-500/8 border border-red-500/20 rounded-[8px] p-3 flex items-center gap-2.5 text-red-400 text-sm font-sans"
+                  >
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{error}</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Success messages */}
+              <AnimatePresence mode="wait">
+                {successMessage && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.2 }}
+                    className="bg-emerald-500/8 border border-emerald-500/20 rounded-[8px] p-3 flex items-center gap-2.5 text-emerald-400 text-sm font-sans"
+                  >
+                    <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400 animate-pulse" />
+                    <span>{successMessage}</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Submit trigger button */}
+              <motion.div
+                variants={{
+                  hidden: { opacity: 0, y: 15 },
+                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                }}
+                className="mt-2"
+              >
+                <Button
+                  type="submit"
+                  loading={loading}
+                  disabled={loading || (isSignUp && (!emailValid || confirmPassword !== password))}
+                  className="w-full h-12 rounded-[10px] text-sm font-bold bg-[#3B82F6] hover:bg-[#60A5FA]"
+                  data-interactive="true"
+                >
+                  {isSignUp ? "Register Account" : "Enter Portal"}
+                </Button>
+              </motion.div>
+            </form>
+          </motion.div>
+        </div>
+      </div>
     </div>
   );
 }
