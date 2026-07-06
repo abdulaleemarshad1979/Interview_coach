@@ -1,0 +1,6 @@
+{
+  "name": "Interview Coach",
+  "description": "An AI-powered mock interview platform for college students that grades technical depth, communication, and confidence using Gemini.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
