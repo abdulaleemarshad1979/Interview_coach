@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   Users,
@@ -208,7 +208,10 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
       try {
         const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-        const socket = new WebSocket(`${protocol}://${window.location.host}/ws/gd-room`);
+        // If served from Vite dev server (e.g., port 5173), direct the WebSocket to the backend port 3000
+        const isViteDev = window.location.port && window.location.port !== "3000" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+        const host = isViteDev ? `${window.location.hostname}:3000` : window.location.host;
+        const socket = new WebSocket(`${protocol}://${host}/ws/gd-room`);
         socketRef.current = socket;
 
         socket.onopen = () => {
