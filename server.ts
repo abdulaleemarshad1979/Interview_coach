@@ -845,20 +845,117 @@ async function evaluateDiscussionRoom(room: GDRoom) {
   }
 }
 
+// --- Supabase Persistence Helpers for Group Discussion Rooms ---
+
+async function dbGetRoom(code: string): Promise<GDRoom | null> {
+  const supabase = getSupabaseClient();
+  let room: GDRoom | null = null;
+
+  if (!supabase) {
+    room = gdRooms.get(code) || null;
+  } else {
+    try {
+      const { data, error } = await supabase
+        .from("group_discussion_rooms")
+        .select("*")
+        .eq("code", code)
+        .single();
+      if (!error && data) {
+        room = {
+          code: data.code,
+          topic: data.topic,
+          participants: data.participants || [],
+          dialogue: data.dialogue || [],
+          createdAt: Number(data.created_at),
+          startedAt: data.started_at ? Number(data.started_at) : undefined,
+          evaluation: data.evaluation || undefined,
+        };
+      }
+    } catch (err) {
+      console.error("DB Get Room failed:", err);
+    }
+  }
+
+  if (!room) return null;
+
+  // Restore active WebSocket references from the in-memory cache
+  const localRoom = gdRooms.get(code);
+  if (localRoom) {
+    room.participants.forEach((p) => {
+      const localP = localRoom.participants.find((lp) => lp.id === p.id);
+      if (localP && localP.socket) {
+        p.socket = localP.socket;
+      }
+    });
+  }
+  return room;
+}
+
+async function dbSaveRoom(room: GDRoom): Promise<void> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    gdRooms.set(room.code, room);
+    return;
+  }
+  try {
+    const payload = {
+      code: room.code,
+      topic: room.topic,
+      participants: room.participants.map((p) => ({
+        id: p.id,
+        name: p.name,
+        roll: p.roll,
+        isHost: p.isHost,
+        joinedAt: p.joinedAt,
+      })),
+      dialogue: room.dialogue,
+      created_at: room.createdAt,
+      started_at: room.startedAt || null,
+      evaluation: room.evaluation || null,
+    };
+
+    const { error } = await supabase
+      .from("group_discussion_rooms")
+      .upsert(payload, { onConflict: "code" });
+    if (error) {
+      console.error("DB Save Room upsert error:", error);
+    }
+  } catch (err) {
+    console.error("DB Save Room failed:", err);
+  }
+  // Keep local in-memory Map as a backup cache
+  gdRooms.set(room.code, room);
+}
+
+async function dbDeleteRoom(code: string): Promise<void> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    gdRooms.delete(code);
+    return;
+  }
+  try {
+    await supabase.from("group_discussion_rooms").delete().eq("code", code);
+  } catch (err) {
+    console.error("DB Delete Room failed:", err);
+  }
+  gdRooms.delete(code);
+}
+
+
 const gdWss = new WebSocketServer({ noServer: true });
 
 gdWss.on("connection", async (ws: WebSocket, request: any) => {
   let currentRoomCode: string | null = null;
   let participantId: string | null = null;
 
-  const removeParticipantFromRoom = () => {
+  const removeParticipantFromRoom = async () => {
     if (!currentRoomCode || !participantId) return;
-    const room = gdRooms.get(currentRoomCode);
+    const room = await dbGetRoom(currentRoomCode);
     if (!room) return;
 
     room.participants = room.participants.filter((p) => p.id !== participantId);
     if (room.participants.length === 0) {
-      gdRooms.delete(currentRoomCode);
+      await dbDeleteRoom(currentRoomCode);
       return;
     }
 
@@ -867,6 +964,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
       room.participants[0].isHost = true;
     }
 
+    await dbSaveRoom(room);
     broadcastRoom(room, createRoomStatePayload(room));
   };
 
@@ -888,7 +986,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
           }
 
           let code = requestedCode || generateRoomCode();
-          while (gdRooms.has(code)) {
+          while (gdRooms.has(code) || (await dbGetRoom(code)) !== null) {
             code = generateRoomCode();
           }
 
@@ -909,7 +1007,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
             createdAt: Date.now(),
           };
 
-          gdRooms.set(code, room);
+          await dbSaveRoom(room);
           currentRoomCode = code;
           participantId = participant.id;
 
@@ -923,7 +1021,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
           return;
         }
 
-        const room = gdRooms.get(requestedCode);
+        const room = await dbGetRoom(requestedCode);
         if (!room) {
           ws.send(JSON.stringify({ type: "error", message: `Room ${requestedCode} does not exist.` }));
           return;
@@ -938,10 +1036,24 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
           socket: ws,
         };
 
+        // Cache socket reference locally so dbGetRoom can link active sockets
+        let localRoom = gdRooms.get(requestedCode);
+        if (!localRoom) {
+          localRoom = { ...room };
+          gdRooms.set(requestedCode, localRoom);
+        }
+        const localP = localRoom.participants.find((p) => p.id === participant.id);
+        if (localP) {
+          localP.socket = ws;
+        } else {
+          localRoom.participants.push({ ...participant, socket: ws });
+        }
+
         room.participants.push(participant);
         currentRoomCode = requestedCode;
         participantId = participant.id;
 
+        await dbSaveRoom(room);
         ws.send(JSON.stringify({ type: "joined_room", roomCode: requestedCode, isHost: false }));
         broadcastRoom(room, createRoomStatePayload(room));
         return;
@@ -952,7 +1064,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
         return;
       }
 
-      const room = gdRooms.get(currentRoomCode);
+      const room = await dbGetRoom(currentRoomCode);
       if (!room) {
         ws.send(JSON.stringify({ type: "error", message: "Room no longer exists." }));
         return;
@@ -971,6 +1083,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
         }
 
         room.startedAt = Date.now();
+        await dbSaveRoom(room);
         broadcastRoom(room, { type: "discussion_started", roomCode: room.code, startedAt: room.startedAt });
         broadcastRoom(room, createRoomStatePayload(room));
         return;
@@ -993,6 +1106,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
         };
 
         room.dialogue.push(turn);
+        await dbSaveRoom(room);
         broadcastRoom(room, { type: "new_turn", turn });
         return;
       }
@@ -1004,12 +1118,14 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
         }
 
         const evaluation = await evaluateDiscussionRoom(room);
+        room.evaluation = evaluation;
+        await dbSaveRoom(room);
         broadcastRoom(room, { type: "evaluation_result", evaluation });
         return;
       }
 
       if (message.type === "leave_room") {
-        removeParticipantFromRoom();
+        await removeParticipantFromRoom();
         ws.close();
         return;
       }
@@ -1032,7 +1148,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
 
 // --- Group Discussion HTTP Fallback Routes for Serverless Environments (Vercel) ---
 
-app.post("/api/gd-room/join", (req, res) => {
+app.post("/api/gd-room/join", async (req, res) => {
   try {
     const { name: rawName, roll: rawRoll, roomCode: rawCode, createNew, topic: rawTopic } = req.body;
     const name = String(rawName || "Guest").trim() || "Guest";
@@ -1046,7 +1162,7 @@ app.post("/api/gd-room/join", (req, res) => {
       }
 
       let code = requestedCode || generateRoomCode();
-      while (gdRooms.has(code)) {
+      while (gdRooms.has(code) || (await dbGetRoom(code)) !== null) {
         code = generateRoomCode();
       }
 
@@ -1066,14 +1182,14 @@ app.post("/api/gd-room/join", (req, res) => {
         createdAt: Date.now(),
       };
 
-      gdRooms.set(code, room);
+      await dbSaveRoom(room);
       return res.json({ success: true, roomCode: code, participantId: participant.id, isHost: true });
     } else {
       if (!requestedCode) {
         return res.status(400).json({ error: "Room code is required to join an existing discussion." });
       }
 
-      const room = gdRooms.get(requestedCode);
+      const room = await dbGetRoom(requestedCode);
       if (!room) {
         return res.status(404).json({ error: `Room ${requestedCode} does not exist.` });
       }
@@ -1087,6 +1203,7 @@ app.post("/api/gd-room/join", (req, res) => {
       };
 
       room.participants.push(participant);
+      await dbSaveRoom(room);
       broadcastRoom(room, createRoomStatePayload(room));
       return res.json({ success: true, roomCode: requestedCode, participantId: participant.id, isHost: false });
     }
@@ -1096,7 +1213,7 @@ app.post("/api/gd-room/join", (req, res) => {
   }
 });
 
-app.get("/api/gd-room/state", (req, res) => {
+app.get("/api/gd-room/state", async (req, res) => {
   try {
     const roomCode = sanitizeRoomCode(String(req.query.roomCode || ""));
     const participantId = String(req.query.participantId || "");
@@ -1105,7 +1222,7 @@ app.get("/api/gd-room/state", (req, res) => {
       return res.status(400).json({ error: "Missing roomCode or participantId." });
     }
 
-    const room = gdRooms.get(roomCode);
+    const room = await dbGetRoom(roomCode);
     if (!room) {
       return res.status(404).json({ error: "Room no longer exists." });
     }
@@ -1122,10 +1239,10 @@ app.get("/api/gd-room/state", (req, res) => {
   }
 });
 
-app.post("/api/gd-room/start", (req, res) => {
+app.post("/api/gd-room/start", async (req, res) => {
   try {
     const { roomCode, participantId } = req.body;
-    const room = gdRooms.get(sanitizeRoomCode(roomCode));
+    const room = await dbGetRoom(sanitizeRoomCode(roomCode));
     if (!room) return res.status(404).json({ error: "Room not found." });
 
     const participant = room.participants.find((p) => p.id === participantId);
@@ -1134,6 +1251,7 @@ app.post("/api/gd-room/start", (req, res) => {
     }
 
     room.startedAt = Date.now();
+    await dbSaveRoom(room);
     broadcastRoom(room, { type: "discussion_started", roomCode: room.code, startedAt: room.startedAt });
     broadcastRoom(room, createRoomStatePayload(room));
     res.json({ success: true });
@@ -1143,13 +1261,13 @@ app.post("/api/gd-room/start", (req, res) => {
   }
 });
 
-app.post("/api/gd-room/submit-turn", (req, res) => {
+app.post("/api/gd-room/submit-turn", async (req, res) => {
   try {
     const { roomCode, participantId, text: rawText } = req.body;
     const text = String(rawText || "").trim();
     if (!text) return res.status(400).json({ error: "Cannot submit an empty turn." });
 
-    const room = gdRooms.get(sanitizeRoomCode(roomCode));
+    const room = await dbGetRoom(sanitizeRoomCode(roomCode));
     if (!room) return res.status(404).json({ error: "Room not found." });
 
     const participant = room.participants.find((p) => p.id === participantId);
@@ -1165,6 +1283,7 @@ app.post("/api/gd-room/submit-turn", (req, res) => {
     };
 
     room.dialogue.push(turn);
+    await dbSaveRoom(room);
     broadcastRoom(room, { type: "new_turn", turn });
     res.json({ success: true });
   } catch (err: any) {
@@ -1176,7 +1295,7 @@ app.post("/api/gd-room/submit-turn", (req, res) => {
 app.post("/api/gd-room/end", async (req, res) => {
   try {
     const { roomCode, participantId } = req.body;
-    const room = gdRooms.get(sanitizeRoomCode(roomCode));
+    const room = await dbGetRoom(sanitizeRoomCode(roomCode));
     if (!room) return res.status(404).json({ error: "Room not found." });
 
     const participant = room.participants.find((p) => p.id === participantId);
@@ -1186,6 +1305,7 @@ app.post("/api/gd-room/end", async (req, res) => {
 
     const evaluation = await evaluateDiscussionRoom(room);
     room.evaluation = evaluation;
+    await dbSaveRoom(room);
     broadcastRoom(room, { type: "evaluation_result", evaluation });
     res.json({ success: true, evaluation });
   } catch (err: any) {
@@ -1194,21 +1314,22 @@ app.post("/api/gd-room/end", async (req, res) => {
   }
 });
 
-app.post("/api/gd-room/leave", (req, res) => {
+app.post("/api/gd-room/leave", async (req, res) => {
   try {
     const { roomCode, participantId } = req.body;
     if (!roomCode || !participantId) return res.status(400).json({ error: "Missing parameters." });
 
-    const room = gdRooms.get(sanitizeRoomCode(roomCode));
+    const room = await dbGetRoom(sanitizeRoomCode(roomCode));
     if (room) {
       room.participants = room.participants.filter((p) => p.id !== participantId);
       if (room.participants.length === 0) {
-        gdRooms.delete(roomCode);
+        await dbDeleteRoom(roomCode);
       } else {
         const hostStillPresent = room.participants.some((p) => p.isHost);
         if (!hostStillPresent) {
           room.participants[0].isHost = true;
         }
+        await dbSaveRoom(room);
         broadcastRoom(room, createRoomStatePayload(room));
       }
     }
