@@ -1070,17 +1070,36 @@ wss.on("connection", async (ws: WebSocket) => {
 });
 
 
+let viteInstance: any = null;
+
 // Handle WebSocket upgrades
 server.on("upgrade", (request, socket, head) => {
-  const pathname = new URL(request.url || "", `http://${request.headers.host}`).pathname;
-  if (pathname === "/ws/interview") {
+  let pathname = "/";
+  try {
+    // Avoid crashing on invalid header hostnames by using localhost as a parsing base URL
+    pathname = new URL(request.url || "", "http://localhost").pathname;
+  } catch (e) {
+    console.error("Failed to parse upgrade URL:", e);
+  }
+
+  const cleanPath = pathname.replace(/\/$/, "");
+
+  if (cleanPath === "/ws/interview") {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit("connection", ws, request);
     });
-  } else if (pathname === "/ws/gd-room") {
+  } else if (cleanPath === "/ws/gd-room") {
     gdWss.handleUpgrade(request, socket, head, (ws) => {
       gdWss.emit("connection", ws, request);
     });
+  } else if (viteInstance) {
+    // Forward standard HMR and developer-specific websocket handshakes to the Vite dev server
+    try {
+      viteInstance.ws.handleUpgrade(request, socket, head);
+    } catch (e) {
+      console.error("Vite WS upgrade processing failed:", e);
+      socket.destroy();
+    }
   } else {
     socket.destroy();
   }
@@ -1095,6 +1114,7 @@ async function initServer() {
       server: { middlewareMode: true },
       appType: "spa",
     });
+    viteInstance = vite;
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");

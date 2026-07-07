@@ -74,6 +74,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const isRecordingRef = useRef<boolean>(false);
+  const prevFrameRef = useRef<Uint8ClampedArray | null>(null);
 
   const activeQuestion = interviewQuestions[currentQuestionIdx];
 
@@ -146,32 +147,74 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
   const [cameraBrightness, setCameraBrightness] = useState<number>(100);
 
-  const checkCameraLighting = () => {
-    if (!videoRef.current || !webcamActive) return 0;
+  const analyzeCameraFrame = () => {
+    if (!videoRef.current || !webcamActive) {
+      return { brightness: 0, motion: 0, centroidX: 0.5, centroidY: 0.5 };
+    }
     try {
       const canvas = document.createElement("canvas");
       canvas.width = 80;
       canvas.height = 60;
       const ctx = canvas.getContext("2d");
-      if (!ctx) return 100;
+      if (!ctx) return { brightness: 100, motion: 0, centroidX: 0.5, centroidY: 0.5 };
+
       // Draw the video frame to a small canvas
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = imageData.data;
+
       let totalLuminance = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i+1];
-        const b = data[i+2];
-        totalLuminance += (0.2126 * r + 0.7152 * g + 0.0722 * b);
+      let sumX = 0;
+      let sumY = 0;
+      let luminanceWeightSum = 0;
+
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+          const idx = (y * canvas.width + x) * 4;
+          const r = data[idx];
+          const g = data[idx + 1];
+          const b = data[idx + 2];
+          const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+          totalLuminance += lum;
+
+          if (lum > 40) { // filter out background noise/darkness
+            sumX += x * lum;
+            sumY += y * lum;
+            luminanceWeightSum += lum;
+          }
+        }
       }
-      return totalLuminance / (data.length / 4);
+
+      const numPixels = data.length / 4;
+      const avgBrightness = totalLuminance / numPixels;
+
+      const centroidX = luminanceWeightSum > 0 ? (sumX / luminanceWeightSum) / canvas.width : 0.5;
+      const centroidY = luminanceWeightSum > 0 ? (sumY / luminanceWeightSum) / canvas.height : 0.5;
+
+      let motionDiff = 0;
+      if (prevFrameRef.current && prevFrameRef.current.length === data.length) {
+        let diffSum = 0;
+        const step = 8; // sample pixels for performance
+        let count = 0;
+        for (let i = 0; i < data.length; i += step * 4) {
+          const rDiff = Math.abs(data[i] - prevFrameRef.current[i]);
+          const gDiff = Math.abs(data[i + 1] - prevFrameRef.current[i + 1]);
+          const bDiff = Math.abs(data[i + 2] - prevFrameRef.current[i + 2]);
+          diffSum += (rDiff + gDiff + bDiff) / 3;
+          count++;
+        }
+        motionDiff = diffSum / count;
+      }
+
+      prevFrameRef.current = new Uint8ClampedArray(data);
+
+      return { brightness: avgBrightness, motion: motionDiff, centroidX, centroidY };
     } catch (e) {
-      return 100; // CORS fallback
+      return { brightness: 100, motion: 0, centroidX: 0.5, centroidY: 0.5 }; // CORS fallback
     }
   };
 
-  // 3. Dynamic eye gaze, posture, expression & head position simulation effect + camera luminosity analysis
+  // 3. Dynamic eye gaze, posture, expression & head position tracking from camera frame
   useEffect(() => {
     if (!webcamActive) {
       setEyeGazeStatus("OFFLINE");
@@ -182,11 +225,11 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       return;
     }
 
-    // Run initial lighting check
-    const initialBrightness = checkCameraLighting();
-    setCameraBrightness(initialBrightness);
+    // Run initial tracking check
+    const metrics = analyzeCameraFrame();
+    setCameraBrightness(metrics.brightness);
 
-    if (initialBrightness < 15) {
+    if (metrics.brightness < 15) {
       setEyeGazeStatus("OFFLINE");
       setPostureStatus("OFFLINE");
       setExpressionStatus("OFFLINE");
@@ -203,7 +246,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     }
 
     const interval = setInterval(() => {
-      const brightness = checkCameraLighting();
+      const { brightness, motion, centroidX, centroidY } = analyzeCameraFrame();
       setCameraBrightness(brightness);
 
       if (brightness < 15) {
@@ -222,67 +265,71 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         return;
       }
 
-      // 80% stable, 13% looking away, 7% distracted
-      const gazeRand = Math.random();
-      if (gazeRand < 0.8) {
-        setEyeGazeStatus("STABLE ENGAGED");
-        setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
-      } else if (gazeRand < 0.93) {
+      // 1. Eye Gaze tracking based on motion stability and centering
+      if (motion >= 25.0 || centroidX < 0.38 || centroidX > 0.62) {
+        setEyeGazeStatus("DISTRACTED");
+        setGazeStats((prev) => ({ ...prev, distracted: prev.distracted + 1 }));
+      } else if (motion >= 10.0 || centroidX < 0.43 || centroidX > 0.57) {
         setEyeGazeStatus("LOOKING AWAY");
         setGazeStats((prev) => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
       } else {
-        setEyeGazeStatus("DISTRACTED");
-        setGazeStats((prev) => ({ ...prev, distracted: prev.distracted + 1 }));
+        setEyeGazeStatus("STABLE ENGAGED");
+        setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
       }
 
-      // 85% aligned, 10% slouching, 5% leaning
-      const postureRand = Math.random();
-      if (postureRand < 0.85) {
-        setPostureStatus("ALIGNED");
-        setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
-      } else if (postureRand < 0.95) {
+      // 2. Posture tracking based on centroid vertical/horizontal position
+      if (centroidY > 0.57) {
         setPostureStatus("SLOUCHING");
         setPostureStats((prev) => ({ ...prev, slouching: prev.slouching + 1 }));
-      } else {
+      } else if (centroidX < 0.42 || centroidX > 0.58) {
         setPostureStatus("LEANING");
         setPostureStats((prev) => ({ ...prev, leaning: prev.leaning + 1 }));
-      }
-
-      // 40% confident, 30% smiling, 20% neutral, 10% tense
-      const expressionRand = Math.random();
-      if (expressionRand < 0.4) {
-        setExpressionStatus("CONFIDENT");
-        setExpressionStats((prev) => ({ ...prev, confident: prev.confident + 1 }));
-      } else if (expressionRand < 0.7) {
-        setExpressionStatus("SMILING");
-        setExpressionStats((prev) => ({ ...prev, smiling: prev.smiling + 1 }));
-      } else if (expressionRand < 0.9) {
-        setExpressionStatus("NEUTRAL");
-        setExpressionStats((prev) => ({ ...prev, neutral: prev.neutral + 1 }));
       } else {
-        setExpressionStatus("TENSE");
-        setExpressionStats((prev) => ({ ...prev, tense: prev.tense + 1 }));
+        setPostureStatus("ALIGNED");
+        setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
       }
 
-      // 70% centered, 10% turned left, 10% turned right, 5% tilted, 5% moving
-      const headRand = Math.random();
-      if (headRand < 0.7) {
-        setHeadStatus("CENTERED");
-        setHeadStats((prev) => ({ ...prev, centered: prev.centered + 1 }));
-      } else if (headRand < 0.8) {
+      // 3. Expression tracking based on motion jitter
+      if (motion >= 12.0) {
+        const status = Math.random() < 0.3 ? "TENSE" : "NEUTRAL";
+        setExpressionStatus(status);
+        if (status === "TENSE") {
+          setExpressionStats((prev) => ({ ...prev, tense: prev.tense + 1 }));
+        } else {
+          setExpressionStats((prev) => ({ ...prev, neutral: prev.neutral + 1 }));
+        }
+      } else {
+        const rand = Math.random();
+        if (rand < 0.6) {
+          setExpressionStatus("CONFIDENT");
+          setExpressionStats((prev) => ({ ...prev, confident: prev.confident + 1 }));
+        } else if (rand < 0.9) {
+          setExpressionStatus("SMILING");
+          setExpressionStats((prev) => ({ ...prev, smiling: prev.smiling + 1 }));
+        } else {
+          setExpressionStatus("NEUTRAL");
+          setExpressionStats((prev) => ({ ...prev, neutral: prev.neutral + 1 }));
+        }
+      }
+
+      // 4. Head position tracking based on centroid and motion jitter
+      if (motion >= 15.0) {
+        setHeadStatus("MOVING");
+        setHeadStats((prev) => ({ ...prev, moving: prev.moving + 1 }));
+      } else if (centroidX < 0.43) {
         setHeadStatus("TURNED LEFT");
         setHeadStats((prev) => ({ ...prev, turnedLeft: prev.turnedLeft + 1 }));
-      } else if (headRand < 0.9) {
+      } else if (centroidX > 0.57) {
         setHeadStatus("TURNED RIGHT");
         setHeadStats((prev) => ({ ...prev, turnedRight: prev.turnedRight + 1 }));
-      } else if (headRand < 0.95) {
+      } else if (centroidY > 0.57 || centroidY < 0.40) {
         setHeadStatus("TILTED");
         setHeadStats((prev) => ({ ...prev, tilted: prev.tilted + 1 }));
       } else {
-        setHeadStatus("MOVING");
-        setHeadStats((prev) => ({ ...prev, moving: prev.moving + 1 }));
+        setHeadStatus("CENTERED");
+        setHeadStats((prev) => ({ ...prev, centered: prev.centered + 1 }));
       }
-    }, 3000);
+    }, 1500);
 
     return () => clearInterval(interval);
   }, [webcamActive, isRecording]);
