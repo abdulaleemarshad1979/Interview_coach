@@ -697,7 +697,7 @@ interface GDParticipant {
   roll: string;
   isHost: boolean;
   joinedAt: number;
-  socket: WebSocket;
+  socket?: WebSocket;
 }
 
 interface GDTurn {
@@ -716,6 +716,7 @@ interface GDRoom {
   dialogue: GDTurn[];
   createdAt: number;
   startedAt?: number;
+  evaluation?: any;
 }
 
 const gdRooms = new Map<string, GDRoom>();
@@ -734,6 +735,7 @@ function createRoomStatePayload(room: GDRoom) {
     roomCode: room.code,
     topic: room.topic,
     startedAt: room.startedAt || null,
+    evaluation: room.evaluation || null,
     participants: room.participants.map((p) => ({
       id: p.id,
       name: p.name,
@@ -756,10 +758,12 @@ function createRoomStatePayload(room: GDRoom) {
 function broadcastRoom(room: GDRoom, payload: any) {
   const payloadText = JSON.stringify(payload);
   room.participants.forEach((participant) => {
-    try {
-      participant.socket.send(payloadText);
-    } catch (err) {
-      console.warn("Broadcast to participant failed", participant.id, err);
+    if (participant.socket) {
+      try {
+        participant.socket.send(payloadText);
+      } catch (err) {
+        console.warn("Broadcast to participant failed", participant.id, err);
+      }
     }
   });
 }
@@ -1024,6 +1028,197 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
     removeParticipantFromRoom();
   });
 });
+
+
+// --- Group Discussion HTTP Fallback Routes for Serverless Environments (Vercel) ---
+
+app.post("/api/gd-room/join", (req, res) => {
+  try {
+    const { name: rawName, roll: rawRoll, roomCode: rawCode, createNew, topic: rawTopic } = req.body;
+    const name = String(rawName || "Guest").trim() || "Guest";
+    const roll = String(rawRoll || "").trim();
+    const requestedCode = sanitizeRoomCode(String(rawCode || ""));
+    const topic = String(rawTopic || "").trim();
+
+    if (createNew) {
+      if (!topic) {
+        return res.status(400).json({ error: "A topic is required to create a new room." });
+      }
+
+      let code = requestedCode || generateRoomCode();
+      while (gdRooms.has(code)) {
+        code = generateRoomCode();
+      }
+
+      const participant: GDParticipant = {
+        id: `p_${Math.random().toString(36).slice(2, 10)}`,
+        name,
+        roll,
+        isHost: true,
+        joinedAt: Date.now(),
+      };
+
+      const room: GDRoom = {
+        code,
+        topic,
+        participants: [participant],
+        dialogue: [],
+        createdAt: Date.now(),
+      };
+
+      gdRooms.set(code, room);
+      return res.json({ success: true, roomCode: code, participantId: participant.id, isHost: true });
+    } else {
+      if (!requestedCode) {
+        return res.status(400).json({ error: "Room code is required to join an existing discussion." });
+      }
+
+      const room = gdRooms.get(requestedCode);
+      if (!room) {
+        return res.status(404).json({ error: `Room ${requestedCode} does not exist.` });
+      }
+
+      const participant: GDParticipant = {
+        id: `p_${Math.random().toString(36).slice(2, 10)}`,
+        name,
+        roll,
+        isHost: false,
+        joinedAt: Date.now(),
+      };
+
+      room.participants.push(participant);
+      broadcastRoom(room, createRoomStatePayload(room));
+      return res.json({ success: true, roomCode: requestedCode, participantId: participant.id, isHost: false });
+    }
+  } catch (err: any) {
+    console.error("GD Join HTTP Error:", err);
+    res.status(500).json({ error: "Failed to join room." });
+  }
+});
+
+app.get("/api/gd-room/state", (req, res) => {
+  try {
+    const roomCode = sanitizeRoomCode(String(req.query.roomCode || ""));
+    const participantId = String(req.query.participantId || "");
+
+    if (!roomCode || !participantId) {
+      return res.status(400).json({ error: "Missing roomCode or participantId." });
+    }
+
+    const room = gdRooms.get(roomCode);
+    if (!room) {
+      return res.status(404).json({ error: "Room no longer exists." });
+    }
+
+    const participant = room.participants.find((p) => p.id === participantId);
+    if (!participant) {
+      return res.status(403).json({ error: "Participant not found in room." });
+    }
+
+    res.json(createRoomStatePayload(room));
+  } catch (err: any) {
+    console.error("GD State HTTP Error:", err);
+    res.status(500).json({ error: "Failed to get room state." });
+  }
+});
+
+app.post("/api/gd-room/start", (req, res) => {
+  try {
+    const { roomCode, participantId } = req.body;
+    const room = gdRooms.get(sanitizeRoomCode(roomCode));
+    if (!room) return res.status(404).json({ error: "Room not found." });
+
+    const participant = room.participants.find((p) => p.id === participantId);
+    if (!participant || !participant.isHost) {
+      return res.status(403).json({ error: "Only the host can start the discussion." });
+    }
+
+    room.startedAt = Date.now();
+    broadcastRoom(room, { type: "discussion_started", roomCode: room.code, startedAt: room.startedAt });
+    broadcastRoom(room, createRoomStatePayload(room));
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("GD Start HTTP Error:", err);
+    res.status(500).json({ error: "Failed to start discussion." });
+  }
+});
+
+app.post("/api/gd-room/submit-turn", (req, res) => {
+  try {
+    const { roomCode, participantId, text: rawText } = req.body;
+    const text = String(rawText || "").trim();
+    if (!text) return res.status(400).json({ error: "Cannot submit an empty turn." });
+
+    const room = gdRooms.get(sanitizeRoomCode(roomCode));
+    if (!room) return res.status(404).json({ error: "Room not found." });
+
+    const participant = room.participants.find((p) => p.id === participantId);
+    if (!participant) return res.status(403).json({ error: "Participant not found in room." });
+
+    const turn: GDTurn = {
+      id: `turn_${Math.random().toString(36).slice(2, 10)}`,
+      speakerId: participant.id,
+      speakerName: participant.name,
+      speakerRoll: participant.roll,
+      text,
+      timestamp: Date.now(),
+    };
+
+    room.dialogue.push(turn);
+    broadcastRoom(room, { type: "new_turn", turn });
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("GD Submit Turn HTTP Error:", err);
+    res.status(500).json({ error: "Failed to submit turn." });
+  }
+});
+
+app.post("/api/gd-room/end", async (req, res) => {
+  try {
+    const { roomCode, participantId } = req.body;
+    const room = gdRooms.get(sanitizeRoomCode(roomCode));
+    if (!room) return res.status(404).json({ error: "Room not found." });
+
+    const participant = room.participants.find((p) => p.id === participantId);
+    if (!participant || !participant.isHost) {
+      return res.status(403).json({ error: "Only the host can end the discussion." });
+    }
+
+    const evaluation = await evaluateDiscussionRoom(room);
+    room.evaluation = evaluation;
+    broadcastRoom(room, { type: "evaluation_result", evaluation });
+    res.json({ success: true, evaluation });
+  } catch (err: any) {
+    console.error("GD End HTTP Error:", err);
+    res.status(500).json({ error: "Failed to end discussion." });
+  }
+});
+
+app.post("/api/gd-room/leave", (req, res) => {
+  try {
+    const { roomCode, participantId } = req.body;
+    if (!roomCode || !participantId) return res.status(400).json({ error: "Missing parameters." });
+
+    const room = gdRooms.get(sanitizeRoomCode(roomCode));
+    if (room) {
+      room.participants = room.participants.filter((p) => p.id !== participantId);
+      if (room.participants.length === 0) {
+        gdRooms.delete(roomCode);
+      } else {
+        const hostStillPresent = room.participants.some((p) => p.isHost);
+        if (!hostStillPresent) {
+          room.participants[0].isHost = true;
+        }
+        broadcastRoom(room, createRoomStatePayload(room));
+      }
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("GD Leave HTTP Error:", err);
+    res.status(500).json({ error: "Failed to process leave." });
+  }
+});
+
 
 // 6. WebSocket Server Setup for Groq Fallback gateway
 // Standard Serverless environments like Vercel do not support WebSockets, but we retain it
