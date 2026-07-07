@@ -20,27 +20,8 @@ export default function App() {
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
 
-  // Load state from local storage on bootstrap + listen to Supabase Auth Changes
+  // Listen to Supabase Auth Changes on boot
   useEffect(() => {
-    // Load local cache items if they exist
-    try {
-      const storedAnalysis = localStorage.getItem("analysisResult");
-      const storedQuestions = localStorage.getItem("interviewQuestions");
-      const storedScorecard = localStorage.getItem("scorecard");
-
-      if (storedAnalysis) {
-        setAnalysisResult(JSON.parse(storedAnalysis));
-      }
-      if (storedQuestions) {
-        setInterviewQuestions(JSON.parse(storedQuestions));
-      }
-      if (storedScorecard) {
-        setScorecard(JSON.parse(storedScorecard));
-      }
-    } catch (e) {
-      console.error("Failed to parse local storage cache", e);
-    }
-
     // Check current Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session && session.user) {
@@ -77,6 +58,45 @@ export default function App() {
     };
   }, []);
 
+  // Sync user-specific data from local storage when student profile changes
+  useEffect(() => {
+    if (studentProfile) {
+      const studentId = studentProfile.studentId;
+      try {
+        const storedAnalysis = localStorage.getItem(`analysisResult_${studentId}`) || localStorage.getItem("analysisResult");
+        const storedQuestions = localStorage.getItem(`interviewQuestions_${studentId}`) || localStorage.getItem("interviewQuestions");
+        const storedScorecard = localStorage.getItem(`scorecard_${studentId}`) || localStorage.getItem("scorecard");
+
+        if (storedAnalysis) {
+          setAnalysisResult(JSON.parse(storedAnalysis));
+          localStorage.setItem(`analysisResult_${studentId}`, storedAnalysis);
+        } else {
+          setAnalysisResult(null);
+        }
+
+        if (storedQuestions) {
+          setInterviewQuestions(JSON.parse(storedQuestions));
+          localStorage.setItem(`interviewQuestions_${studentId}`, storedQuestions);
+        } else {
+          setInterviewQuestions([]);
+        }
+
+        if (storedScorecard) {
+          setScorecard(JSON.parse(storedScorecard));
+          localStorage.setItem(`scorecard_${studentId}`, storedScorecard);
+        } else {
+          setScorecard(null);
+        }
+      } catch (e) {
+        console.error("Failed to parse local storage cache for user", studentId, e);
+      }
+    } else {
+      setAnalysisResult(null);
+      setInterviewQuestions([]);
+      setScorecard(null);
+    }
+  }, [studentProfile]);
+
   // Login Success Event
   const handleLoginSuccess = (studentId: string, email?: string) => {
     const profile: StudentProfile = { studentId };
@@ -93,7 +113,7 @@ export default function App() {
     setInterviewQuestions([]);
     setScorecard(null);
 
-    // Clear cache
+    // Clear generic cache only
     localStorage.removeItem("studentProfile");
     localStorage.removeItem("analysisResult");
     localStorage.removeItem("interviewQuestions");
@@ -107,6 +127,9 @@ export default function App() {
   const handleAnalysisSuccess = async (result: FullAnalysisResult, githubUser: string, fileName: string) => {
     setAnalysisResult(result);
     localStorage.setItem("analysisResult", JSON.stringify(result));
+    if (studentProfile) {
+      localStorage.setItem(`analysisResult_${studentProfile.studentId}`, JSON.stringify(result));
+    }
 
     if (studentProfile) {
       const updatedProfile: StudentProfile = {
@@ -134,12 +157,18 @@ export default function App() {
   const handleQuestionsGenerated = (questions: InterviewQuestion[]) => {
     setInterviewQuestions(questions);
     localStorage.setItem("interviewQuestions", JSON.stringify(questions));
+    if (studentProfile) {
+      localStorage.setItem(`interviewQuestions_${studentProfile.studentId}`, JSON.stringify(questions));
+    }
   };
 
   // Scorecard completed callback
   const handleInterviewComplete = (scorecardReport: Scorecard) => {
     setScorecard(scorecardReport);
     localStorage.setItem("scorecard", JSON.stringify(scorecardReport));
+    if (studentProfile) {
+      localStorage.setItem(`scorecard_${studentProfile.studentId}`, JSON.stringify(scorecardReport));
+    }
   };
 
   // View-switching router logic

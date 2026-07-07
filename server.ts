@@ -354,7 +354,7 @@ Respond with STRICT JSON matching this schema:
 // 4. API Endpoint: Score Single Turn Answer
 app.post("/api/interview/submit-answer", requireAuth, async (req: any, res) => {
   try {
-    const { questionId, questionText, category, transcript, gazeStats, postureStats } = req.body;
+    const { questionId, questionText, category, transcript, gazeStats, postureStats, expressionStats, headStats } = req.body;
 
     if (!questionText || !transcript) {
       res.status(400).json({ error: "Question text and response transcript are required." });
@@ -375,16 +375,21 @@ app.post("/api/interview/submit-answer", requireAuth, async (req: any, res) => {
 
     let visualMetricsPrompt = "";
     if (gazeStats && postureStats) {
+      const exprConfident = (expressionStats?.confident || 0) + (expressionStats?.smiling || 0) + (expressionStats?.expressive || 0);
+      const exprNeutral = expressionStats?.neutral || 0;
+      const exprTense = expressionStats?.tense || 0;
+
+      const headCentered = headStats?.centered || 0;
+      const headTurnedOrMoved = (headStats?.turnedLeft || 0) + (headStats?.turnedRight || 0) + (headStats?.tilted || 0) + (headStats?.moving || 0);
+
       visualMetricsPrompt = `
-Visual camera gaze stats during answer:
-- Stable gaze contact: ${gazeStats.stable || 0} checks
-- Looking away/distracted: ${(gazeStats.lookingAway || 0) + (gazeStats.distracted || 0)} checks
+Visual camera tracking metrics logged during answer:
+- Eye Gaze: Stable contact (${gazeStats.stable || 0} checks) vs. Looking away/distracted (${(gazeStats.lookingAway || 0) + (gazeStats.distracted || 0)} checks)
+- Posture Alignment: Aligned posture (${postureStats.aligned || 0} checks) vs. Slouching/leaning (${(postureStats.slouching || 0) + (postureStats.leaning || 0)} checks)
+- Facial Expression: Positive/Confident/Smiling (${exprConfident} checks) vs. Neutral (${exprNeutral} checks) vs. Tense/Stressed (${exprTense} checks)
+- Head Position & Movement: Centered (${headCentered} checks) vs. Turned/Moved/Tilted (${headTurnedOrMoved} checks)
 
-Visual camera posture alignment stats during answer:
-- Professional aligned posture: ${postureStats.aligned || 0} checks
-- Slouching or off-center: ${(postureStats.slouching || 0) + (postureStats.leaning || 0)} checks
-
-Please evaluate these Gaze and Posture behaviors in your grading. If the candidate frequently slouched, looked away, or was distracted, constructively analyze this in the "presentationFeedback" and make appropriate adjustments to the overall score. Encourage professional, confident on-camera presence.
+Please focus heavily on soft skills and on-camera presence in your grading. Evaluate how well the candidate maintains stable eye contact, keeps their head centered, maintains an aligned posture, and shows confident/smiling expressions. If the candidate frequently looked away, turned or moved their head, slouched, or appeared tense, constructively critique this behavior in "presentationFeedback" and adjust the overall score accordingly. Encourage stable, confident, and professional on-camera behavior.
 `;
     }
 

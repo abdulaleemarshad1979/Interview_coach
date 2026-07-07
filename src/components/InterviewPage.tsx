@@ -43,13 +43,17 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const [micLevel, setMicLevel] = useState(0);
   const [isManualEdit, setIsManualEdit] = useState(false);
 
-  // Dynamic eye gaze and posture states
+  // Dynamic eye gaze, posture, facial expression, and head position states
   const [eyeGazeStatus, setEyeGazeStatus] = useState<"STABLE ENGAGED" | "LOOKING AWAY" | "DISTRACTED" | "OFFLINE">("OFFLINE");
   const [postureStatus, setPostureStatus] = useState<"ALIGNED" | "SLOUCHING" | "LEANING" | "OFFLINE">("OFFLINE");
+  const [expressionStatus, setExpressionStatus] = useState<"CONFIDENT" | "NEUTRAL" | "SMILING" | "TENSE" | "OFFLINE">("OFFLINE");
+  const [headStatus, setHeadStatus] = useState<"CENTERED" | "TURNED LEFT" | "TURNED RIGHT" | "TILTED" | "MOVING" | "OFFLINE">("OFFLINE");
 
-  // Track raw counts of Gaze & Posture states for final turn evaluation
+  // Track raw counts of states for final turn evaluation
   const [gazeStats, setGazeStats] = useState({ stable: 0, lookingAway: 0, distracted: 0 });
   const [postureStats, setPostureStats] = useState({ aligned: 0, slouching: 0, leaning: 0 });
+  const [expressionStats, setExpressionStats] = useState({ confident: 0, neutral: 0, smiling: 0, tense: 0 });
+  const [headStats, setHeadStats] = useState({ centered: 0, turnedLeft: 0, turnedRight: 0, tilted: 0, moving: 0 });
 
   // Voice output (TTS) states
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
@@ -167,11 +171,13 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     }
   };
 
-  // 3. Dynamic eye gaze & posture simulation effect + camera luminosity analysis
+  // 3. Dynamic eye gaze, posture, expression & head position simulation effect + camera luminosity analysis
   useEffect(() => {
     if (!webcamActive) {
       setEyeGazeStatus("OFFLINE");
       setPostureStatus("OFFLINE");
+      setExpressionStatus("OFFLINE");
+      setHeadStatus("OFFLINE");
       setCameraBrightness(0);
       return;
     }
@@ -183,11 +189,17 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     if (initialBrightness < 15) {
       setEyeGazeStatus("OFFLINE");
       setPostureStatus("OFFLINE");
+      setExpressionStatus("OFFLINE");
+      setHeadStatus("OFFLINE");
     } else {
       setEyeGazeStatus("STABLE ENGAGED");
       setPostureStatus("ALIGNED");
+      setExpressionStatus("CONFIDENT");
+      setHeadStatus("CENTERED");
       setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
       setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
+      setExpressionStats((prev) => ({ ...prev, confident: prev.confident + 1 }));
+      setHeadStats((prev) => ({ ...prev, centered: prev.centered + 1 }));
     }
 
     const interval = setInterval(() => {
@@ -197,12 +209,16 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       if (brightness < 15) {
         setEyeGazeStatus("OFFLINE");
         setPostureStatus("OFFLINE");
+        setExpressionStatus("OFFLINE");
+        setHeadStatus("OFFLINE");
         return;
       }
 
       if (!isRecording) {
         setEyeGazeStatus("STABLE ENGAGED");
         setPostureStatus("ALIGNED");
+        setExpressionStatus("CONFIDENT");
+        setHeadStatus("CENTERED");
         return;
       }
 
@@ -231,6 +247,41 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         setPostureStatus("LEANING");
         setPostureStats((prev) => ({ ...prev, leaning: prev.leaning + 1 }));
       }
+
+      // 40% confident, 30% smiling, 20% neutral, 10% tense
+      const expressionRand = Math.random();
+      if (expressionRand < 0.4) {
+        setExpressionStatus("CONFIDENT");
+        setExpressionStats((prev) => ({ ...prev, confident: prev.confident + 1 }));
+      } else if (expressionRand < 0.7) {
+        setExpressionStatus("SMILING");
+        setExpressionStats((prev) => ({ ...prev, smiling: prev.smiling + 1 }));
+      } else if (expressionRand < 0.9) {
+        setExpressionStatus("NEUTRAL");
+        setExpressionStats((prev) => ({ ...prev, neutral: prev.neutral + 1 }));
+      } else {
+        setExpressionStatus("TENSE");
+        setExpressionStats((prev) => ({ ...prev, tense: prev.tense + 1 }));
+      }
+
+      // 70% centered, 10% turned left, 10% turned right, 5% tilted, 5% moving
+      const headRand = Math.random();
+      if (headRand < 0.7) {
+        setHeadStatus("CENTERED");
+        setHeadStats((prev) => ({ ...prev, centered: prev.centered + 1 }));
+      } else if (headRand < 0.8) {
+        setHeadStatus("TURNED LEFT");
+        setHeadStats((prev) => ({ ...prev, turnedLeft: prev.turnedLeft + 1 }));
+      } else if (headRand < 0.9) {
+        setHeadStatus("TURNED RIGHT");
+        setHeadStats((prev) => ({ ...prev, turnedRight: prev.turnedRight + 1 }));
+      } else if (headRand < 0.95) {
+        setHeadStatus("TILTED");
+        setHeadStats((prev) => ({ ...prev, tilted: prev.tilted + 1 }));
+      } else {
+        setHeadStatus("MOVING");
+        setHeadStats((prev) => ({ ...prev, moving: prev.moving + 1 }));
+      }
     }, 3000);
 
     return () => clearInterval(interval);
@@ -251,6 +302,34 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       case "SLOUCHING": return "text-amber-400 font-bold animate-pulse";
       case "LEANING": return "text-amber-400 font-bold animate-pulse";
       default: return "text-gray-400 font-bold";
+    }
+  };
+
+  const getExpressionColor = (status: string) => {
+    switch (status) {
+      case "CONFIDENT":
+      case "SMILING":
+        return "text-emerald-400 font-bold";
+      case "NEUTRAL":
+        return "text-gray-400 font-bold";
+      case "TENSE":
+        return "text-red-400 font-bold animate-pulse";
+      default:
+        return "text-gray-400 font-bold";
+    }
+  };
+
+  const getHeadColor = (status: string) => {
+    switch (status) {
+      case "CENTERED":
+        return "text-emerald-400 font-bold";
+      case "TURNED LEFT":
+      case "TURNED RIGHT":
+      case "MOVING":
+      case "TILTED":
+        return "text-amber-400 font-bold animate-pulse";
+      default:
+        return "text-gray-400 font-bold";
     }
   };
 
@@ -474,7 +553,9 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         category: activeQuestion.category,
         transcript: transcript.trim(),
         gazeStats,
-        postureStats
+        postureStats,
+        expressionStats,
+        headStats
       };
 
       const response = await fetch("/api/interview/submit-answer", {
@@ -519,6 +600,8 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     // Reset visual metrics tracking stats for the next question
     setGazeStats({ stable: 0, lookingAway: 0, distracted: 0 });
     setPostureStats({ aligned: 0, slouching: 0, leaning: 0 });
+    setExpressionStats({ confident: 0, neutral: 0, smiling: 0, tense: 0 });
+    setHeadStats({ centered: 0, turnedLeft: 0, turnedRight: 0, tilted: 0, moving: 0 });
 
     if (currentQuestionIdx < interviewQuestions.length - 1) {
       setCurrentQuestionIdx((prev) => prev + 1);
@@ -688,7 +771,13 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
             {/* Dynamic Scanning Face Reticle */}
             {webcamActive && (
               <motion.div 
-                className={`absolute border-2 border-dashed rounded-lg pointer-events-none z-10 ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`}
+                className={`absolute border-2 border-dashed rounded-lg pointer-events-none z-10 ${
+                  cameraBrightness < 15 
+                    ? "border-red-500" 
+                    : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
+                      ? "border-amber-400" 
+                      : "border-emerald-500"
+                }`}
                 animate={{
                   x: ["110px", "115px", "105px", "112px", "110px"],
                   y: ["50px", "55px", "45px", "52px", "50px"],
@@ -706,14 +795,51 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
                 }}
               >
                 {/* Bounding box corners */}
-                <div className={`absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 -mt-[2px] -ml-[2px] ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`} />
-                <div className={`absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 -mt-[2px] -mr-[2px] ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`} />
-                <div className={`absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 -mb-[2px] -ml-[2px] ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`} />
-                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 -mb-[2px] -mr-[2px] ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`} />
+                <div className={`absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 -mt-[2px] -ml-[2px] ${
+                  cameraBrightness < 15 
+                    ? "border-red-500" 
+                    : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
+                      ? "border-amber-400" 
+                      : "border-emerald-500"
+                }`} />
+                <div className={`absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 -mt-[2px] -mr-[2px] ${
+                  cameraBrightness < 15 
+                    ? "border-red-500" 
+                    : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
+                      ? "border-amber-400" 
+                      : "border-emerald-500"
+                }`} />
+                <div className={`absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 -mb-[2px] -ml-[2px] ${
+                  cameraBrightness < 15 
+                    ? "border-red-500" 
+                    : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
+                      ? "border-amber-400" 
+                      : "border-emerald-500"
+                }`} />
+                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 -mb-[2px] -mr-[2px] ${
+                  cameraBrightness < 15 
+                    ? "border-red-500" 
+                    : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
+                      ? "border-amber-400" 
+                      : "border-emerald-500"
+                }`} />
                 
                 {/* ID Tag */}
-                <div className={`absolute -top-5 left-0 text-black text-[8px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap ${cameraBrightness < 15 ? "bg-red-500 text-white" : "bg-emerald-500"}`}>
-                  {cameraBrightness < 15 ? "LOCK LOST: LOW LIGHT" : `FACE LOCK: ${Math.round(98 + Math.random() * 1.5)}%`}
+                <div className={`absolute -top-5 left-0 text-black text-[8px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap ${
+                  cameraBrightness < 15 
+                    ? "bg-red-500 text-white" 
+                    : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
+                      ? "bg-amber-400 text-brand-bg" 
+                      : "bg-emerald-500"
+                }`}>
+                  {cameraBrightness < 15 
+                    ? "LOCK LOST: LOW LIGHT" 
+                    : (headStatus !== "CENTERED" && headStatus !== "OFFLINE")
+                      ? `[!] HEAD MOVED: ${headStatus}`
+                      : (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
+                        ? `[!] GAZE LOST: ${eyeGazeStatus}`
+                        : `FACE LOCK: ${Math.round(98 + Math.random() * 1.5)}%`
+                  }
                 </div>
               </motion.div>
             )}
@@ -727,9 +853,11 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
             </div>
 
             <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-left z-15">
-              <div className="bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/5 text-[10px] font-mono text-white">
+              <div className="bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/5 text-[10px] font-mono text-white space-y-1">
                 <div>EYE GAZE: <span className={getGazeColor(eyeGazeStatus)}>{eyeGazeStatus}</span></div>
-                <div>POSTURE METRICS: <span className={getPostureColor(postureStatus)}>{postureStatus}</span></div>
+                <div>POSTURE: <span className={getPostureColor(postureStatus)}>{postureStatus}</span></div>
+                <div>EXPRESSION: <span className={getExpressionColor(expressionStatus)}>{expressionStatus}</span></div>
+                <div>HEAD MOVEMENT: <span className={getHeadColor(headStatus)}>{headStatus}</span></div>
               </div>
 
               {/* MIC ACTIVE BAR LEVEL INDICATOR */}

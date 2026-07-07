@@ -13,25 +13,25 @@ const isValidCollegeEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) return false;
   const domain = email.split("@")[1].toLowerCase();
-  
-  const isEdu = domain.endsWith(".edu") || 
-                domain.endsWith(".edu.in") || 
-                domain.endsWith(".ac.in") || 
-                domain.endsWith(".ac.uk") ||
-                domain.endsWith(".edu.co") ||
-                domain.endsWith(".edu.mx") ||
-                domain.endsWith(".edu.br") ||
-                domain.endsWith(".edu.sg") ||
-                domain.endsWith(".edu.ph") ||
-                domain.endsWith(".ac.nz") ||
-                domain.endsWith(".ac.za") ||
-                domain.endsWith(".edu.au");
-                
+
+  const isEdu = domain.endsWith(".edu") ||
+    domain.endsWith(".edu.in") ||
+    domain.endsWith(".ac.in") ||
+    domain.endsWith(".ac.uk") ||
+    domain.endsWith(".edu.co") ||
+    domain.endsWith(".edu.mx") ||
+    domain.endsWith(".edu.br") ||
+    domain.endsWith(".edu.sg") ||
+    domain.endsWith(".edu.ph") ||
+    domain.endsWith(".ac.nz") ||
+    domain.endsWith(".ac.za") ||
+    domain.endsWith(".edu.au");
+
   const publicDomains = ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com", "zoho.com", "mail.com", "gmx.com", "yandex.com"];
   if (publicDomains.includes(domain)) {
     return false;
   }
-  
+
   return isEdu || domain.includes("college") || domain.includes("university") || domain.includes("univ") || domain.includes("school");
 };
 
@@ -44,20 +44,20 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  
+
   const emailTyping = email.length > 0;
   const emailValid = emailTyping && isValidCollegeEmail(email);
   const isPublicEmail = emailTyping && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !emailValid;
   const emailError = isPublicEmail ? "Must use an official college email address." : undefined;
 
   const confirmPasswordTyping = confirmPassword.length > 0;
-  const confirmPasswordError = isSignUp && confirmPasswordTyping && confirmPassword !== password 
-    ? "Passwords do not match." 
+  const confirmPasswordError = isSignUp && confirmPasswordTyping && confirmPassword !== password
+    ? "Passwords do not match."
     : undefined;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (isSignUp) {
       if (!rollNo.trim()) {
         setError("Please enter your Roll Number.");
@@ -158,15 +158,15 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         {/* Logo */}
         <div className="absolute top-12 left-12 flex items-center gap-3 select-none">
           <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-200/50 shadow-xs">
-            <img 
-              src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg" 
-              alt="Aditya University Logo" 
+            <img
+              src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg"
+              alt="Aditya University Logo"
               className="h-10 object-contain"
             />
             <div className="h-6 w-[1.5px] bg-slate-200" />
-            <img 
-              src="https://www.adityauniversity.in/public/frontend/assets/images/naac-logo.svg" 
-              alt="NAAC Logo" 
+            <img
+              src="https://www.adityauniversity.in/public/frontend/assets/images/naac-logo.svg"
+              alt="NAAC Logo"
               className="h-9 object-contain"
             />
           </div>
@@ -191,35 +191,35 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
           <ul className="flex flex-col gap-3">
             {[
-            "Real-time audio speech simulator",
-            "Instant resume claim diagnostics",
-            "Automated scorecard & model answers"
-          ].map((item, idx) => (
-            <li key={idx} className="flex items-center gap-2.5 text-sm text-[#475569] font-sans">
-              <span className="w-5 h-5 rounded-full bg-brand-primary/10 flex items-center justify-center flex-shrink-0">
-                <Check className="w-3.5 h-3.5 text-brand-primary" />
-              </span>
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Bottom Review */}
-      <div className="flex flex-col gap-2 mt-auto">
-        <div className="flex gap-0.5">
-          {[...Array(5)].map((_, i) => (
-            <Star key={i} className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
-          ))}
+              "Real-time audio speech simulator",
+              "Instant resume claim diagnostics",
+              "Automated scorecard & model answers"
+            ].map((item, idx) => (
+              <li key={idx} className="flex items-center gap-2.5 text-sm text-[#475569] font-sans">
+                <span className="w-5 h-5 rounded-full bg-brand-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Check className="w-3.5 h-3.5 text-brand-primary" />
+                </span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
         </div>
-        <p className="text-[14px] italic text-[#475569] leading-relaxed font-sans">
-          "The low-latency audio feedback felt exactly like mock interviewing with an elite lead tech recruiter."
-        </p>
-        <span className="text-xs font-semibold text-[#475569] uppercase tracking-wider font-mono">
-          — Arjun Prasad, B.Tech CSE, Aditya University
-        </span>
-      </div>
-    </motion.div>
+
+        {/* Bottom Review */}
+        <div className="flex flex-col gap-2 mt-auto">
+          <div className="flex gap-0.5">
+            {[...Array(5)].map((_, i) => (
+              <Star key={i} className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
+            ))}
+          </div>
+          <p className="text-[14px] italic text-[#475569] leading-relaxed font-sans">
+            "The low-latency audio feedback felt exactly like mock interviewing with an elite lead tech recruiter."
+          </p>
+          <span className="text-xs font-semibold text-[#475569] uppercase tracking-wider font-mono">
+            — Arjun Prasad, B.Tech CSE, Aditya University
+          </span>
+        </div>
+      </motion.div>
 
       {/* Right Panel (Form) */}
       <div className="flex-1 flex items-center justify-center p-6 lg:p-16 relative">
@@ -240,27 +240,27 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 }
               }
             }}
-          className="lg:bg-transparent bg-slate-50 border border-slate-200/60 lg:border-none p-8 lg:p-0 rounded-[20px] backdrop-blur-xl lg:backdrop-blur-none"
-        >
-          {/* Mobile Header Only */}
-          <motion.div
-            variants={{
-              hidden: { opacity: 0, y: 15 },
-              visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
-            }}
-            className="lg:hidden flex items-center gap-3 mb-6 select-none"
+            className="lg:bg-transparent bg-slate-50 border border-slate-200/60 lg:border-none p-8 lg:p-0 rounded-[20px] backdrop-blur-xl lg:backdrop-blur-none"
           >
-            <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-200/50 shadow-xs">
-              <img 
-                src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg" 
-                alt="Aditya University Logo" 
-                className="h-8 object-contain"
-              />
-            </div>
-            <span className="font-bold text-lg tracking-tight font-sans text-slate-800 uppercase">
-              Interview<span className="text-brand-primary font-medium">Coach</span>
-            </span>
-          </motion.div>
+            {/* Mobile Header Only */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 15 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+              }}
+              className="lg:hidden flex items-center gap-3 mb-6 select-none"
+            >
+              <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-200/50 shadow-xs">
+                <img
+                  src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg"
+                  alt="Aditya University Logo"
+                  className="h-8 object-contain"
+                />
+              </div>
+              <span className="font-bold text-lg tracking-tight font-sans text-slate-800 uppercase">
+                Interview<span className="text-brand-primary font-medium">Coach</span>
+              </span>
+            </motion.div>
 
             {/* Main Header */}
             <motion.div
@@ -270,49 +270,48 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               }}
               className="flex flex-col mb-8"
             >
-            <h2 className="text-3xl font-bold font-sans tracking-tight text-slate-900">
-              {isSignUp ? "Create Student Account" : "Welcome back"}
-            </h2>
-            <p className="text-[15px] text-[#64748B] mt-1.5 font-sans">
-              {isSignUp ? "Register with your official college email" : "Sign in to your InterviewCoach gateway"}
-            </p>
-          </motion.div>
+              <h2 className="text-3xl font-bold font-sans tracking-tight text-slate-900">
+                {isSignUp ? "Create Student Account" : "Welcome back"}
+              </h2>
+              <p className="text-[15px] text-[#64748B] mt-1.5 font-sans">
+                {isSignUp ? "Register with your official college email" : "Sign in to your InterviewCoach gateway"}
+              </p>
+            </motion.div>
 
-          {/* Sliding Switch Tabs */}
-          <motion.div
-            variants={{
-              hidden: { opacity: 0, y: 15 },
-              visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
-            }}
-            className="mb-8"
-          >
-            <div className="bg-slate-100 border border-slate-200 rounded-[10px] p-1 flex relative overflow-hidden">
-              {([false, true] as const).map((signupVal) => (
-                <button
-                  key={signupVal ? "signup" : "login"}
-                  type="button"
-                  disabled={loading}
-                  onClick={() => {
-                    setIsSignUp(signupVal);
-                    setError(null);
-                    setSuccessMessage(null);
-                  }}
-                  className={`flex-1 py-2 text-center text-sm font-medium font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 ${
-                    isSignUp === signupVal ? 'text-slate-800' : 'text-[#64748B]'
-                  }`}
-                  data-interactive="true"
-                >
-                  {signupVal ? 'Create Account' : 'Sign In'}
-                  {isSignUp === signupVal && (
-                    <motion.div
-                      layoutId="activeTabIndicator"
-                      className="absolute inset-0 bg-white shadow-xs border border-slate-200 rounded-[8px] -z-10"
-                      transition={{ type: 'spring', stiffness: 350, damping: 30 }}
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
+            {/* Sliding Switch Tabs */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 15 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+              }}
+              className="mb-8"
+            >
+              <div className="bg-slate-100 border border-slate-200 rounded-[10px] p-1 flex relative overflow-hidden">
+                {([false, true] as const).map((signupVal) => (
+                  <button
+                    key={signupVal ? "signup" : "login"}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => {
+                      setIsSignUp(signupVal);
+                      setError(null);
+                      setSuccessMessage(null);
+                    }}
+                    className={`flex-1 py-2 text-center text-sm font-medium font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 ${isSignUp === signupVal ? 'text-slate-800' : 'text-[#64748B]'
+                      }`}
+                    data-interactive="true"
+                  >
+                    {signupVal ? 'Create Account' : 'Sign In'}
+                    {isSignUp === signupVal && (
+                      <motion.div
+                        layoutId="activeTabIndicator"
+                        className="absolute inset-0 bg-white shadow-xs border border-slate-200 rounded-[8px] -z-10"
+                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
             </motion.div>
 
             {/* Form Fields */}
@@ -434,7 +433,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   }}
                   className="text-[11px] text-gray-500 font-sans tracking-wide leading-relaxed pl-1"
                 >
-                  * Seeded demo accounts: <code className="text-brand-primary">24P31A1234</code> (email: student@university.edu, password: password123)
                 </motion.p>
               )}
 
