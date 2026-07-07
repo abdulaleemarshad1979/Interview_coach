@@ -29,7 +29,7 @@ export default function InputField({
 
   return (
     <div className={`flex flex-col gap-1.5 w-full text-left ${className}`}>
-      <label className="text-[12px] font-medium text-slate-400 tracking-[0.5px] uppercase select-none font-sans">
+      <label className="text-[12px] font-medium text-slate-500 tracking-[0.5px] uppercase select-none font-sans">
         {label}
       </label>
       
@@ -45,13 +45,13 @@ export default function InputField({
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full bg-[#0B1120]/80 text-[#F8FAFC] font-sans text-[15px] rounded-[10px] transition-all duration-200 outline-hidden
+          className={`w-full bg-slate-50 text-slate-900 placeholder-slate-400 font-sans text-[15px] rounded-[10px] transition-all duration-200 outline-hidden
             ${Icon ? 'py-[14px] pr-4 pl-10' : 'py-3 px-4'}
             ${isPassword ? 'pr-11' : ''}
             ${
               error
                 ? 'border border-red-500/50 focus:ring-3 focus:ring-red-500/8'
-                : 'border border-white/8 focus:border-accent-blue/50 focus:ring-3 focus:ring-accent-blue/10'
+                : 'border border-slate-200 focus:border-accent-blue/50 focus:ring-3 focus:ring-accent-blue/10'
             }
           `}
           {...props}

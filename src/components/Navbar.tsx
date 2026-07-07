@@ -19,66 +19,86 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
           className="flex items-center space-x-3 cursor-pointer group"
           id="nav-logo"
         >
-          <div className="w-10 h-10 rounded-xl bg-linear-to-tr from-brand-accent to-brand-primary flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform duration-300">
-            <GraduationCap className="w-6 h-6 text-brand-bg stroke-[2]" />
+          <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-100 shadow-xs">
+            <img 
+              src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg" 
+              alt="Aditya University Logo" 
+              className="h-9 object-contain"
+            />
+            <div className="h-6 w-[1.5px] bg-slate-200" />
+            <img 
+              src="https://www.adityauniversity.in/public/frontend/assets/images/naac-logo.svg" 
+              alt="NAAC Logo" 
+              className="h-8 object-contain"
+            />
           </div>
-          <div>
-            <span className="font-display font-bold text-lg tracking-tight text-white group-hover:text-brand-primary transition-colors">
+          <div className="hidden md:block">
+            <span className="font-display font-bold text-sm tracking-tight text-slate-800 group-hover:text-brand-primary transition-colors block leading-none">
               INTERVIEW<span className="text-brand-primary font-medium">COACH</span>
             </span>
-            <div className="text-[9px] font-mono tracking-wider text-gray-500 uppercase">AI-Powered Training</div>
+            <span className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block mt-1">Aditya University Portal</span>
           </div>
         </div>
 
         {/* Navigation Options - shown if student is logged in */}
         {studentProfile && (
-          <nav id="nav-menu" className="hidden md:flex items-center space-x-1">
+          <nav id="nav-menu" className="hidden lg:flex items-center space-x-1">
             <button
               onClick={() => onNavigate("dashboard")}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
                 currentView === "dashboard"
-                  ? "text-brand-primary bg-white/5"
-                  : "text-gray-400 hover:text-white hover:bg-white/5"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
               }`}
             >
               Dashboard
             </button>
             <button
               onClick={() => onNavigate("analyze")}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
                 currentView === "analyze"
-                  ? "text-brand-primary bg-white/5"
-                  : "text-gray-400 hover:text-white hover:bg-white/5"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
               }`}
             >
               Analyze Profile
             </button>
             <button
               onClick={() => onNavigate("interview")}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
                 currentView === "interview"
-                  ? "text-brand-primary bg-white/5"
-                  : "text-gray-400 hover:text-white hover:bg-white/5"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
               }`}
             >
               Live Interview
             </button>
             <button
+              onClick={() => onNavigate("group-discussion")}
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
+                currentView === "group-discussion"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
+              }`}
+            >
+              Group Discussion
+            </button>
+            <button
               onClick={() => onNavigate("report")}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
                 currentView === "report"
-                  ? "text-brand-primary bg-white/5"
-                  : "text-gray-400 hover:text-white hover:bg-white/5"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
               }`}
             >
               Latest Report
             </button>
             <button
               onClick={() => onNavigate("settings")}
-              className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
                 currentView === "settings"
-                  ? "text-brand-primary bg-white/5"
-                  : "text-gray-400 hover:text-white hover:bg-white/5"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
               }`}
             >
               Settings
