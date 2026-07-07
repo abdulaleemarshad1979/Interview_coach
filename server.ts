@@ -691,6 +691,339 @@ RULE: Assess purely communication skills and argument logic. Do not judge or ref
   }
 });
 
+interface GDParticipant {
+  id: string;
+  name: string;
+  roll: string;
+  isHost: boolean;
+  joinedAt: number;
+  socket: WebSocket;
+}
+
+interface GDTurn {
+  id: string;
+  speakerId: string;
+  speakerName: string;
+  speakerRoll: string;
+  text: string;
+  timestamp: number;
+}
+
+interface GDRoom {
+  code: string;
+  topic: string;
+  participants: GDParticipant[];
+  dialogue: GDTurn[];
+  createdAt: number;
+  startedAt?: number;
+}
+
+const gdRooms = new Map<string, GDRoom>();
+
+function generateRoomCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+function sanitizeRoomCode(code: string) {
+  return String(code || "").trim().toUpperCase();
+}
+
+function createRoomStatePayload(room: GDRoom) {
+  return {
+    type: "room_state",
+    roomCode: room.code,
+    topic: room.topic,
+    startedAt: room.startedAt || null,
+    participants: room.participants.map((p) => ({
+      id: p.id,
+      name: p.name,
+      roll: p.roll,
+      isHost: p.isHost,
+      joinedAt: p.joinedAt,
+    })),
+    dialogue: room.dialogue.map((turn) => ({
+      id: turn.id,
+      speakerId: turn.speakerId,
+      speakerName: turn.speakerName,
+      speakerRoll: turn.speakerRoll,
+      text: turn.text,
+      timestamp: turn.timestamp,
+    })),
+    hostId: room.participants.find((p) => p.isHost)?.id || null,
+  };
+}
+
+function broadcastRoom(room: GDRoom, payload: any) {
+  const payloadText = JSON.stringify(payload);
+  room.participants.forEach((participant) => {
+    try {
+      participant.socket.send(payloadText);
+    } catch (err) {
+      console.warn("Broadcast to participant failed", participant.id, err);
+    }
+  });
+}
+
+function evaluateRoomPrompt(room: GDRoom) {
+  const participantLines = room.participants
+    .map((p, index) => `Participant ${index + 1}: Name: "${p.name}", Roll: "${p.roll}"`)
+    .join("\n");
+
+  const dialogueStr = room.dialogue
+    .map((turn) => `${turn.speakerName} (${turn.speakerRoll}): ${turn.text}`)
+    .join("\n");
+
+  return `You are a professional university soft skills assessor.
+Review this Group Discussion transcript and evaluate each participant independently. Do not make any personal judgments beyond communication, collaboration, leadership, listening, and argument quality.
+Discussion Topic: "${room.topic}"
+
+${participantLines}
+
+Dialogue Transcript:
+${dialogueStr}
+
+For each participant, score them on a 1-5 scale for:
+1. Participation
+2. Listening Skills
+3. Argument Quality
+4. Team Collaboration
+5. Leadership Indicators
+6. Conflict Handling
+
+Provide for each participant:
+- overallScore (0-100)
+- criteria object with numeric score and brief comments
+- strengths array (2-3 bullet items)
+- improvements array (2-3 bullet items)
+- coachFeedback string
+
+Also provide an overallVerdict summarizing the discussion quality, group dynamics, and coach guidance.
+
+Respond with STRICT JSON in this format:
+{
+  "participants": [
+    {
+      "name": "Name",
+      "roll": "Roll",
+      "overallScore": 85,
+      "criteria": {
+        "participation": { "score": 4, "comments": "..." },
+        "listeningSkills": { "score": 4, "comments": "..." },
+        "argumentQuality": { "score": 4, "comments": "..." },
+        "teamCollaboration": { "score": 4, "comments": "..." },
+        "leadershipIndicators": { "score": 4, "comments": "..." },
+        "conflictHandling": { "score": 4, "comments": "..." }
+      },
+      "strengths": ["..."],
+      "improvements": ["..."],
+      "coachFeedback": "..."
+    }
+  ],
+  "overallVerdict": "..."
+}`;
+}
+
+async function evaluateDiscussionRoom(room: GDRoom) {
+  const prompt = evaluateRoomPrompt(room);
+  const completionText = await getLLMCompletion({
+    messages: [
+      { role: "system", content: "You are a university soft skills assessor. Respond with strict JSON only." },
+      { role: "user", content: prompt }
+    ],
+    jsonMode: true,
+  });
+
+  try {
+    return JSON.parse(completionText || "{}");
+  } catch (err) {
+    console.error("Room evaluation JSON parse failed:", err, completionText);
+    return { error: "AI response could not be parsed." };
+  }
+}
+
+const gdWss = new WebSocketServer({ noServer: true });
+
+gdWss.on("connection", async (ws: WebSocket, request: any) => {
+  let currentRoomCode: string | null = null;
+  let participantId: string | null = null;
+
+  const removeParticipantFromRoom = () => {
+    if (!currentRoomCode || !participantId) return;
+    const room = gdRooms.get(currentRoomCode);
+    if (!room) return;
+
+    room.participants = room.participants.filter((p) => p.id !== participantId);
+    if (room.participants.length === 0) {
+      gdRooms.delete(currentRoomCode);
+      return;
+    }
+
+    const hostStillPresent = room.participants.some((p) => p.isHost);
+    if (!hostStillPresent) {
+      room.participants[0].isHost = true;
+    }
+
+    broadcastRoom(room, createRoomStatePayload(room));
+  };
+
+  ws.on("message", async (data: any) => {
+    try {
+      const message = JSON.parse(data.toString());
+
+      if (message.type === "join_room") {
+        const name = String(message.name || "Guest").trim() || "Guest";
+        const roll = String(message.roll || "").trim();
+        const requestedCode = sanitizeRoomCode(String(message.roomCode || ""));
+        const createNew = !!message.createNew;
+        const topic = String(message.topic || "").trim();
+
+        if (createNew) {
+          if (!topic) {
+            ws.send(JSON.stringify({ type: "error", message: "A topic is required to create a new room." }));
+            return;
+          }
+
+          let code = requestedCode || generateRoomCode();
+          while (gdRooms.has(code)) {
+            code = generateRoomCode();
+          }
+
+          const participant: GDParticipant = {
+            id: `p_${Math.random().toString(36).slice(2, 10)}`,
+            name,
+            roll,
+            isHost: true,
+            joinedAt: Date.now(),
+            socket: ws,
+          };
+
+          const room: GDRoom = {
+            code,
+            topic,
+            participants: [participant],
+            dialogue: [],
+            createdAt: Date.now(),
+          };
+
+          gdRooms.set(code, room);
+          currentRoomCode = code;
+          participantId = participant.id;
+
+          ws.send(JSON.stringify({ type: "joined_room", roomCode: code, isHost: true }));
+          broadcastRoom(room, createRoomStatePayload(room));
+          return;
+        }
+
+        if (!requestedCode) {
+          ws.send(JSON.stringify({ type: "error", message: "Room code is required to join an existing discussion." }));
+          return;
+        }
+
+        const room = gdRooms.get(requestedCode);
+        if (!room) {
+          ws.send(JSON.stringify({ type: "error", message: `Room ${requestedCode} does not exist.` }));
+          return;
+        }
+
+        const participant: GDParticipant = {
+          id: `p_${Math.random().toString(36).slice(2, 10)}`,
+          name,
+          roll,
+          isHost: false,
+          joinedAt: Date.now(),
+          socket: ws,
+        };
+
+        room.participants.push(participant);
+        currentRoomCode = requestedCode;
+        participantId = participant.id;
+
+        ws.send(JSON.stringify({ type: "joined_room", roomCode: requestedCode, isHost: false }));
+        broadcastRoom(room, createRoomStatePayload(room));
+        return;
+      }
+
+      if (!currentRoomCode || !participantId) {
+        ws.send(JSON.stringify({ type: "error", message: "You must join a room before sending other messages." }));
+        return;
+      }
+
+      const room = gdRooms.get(currentRoomCode);
+      if (!room) {
+        ws.send(JSON.stringify({ type: "error", message: "Room no longer exists." }));
+        return;
+      }
+
+      const participant = room.participants.find((p) => p.id === participantId);
+      if (!participant) {
+        ws.send(JSON.stringify({ type: "error", message: "Participant not found in room." }));
+        return;
+      }
+
+      if (message.type === "start_discussion") {
+        if (!participant.isHost) {
+          ws.send(JSON.stringify({ type: "error", message: "Only the host can start the discussion." }));
+          return;
+        }
+
+        room.startedAt = Date.now();
+        broadcastRoom(room, { type: "discussion_started", roomCode: room.code, startedAt: room.startedAt });
+        broadcastRoom(room, createRoomStatePayload(room));
+        return;
+      }
+
+      if (message.type === "submit_turn") {
+        const text = String(message.text || "").trim();
+        if (!text) {
+          ws.send(JSON.stringify({ type: "error", message: "Cannot submit an empty turn." }));
+          return;
+        }
+
+        const turn: GDTurn = {
+          id: `turn_${Math.random().toString(36).slice(2, 10)}`,
+          speakerId: participant.id,
+          speakerName: participant.name,
+          speakerRoll: participant.roll,
+          text,
+          timestamp: Date.now(),
+        };
+
+        room.dialogue.push(turn);
+        broadcastRoom(room, { type: "new_turn", turn });
+        return;
+      }
+
+      if (message.type === "end_discussion") {
+        if (!participant.isHost) {
+          ws.send(JSON.stringify({ type: "error", message: "Only the host can end the discussion." }));
+          return;
+        }
+
+        const evaluation = await evaluateDiscussionRoom(room);
+        broadcastRoom(room, { type: "evaluation_result", evaluation });
+        return;
+      }
+
+      if (message.type === "leave_room") {
+        removeParticipantFromRoom();
+        ws.close();
+        return;
+      }
+
+      if (message.type === "request_room_state") {
+        ws.send(JSON.stringify(createRoomStatePayload(room)));
+        return;
+      }
+    } catch (e: any) {
+      console.error("GD WebSocket message error:", e);
+      ws.send(JSON.stringify({ type: "error", message: "Failed to process socket payload." }));
+    }
+  });
+
+  ws.on("close", () => {
+    removeParticipantFromRoom();
+  });
+});
 
 // 6. WebSocket Server Setup for Groq Fallback gateway
 // Standard Serverless environments like Vercel do not support WebSockets, but we retain it
@@ -743,6 +1076,10 @@ server.on("upgrade", (request, socket, head) => {
   if (pathname === "/ws/interview") {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit("connection", ws, request);
+    });
+  } else if (pathname === "/ws/gd-room") {
+    gdWss.handleUpgrade(request, socket, head, (ws) => {
+      gdWss.emit("connection", ws, request);
     });
   } else {
     socket.destroy();
