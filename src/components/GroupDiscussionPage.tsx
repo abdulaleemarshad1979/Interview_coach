@@ -107,6 +107,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const [socketConnected, setSocketConnected] = useState(false);
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [receiveLog, setReceiveLog] = useState<string[]>([]);
+  const [isPollingMode, setIsPollingMode] = useState(false);
+  const [myParticipantId, setMyParticipantId] = useState<string | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -130,6 +132,45 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       socketRef.current?.close();
     };
   }, []);
+
+  // HTTP Polling loop to get room state when in polling mode (e.g. Vercel serverless)
+  useEffect(() => {
+    if (!isPollingMode || !joinedRoomCode || !myParticipantId || step !== "discussion") return;
+
+    let active = true;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/gd-room/state?roomCode=${joinedRoomCode}&participantId=${myParticipantId}`);
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to fetch state");
+        }
+        const state = await res.json();
+        if (!active) return;
+
+        // Sync local states with polled state
+        setParticipants(state.participants || []);
+        setDialogue(state.dialogue || []);
+        setHostId(state.hostId || null);
+        setRoomStarted(Boolean(state.startedAt));
+        if (state.evaluation) {
+          setEvaluation(state.evaluation);
+          setStep("results");
+        }
+      } catch (err: any) {
+        console.error("Polling error:", err);
+        setError("Connection lost. Retrying to sync room...");
+      }
+    };
+
+    poll(); // run immediately
+    const interval = setInterval(poll, 2500); // poll every 2.5 seconds
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [isPollingMode, joinedRoomCode, myParticipantId, step]);
 
   const setupSpeechRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -310,6 +351,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
     setError(null);
     try {
+      // Try WebSocket connection first
       await connectToRoomSocket();
       sendSocketMessage({
         type: "join_room",
@@ -321,19 +363,64 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       });
       setStep("discussion");
     } catch (err) {
-      setError("Unable to connect to the group discussion room.");
+      console.warn("WebSocket room connection failed, falling back to HTTP Polling...", err);
+      // Fallback: HTTP Polling mode!
+      try {
+        setConnectionLoading(true);
+        const res = await fetch("/api/gd-room/join", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: participantName.trim(),
+            roll: participantRoll.trim(),
+            createNew: mode === "create",
+            roomCode: roomCode.trim(),
+            topic: mode === "create" ? (useCustomTopic ? customTopic.trim() : topic.trim()) : undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to join room via HTTP.");
+        }
+        setJoinedRoomCode(data.roomCode);
+        setMyParticipantId(data.participantId);
+        setIsHost(Boolean(data.isHost));
+        setIsPollingMode(true);
+        setStep("discussion");
+        setReceiveLog((prev) => [...prev, "Connected to room via HTTP Polling mode (WebSockets not available)."]);
+      } catch (httpErr: any) {
+        setError(httpErr.message || "Unable to connect to the group discussion room.");
+      } finally {
+        setConnectionLoading(false);
+      }
     }
   };
 
-  const startDiscussionRoom = () => {
+  const startDiscussionRoom = async () => {
     if (!isHost) {
       setError("Only the host can start the discussion.");
       return;
     }
-    sendSocketMessage({ type: "start_discussion" });
+    if (isPollingMode) {
+      try {
+        const res = await fetch("/api/gd-room/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to start room.");
+        }
+      } catch (err: any) {
+        setError(err.message);
+      }
+    } else {
+      sendSocketMessage({ type: "start_discussion" });
+    }
   };
 
-  const submitRoomTurn = () => {
+  const submitRoomTurn = async () => {
     if (!currentText.trim()) {
       setError("Type or speak a response before submitting.");
       return;
@@ -344,22 +431,74 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     }
 
     setError(null);
-    sendSocketMessage({ type: "submit_turn", text: currentText.trim() });
-    setCurrentText("");
+    if (isPollingMode) {
+      try {
+        const res = await fetch("/api/gd-room/submit-turn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId, text: currentText.trim() }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Failed to submit response.");
+        }
+        setCurrentText("");
+      } catch (err: any) {
+        setError(err.message);
+      }
+    } else {
+      sendSocketMessage({ type: "submit_turn", text: currentText.trim() });
+      setCurrentText("");
+    }
   };
 
-  const endRoomDiscussion = () => {
+  const endRoomDiscussion = async () => {
     if (!isHost) {
       setError("Only the host can end the discussion.");
       return;
     }
-    sendSocketMessage({ type: "end_discussion" });
+    if (isPollingMode) {
+      setConnectionLoading(true);
+      try {
+        const res = await fetch("/api/gd-room/end", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to end discussion.");
+        }
+        setEvaluation(data.evaluation);
+        setStep("results");
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setConnectionLoading(false);
+      }
+    } else {
+      sendSocketMessage({ type: "end_discussion" });
+    }
   };
 
-  const leaveRoom = () => {
-    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      sendSocketMessage({ type: "leave_room" });
-      socketRef.current.close();
+  const leaveRoom = async () => {
+    if (isPollingMode) {
+      try {
+        await fetch("/api/gd-room/leave", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId }),
+        });
+      } catch (err) {
+        console.error("Error leaving room:", err);
+      }
+      setIsPollingMode(false);
+      setMyParticipantId(null);
+    } else {
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        sendSocketMessage({ type: "leave_room" });
+        socketRef.current.close();
+      }
     }
     setSocketConnected(false);
     setStep("setup");
