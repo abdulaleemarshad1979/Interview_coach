@@ -69,6 +69,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
 
   const activeQuestion = interviewQuestions[currentQuestionIdx];
 
@@ -139,22 +140,72 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     };
   }, [isRecording]);
 
-  // 3. Dynamic eye gaze & posture simulation effect
+  const [cameraBrightness, setCameraBrightness] = useState<number>(100);
+
+  const checkCameraLighting = () => {
+    if (!videoRef.current || !webcamActive) return 0;
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 80;
+      canvas.height = 60;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return 100;
+      // Draw the video frame to a small canvas
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      let totalLuminance = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i+1];
+        const b = data[i+2];
+        totalLuminance += (0.2126 * r + 0.7152 * g + 0.0722 * b);
+      }
+      return totalLuminance / (data.length / 4);
+    } catch (e) {
+      return 100; // CORS fallback
+    }
+  };
+
+  // 3. Dynamic eye gaze & posture simulation effect + camera luminosity analysis
   useEffect(() => {
     if (!webcamActive) {
       setEyeGazeStatus("OFFLINE");
       setPostureStatus("OFFLINE");
+      setCameraBrightness(0);
       return;
     }
 
-    setEyeGazeStatus("STABLE ENGAGED");
-    setPostureStatus("ALIGNED");
-    setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
-    setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
+    // Run initial lighting check
+    const initialBrightness = checkCameraLighting();
+    setCameraBrightness(initialBrightness);
 
-    if (!isRecording) return;
+    if (initialBrightness < 15) {
+      setEyeGazeStatus("OFFLINE");
+      setPostureStatus("OFFLINE");
+    } else {
+      setEyeGazeStatus("STABLE ENGAGED");
+      setPostureStatus("ALIGNED");
+      setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
+      setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
+    }
 
     const interval = setInterval(() => {
+      const brightness = checkCameraLighting();
+      setCameraBrightness(brightness);
+
+      if (brightness < 15) {
+        setEyeGazeStatus("OFFLINE");
+        setPostureStatus("OFFLINE");
+        return;
+      }
+
+      if (!isRecording) {
+        setEyeGazeStatus("STABLE ENGAGED");
+        setPostureStatus("ALIGNED");
+        return;
+      }
+
       // 80% stable, 13% looking away, 7% distracted
       const gazeRand = Math.random();
       if (gazeRand < 0.8) {
@@ -180,7 +231,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         setPostureStatus("LEANING");
         setPostureStats((prev) => ({ ...prev, leaning: prev.leaning + 1 }));
       }
-    }, 4000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [webcamActive, isRecording]);
@@ -232,12 +283,16 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
       rec.onerror = (e: any) => {
         console.error("Speech Recognition error:", e);
+        setIsRecording(false);
+        isRecordingRef.current = false;
+        setInterimTranscript("");
+
         if (e.error === "not-allowed") {
           setError("Microphone permission was denied. Try enabling microphone in settings, or use manual keyboard mode.");
         } else if (e.error === "network") {
           setError("Speech recognition network error. Try switching to manual keyboard mode.");
         } else if (e.error === "no-speech") {
-          console.log("No speech detected.");
+          setError("No speech was detected. Please try speaking closer to the microphone.");
         } else {
           setError(`Speech recognition issue (${e.error}). You can switch to manual keyboard mode.`);
         }
@@ -245,12 +300,16 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
       rec.onend = () => {
         // Automatically restart if user hasn't explicitly stopped recording
-        if (isRecording && recognitionRef.current) {
+        if (isRecordingRef.current && recognitionRef.current) {
           try {
             recognitionRef.current.start();
           } catch (e) {
             // Ignore if already running
           }
+        } else {
+          setIsRecording(false);
+          isRecordingRef.current = false;
+          setInterimTranscript("");
         }
       };
 
@@ -367,6 +426,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     setInterimTranscript("");
     setSecondsElapsed(0);
     setIsRecording(true);
+    isRecordingRef.current = true;
 
     if (recognitionRef.current) {
       try {
@@ -379,6 +439,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
   const stopRecording = () => {
     setIsRecording(false);
+    isRecordingRef.current = false;
     setInterimTranscript("");
     if (recognitionRef.current) {
       try {
@@ -627,7 +688,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
             {/* Dynamic Scanning Face Reticle */}
             {webcamActive && (
               <motion.div 
-                className="absolute border-2 border-dashed border-emerald-500 rounded-lg pointer-events-none z-10"
+                className={`absolute border-2 border-dashed rounded-lg pointer-events-none z-10 ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`}
                 animate={{
                   x: ["110px", "115px", "105px", "112px", "110px"],
                   y: ["50px", "55px", "45px", "52px", "50px"],
@@ -645,14 +706,14 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
                 }}
               >
                 {/* Bounding box corners */}
-                <div className="absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 border-emerald-500 -mt-[2px] -ml-[2px]" />
-                <div className="absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 border-emerald-500 -mt-[2px] -mr-[2px]" />
-                <div className="absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 border-emerald-500 -mb-[2px] -ml-[2px]" />
-                <div className="absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 border-emerald-500 -mb-[2px] -mr-[2px]" />
+                <div className={`absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 -mt-[2px] -ml-[2px] ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`} />
+                <div className={`absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 -mt-[2px] -mr-[2px] ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`} />
+                <div className={`absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 -mb-[2px] -ml-[2px] ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`} />
+                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 -mb-[2px] -mr-[2px] ${cameraBrightness < 15 ? "border-red-500" : "border-emerald-500"}`} />
                 
                 {/* ID Tag */}
-                <div className="absolute -top-5 left-0 bg-emerald-500 text-black text-[8px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap">
-                  FACE LOCK: {Math.round(98 + Math.random() * 1.5)}%
+                <div className={`absolute -top-5 left-0 text-black text-[8px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap ${cameraBrightness < 15 ? "bg-red-500 text-white" : "bg-emerald-500"}`}>
+                  {cameraBrightness < 15 ? "LOCK LOST: LOW LIGHT" : `FACE LOCK: ${Math.round(98 + Math.random() * 1.5)}%`}
                 </div>
               </motion.div>
             )}
@@ -899,15 +960,17 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
                           </button>
                         </div>
                       ) : (
-                        <div className="py-8 bg-brand-bg border border-white/5 border-dashed rounded-xl flex flex-col items-center justify-center space-y-3">
+                        <div 
+                          onClick={startRecording}
+                          className="py-8 bg-brand-bg border border-white/5 border-dashed rounded-xl flex flex-col items-center justify-center space-y-3 cursor-pointer hover:bg-brand-primary/5 transition-all duration-200 group"
+                        >
                           <button
                             type="button"
-                            onClick={startRecording}
-                            className="w-16 h-16 rounded-full bg-brand-primary/10 border border-brand-primary/30 flex items-center justify-center text-brand-primary hover:scale-105 active:scale-95 transition-all shadow-lg cursor-pointer hover:bg-brand-primary hover:text-brand-bg group"
+                            className="w-16 h-16 rounded-full bg-brand-primary/10 border border-brand-primary/30 flex items-center justify-center text-brand-primary transition-all shadow-lg group-hover:scale-105 group-hover:bg-brand-primary group-hover:text-brand-bg pointer-events-none"
                           >
                             <Mic className="w-6 h-6 stroke-[2.5]" />
                           </button>
-                          <div className="text-center">
+                          <div className="text-center select-none">
                             <p className="text-xs font-semibold text-white">Click to Speak Answer</p>
                             <p className="text-[10px] text-gray-500 font-mono mt-0.5">Captures high-frequency vocal signals for pacing</p>
                           </div>

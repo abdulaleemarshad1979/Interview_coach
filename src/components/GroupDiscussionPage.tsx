@@ -104,6 +104,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const [dialogue, setDialogue] = useState<GDTurn[]>([]);
   const [activeSpeaker, setActiveSpeaker] = useState<1 | 2>(1);
   const [currentText, setCurrentText] = useState("");
+  const [interimText, setInterimText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +117,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
 
   // Evaluation state
   const [loadingEval, setLoadingEval] = useState(false);
@@ -140,30 +142,52 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
       rec.onresult = (e: any) => {
         let finalTranscript = "";
+        let interim = "";
         for (let i = e.resultIndex; i < e.results.length; ++i) {
           if (e.results[i].isFinal) {
             finalTranscript += e.results[i][0].transcript + " ";
+          } else {
+            interim += e.results[i][0].transcript;
           }
         }
         if (finalTranscript) {
           setCurrentText((prev) => (prev + " " + finalTranscript).trim());
+          setInterimText("");
+        } else {
+          setInterimText(interim);
         }
       };
 
       rec.onerror = (e: any) => {
         console.error("GD Speech Recognition error:", e);
+        setIsRecording(false);
+        isRecordingRef.current = false;
+        setInterimText("");
+
         if (e.error === "not-allowed") {
           setError("Microphone permission was denied. Please allow mic access or use manual keyboard typing.");
+        } else if (e.error === "network") {
+          setError("Speech recognition network error. Try switching to manual keyboard mode.");
+        } else if (e.error === "no-speech") {
+          setError("No speech was detected. Please try speaking closer to the microphone.");
+        } else {
+          setError(`Speech recognition issue (${e.error}). You can switch to manual keyboard mode.`);
         }
       };
 
       rec.onend = () => {
-        if (isRecording && recognitionRef.current) {
+        if (isRecordingRef.current && recognitionRef.current) {
           try {
             recognitionRef.current.start();
           } catch (err) {
-            // Already started
+            setIsRecording(false);
+            isRecordingRef.current = false;
+            setInterimText("");
           }
+        } else {
+          setIsRecording(false);
+          isRecordingRef.current = false;
+          setInterimText("");
         }
       };
 
@@ -176,6 +200,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const startVoiceCapture = async () => {
     setError(null);
     setIsRecording(true);
+    isRecordingRef.current = true;
+    setInterimText("");
     
     // Start Speech recognition
     if (recognitionRef.current) {
@@ -226,6 +252,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
   const stopVoiceCapture = () => {
     setIsRecording(false);
+    isRecordingRef.current = false;
+    setInterimText("");
     setMicLevel(0);
     cleanupAudioStreams();
 
@@ -762,24 +790,32 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
               {/* Voice capture visual status banner */}
               {isRecording ? (
-                <div className="p-3 bg-white border border-slate-100 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center space-x-2.5">
-                    <span className="flex h-3 w-3 relative">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                    </span>
-                    <span className="text-xs text-red-600 font-mono font-medium">Recording active...</span>
+                <div className="p-3 bg-white border border-slate-100 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <span className="flex h-3 w-3 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                      </span>
+                      <span className="text-xs text-red-600 font-mono font-medium">Recording active...</span>
+                    </div>
+                    
+                    {/* Volume Level Meter Bar */}
+                    <div className="flex items-center space-x-1 w-24 bg-slate-100 rounded-full h-2 overflow-hidden px-0.5">
+                      <div 
+                        className={`h-1.5 rounded-full transition-all duration-75 ${
+                          activeSpeaker === 1 ? "bg-brand-primary" : "bg-brand-accent"
+                        }`}
+                        style={{ width: `${micLevel}%` }}
+                      />
+                    </div>
                   </div>
-                  
-                  {/* Volume Level Meter Bar */}
-                  <div className="flex items-center space-x-1 w-24 bg-slate-100 rounded-full h-2 overflow-hidden px-0.5">
-                    <div 
-                      className={`h-1.5 rounded-full transition-all duration-75 ${
-                        activeSpeaker === 1 ? "bg-brand-primary" : "bg-brand-accent"
-                      }`}
-                      style={{ width: `${micLevel}%` }}
-                    />
-                  </div>
+                  {/* Interim Live Transcript segment */}
+                  {interimText && (
+                    <p className="text-[11px] text-slate-500 italic bg-slate-50 p-2 rounded-lg border border-slate-100">
+                      Spoken: "{interimText}"
+                    </p>
+                  )}
                 </div>
               ) : null}
 
