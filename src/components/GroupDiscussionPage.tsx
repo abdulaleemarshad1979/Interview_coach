@@ -367,6 +367,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       // Fallback: HTTP Polling mode!
       try {
         setConnectionLoading(true);
+        setError(null); // Clear WebSocket errors since we are falling back to polling
         const res = await fetch("/api/gd-room/join", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
