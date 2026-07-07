@@ -1341,6 +1341,63 @@ app.post("/api/gd-room/leave", async (req, res) => {
 });
 
 
+app.get("/api/gd-room/diagnose", async (req, res) => {
+  try {
+    const rawUrl = process.env.SUPABASE_URL || "";
+    const rawKey = process.env.SUPABASE_ANON_KEY || "";
+    const viteUrl = process.env.VITE_SUPABASE_URL || "";
+    const viteKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+
+    const url = rawUrl && !rawUrl.includes("your-project-id") 
+      ? rawUrl 
+      : viteUrl;
+
+    const key = rawKey && !rawKey.includes("your-anon-public-key")
+      ? rawKey 
+      : viteKey;
+
+    const hasCreds = Boolean(url && key);
+    const client = getSupabaseClient();
+    const isClientInit = client !== null;
+
+    let dbTestStatus = "Not attempted";
+    let dbTestError = null;
+
+    if (client) {
+      try {
+        const { data, error } = await client.from("group_discussion_rooms").select("code").limit(1);
+        if (error) {
+          dbTestStatus = "Failed";
+          dbTestError = error;
+        } else {
+          dbTestStatus = "Success";
+        }
+      } catch (err: any) {
+        dbTestStatus = "Error throwing";
+        dbTestError = err.message;
+      }
+    }
+
+    res.json({
+      env: {
+        NODE_ENV: process.env.NODE_ENV || "not set",
+        VERCEL: process.env.VERCEL || "not set",
+        hasSUPABASE_URL: Boolean(process.env.SUPABASE_URL),
+        hasSUPABASE_ANON_KEY: Boolean(process.env.SUPABASE_ANON_KEY),
+        hasVITE_SUPABASE_URL: Boolean(process.env.VITE_SUPABASE_URL),
+        hasVITE_SUPABASE_ANON_KEY: Boolean(process.env.VITE_SUPABASE_ANON_KEY),
+        resolvedUrl: url ? `${url.substring(0, 15)}...` : "none",
+      },
+      supabaseClientInitialized: isClientInit,
+      dbTestStatus,
+      dbTestError,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // 6. WebSocket Server Setup for Groq Fallback gateway
 // Standard Serverless environments like Vercel do not support WebSockets, but we retain it
 // for local compatibility, running it with Groq text completions as a fallback.
