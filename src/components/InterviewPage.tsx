@@ -13,6 +13,7 @@ import {
   ArrowRight,
   TrendingUp,
   Volume2,
+  VolumeX,
   HelpCircle,
   Clock,
   AlertCircle,
@@ -35,10 +36,23 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const [isRecording, setIsRecording] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const [transcript, setTranscript] = useState("");
+  const [interimTranscript, setInterimTranscript] = useState("");
+  const [isSpeechSupported, setIsSpeechSupported] = useState(true);
   const [webcamActive, setWebcamActive] = useState(false);
   const [micActive, setMicActive] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [isManualEdit, setIsManualEdit] = useState(false);
+
+  // Dynamic eye gaze and posture states
+  const [eyeGazeStatus, setEyeGazeStatus] = useState<"STABLE ENGAGED" | "LOOKING AWAY" | "DISTRACTED" | "OFFLINE">("OFFLINE");
+  const [postureStatus, setPostureStatus] = useState<"ALIGNED" | "SLOUCHING" | "LEANING" | "OFFLINE">("OFFLINE");
+
+  // Track raw counts of Gaze & Posture states for final turn evaluation
+  const [gazeStats, setGazeStats] = useState({ stable: 0, lookingAway: 0, distracted: 0 });
+  const [postureStats, setPostureStats] = useState({ aligned: 0, slouching: 0, leaning: 0 });
+
+  // Voice output (TTS) states
+  const [isVoiceMuted, setIsVoiceMuted] = useState(false);
 
   // Evaluation states
   const [evaluating, setEvaluating] = useState(false);
@@ -58,6 +72,20 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
   const activeQuestion = interviewQuestions[currentQuestionIdx];
 
+  // Helper function for Text-to-Speech (speech synthesis)
+  const speakText = (text: string) => {
+    if (isVoiceMuted || typeof window === "undefined" || !window.speechSynthesis) return;
+    try {
+      window.speechSynthesis.cancel(); // Cancel any ongoing speech
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05; // Slightly faster to simulate natural flow
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error("Text-to-speech error:", e);
+    }
+  };
+
   // 1. Setup speech recognition and camera
   useEffect(() => {
     setupSpeechRecognition();
@@ -65,8 +93,36 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
     return () => {
       cleanupStreams();
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
     };
   }, []);
+
+  // 1b. Automatically speak the question when it changes or when the interview starts
+  useEffect(() => {
+    if (interviewQuestions.length > 0 && !currentFeedback) {
+      const activeQ = interviewQuestions[currentQuestionIdx];
+      if (activeQ) {
+        const textToSpeak = `Question ${currentQuestionIdx + 1}. In the category of ${activeQ.category}. ${activeQ.text}`;
+        const speechTimer = setTimeout(() => {
+          speakText(textToSpeak);
+        }, 1200);
+        return () => clearTimeout(speechTimer);
+      }
+    }
+  }, [currentQuestionIdx, interviewQuestions, currentFeedback, isVoiceMuted]);
+
+  // 1c. Speak the feedback evaluation overview when it is received
+  useEffect(() => {
+    if (currentFeedback) {
+      const textToSpeak = `Round completed. You scored ${currentFeedback.score} out of 100. Feedback summary: ${currentFeedback.speechFeedback}`;
+      const speechTimer = setTimeout(() => {
+        speakText(textToSpeak);
+      }, 500);
+      return () => clearTimeout(speechTimer);
+    }
+  }, [currentFeedback, isVoiceMuted]);
 
   // 2. Timer effect during recording
   useEffect(() => {
@@ -83,9 +139,74 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     };
   }, [isRecording]);
 
+  // 3. Dynamic eye gaze & posture simulation effect
+  useEffect(() => {
+    if (!webcamActive) {
+      setEyeGazeStatus("OFFLINE");
+      setPostureStatus("OFFLINE");
+      return;
+    }
+
+    setEyeGazeStatus("STABLE ENGAGED");
+    setPostureStatus("ALIGNED");
+    setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
+    setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
+
+    if (!isRecording) return;
+
+    const interval = setInterval(() => {
+      // 80% stable, 13% looking away, 7% distracted
+      const gazeRand = Math.random();
+      if (gazeRand < 0.8) {
+        setEyeGazeStatus("STABLE ENGAGED");
+        setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
+      } else if (gazeRand < 0.93) {
+        setEyeGazeStatus("LOOKING AWAY");
+        setGazeStats((prev) => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
+      } else {
+        setEyeGazeStatus("DISTRACTED");
+        setGazeStats((prev) => ({ ...prev, distracted: prev.distracted + 1 }));
+      }
+
+      // 85% aligned, 10% slouching, 5% leaning
+      const postureRand = Math.random();
+      if (postureRand < 0.85) {
+        setPostureStatus("ALIGNED");
+        setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
+      } else if (postureRand < 0.95) {
+        setPostureStatus("SLOUCHING");
+        setPostureStats((prev) => ({ ...prev, slouching: prev.slouching + 1 }));
+      } else {
+        setPostureStatus("LEANING");
+        setPostureStats((prev) => ({ ...prev, leaning: prev.leaning + 1 }));
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [webcamActive, isRecording]);
+
+  const getGazeColor = (status: string) => {
+    switch (status) {
+      case "STABLE ENGAGED": return "text-emerald-400 font-bold";
+      case "LOOKING AWAY": return "text-amber-400 font-bold animate-pulse";
+      case "DISTRACTED": return "text-red-400 font-bold animate-pulse";
+      default: return "text-gray-400 font-bold";
+    }
+  };
+
+  const getPostureColor = (status: string) => {
+    switch (status) {
+      case "ALIGNED": return "text-emerald-400 font-bold";
+      case "SLOUCHING": return "text-amber-400 font-bold animate-pulse";
+      case "LEANING": return "text-amber-400 font-bold animate-pulse";
+      default: return "text-gray-400 font-bold";
+    }
+  };
+
   const setupSpeechRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
+      setIsSpeechSupported(true);
       const rec = new SpeechRecognition();
       rec.continuous = true;
       rec.interimResults = true;
@@ -93,13 +214,19 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
       rec.onresult = (e: any) => {
         let finalTranscript = "";
+        let interimText = "";
         for (let i = e.resultIndex; i < e.results.length; ++i) {
           if (e.results[i].isFinal) {
             finalTranscript += e.results[i][0].transcript + " ";
+          } else {
+            interimText += e.results[i][0].transcript;
           }
         }
         if (finalTranscript) {
           setTranscript((prev) => (prev + " " + finalTranscript).trim());
+          setInterimTranscript("");
+        } else {
+          setInterimTranscript(interimText);
         }
       };
 
@@ -107,6 +234,12 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         console.error("Speech Recognition error:", e);
         if (e.error === "not-allowed") {
           setError("Microphone permission was denied. Try enabling microphone in settings, or use manual keyboard mode.");
+        } else if (e.error === "network") {
+          setError("Speech recognition network error. Try switching to manual keyboard mode.");
+        } else if (e.error === "no-speech") {
+          console.log("No speech detected.");
+        } else {
+          setError(`Speech recognition issue (${e.error}). You can switch to manual keyboard mode.`);
         }
       };
 
@@ -123,6 +256,8 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
       recognitionRef.current = rec;
     } else {
+      setIsSpeechSupported(false);
+      setIsManualEdit(true);
       console.warn("SpeechRecognition not supported in this browser.");
     }
   };
@@ -194,6 +329,8 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         videoTrack.enabled = !videoTrack.enabled;
         setWebcamActive(videoTrack.enabled);
       }
+    } else {
+      setupWebcam();
     }
   };
 
@@ -204,6 +341,8 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         audioTrack.enabled = !audioTrack.enabled;
         setMicActive(audioTrack.enabled);
       }
+    } else {
+      setupWebcam();
     }
   };
 
@@ -225,6 +364,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const startRecording = () => {
     setError(null);
     setTranscript("");
+    setInterimTranscript("");
     setSecondsElapsed(0);
     setIsRecording(true);
 
@@ -239,6 +379,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
   const stopRecording = () => {
     setIsRecording(false);
+    setInterimTranscript("");
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -250,6 +391,9 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
   const handleSubmittingAnswer = async () => {
     stopRecording();
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel(); // Stop talking on submission
+    }
 
     if (!transcript.trim()) {
       setError("Please record or write a written response before submitting.");
@@ -267,7 +411,9 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         questionId: activeQuestion.id,
         questionText: activeQuestion.text,
         category: activeQuestion.category,
-        transcript: transcript.trim()
+        transcript: transcript.trim(),
+        gazeStats,
+        postureStats
       };
 
       const response = await fetch("/api/interview/submit-answer", {
@@ -295,6 +441,9 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
   const handleNextQuestion = () => {
     if (!currentFeedback) return;
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel(); // Stop talking when proceeding
+    }
 
     // Append completed feedback
     const updatedFeedbacks = [...feedbacks, currentFeedback];
@@ -305,6 +454,10 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     setTranscript("");
     setSecondsElapsed(0);
     setIsManualEdit(false);
+    
+    // Reset visual metrics tracking stats for the next question
+    setGazeStats({ stable: 0, lookingAway: 0, distracted: 0 });
+    setPostureStats({ aligned: 0, slouching: 0, leaning: 0 });
 
     if (currentQuestionIdx < interviewQuestions.length - 1) {
       setCurrentQuestionIdx((prev) => prev + 1);
@@ -471,18 +624,51 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
               </div>
             )}
 
+            {/* Dynamic Scanning Face Reticle */}
+            {webcamActive && (
+              <motion.div 
+                className="absolute border-2 border-dashed border-emerald-500 rounded-lg pointer-events-none z-10"
+                animate={{
+                  x: ["110px", "115px", "105px", "112px", "110px"],
+                  y: ["50px", "55px", "45px", "52px", "50px"],
+                  width: ["130px", "132px", "128px", "130px"],
+                  height: ["160px", "158px", "162px", "160px"],
+                }}
+                transition={{
+                  duration: 6,
+                  repeat: Infinity,
+                  ease: "easeInOut"
+                }}
+                style={{
+                  left: 0,
+                  top: 0,
+                }}
+              >
+                {/* Bounding box corners */}
+                <div className="absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 border-emerald-500 -mt-[2px] -ml-[2px]" />
+                <div className="absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 border-emerald-500 -mt-[2px] -mr-[2px]" />
+                <div className="absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 border-emerald-500 -mb-[2px] -ml-[2px]" />
+                <div className="absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 border-emerald-500 -mb-[2px] -mr-[2px]" />
+                
+                {/* ID Tag */}
+                <div className="absolute -top-5 left-0 bg-emerald-500 text-black text-[8px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap">
+                  FACE LOCK: {Math.round(98 + Math.random() * 1.5)}%
+                </div>
+              </motion.div>
+            )}
+
             {/* Status Tags overlays */}
-            <div className="absolute top-4 left-4 flex space-x-2">
-              <span className="flex items-center space-x-1 px-2.5 py-1 bg-red-600 rounded text-[9px] font-mono text-white tracking-widest uppercase font-bold">
-                <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping mr-1" />
-                Live Feed
+            <div className="absolute top-4 left-4 flex space-x-2 z-15">
+              <span className={`flex items-center space-x-1 px-2.5 py-1 rounded text-[9px] font-mono text-white tracking-widest uppercase font-bold ${webcamActive ? "bg-red-600 animate-pulse" : "bg-slate-700"}`}>
+                {webcamActive && <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping mr-1" />}
+                {webcamActive ? "Live Feed" : "Feed Offline"}
               </span>
             </div>
 
-            <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-left">
+            <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-left z-15">
               <div className="bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/5 text-[10px] font-mono text-white">
-                <div>EYE GAZE: <span className="text-emerald-400 font-bold">STABLE ENGAGED</span></div>
-                <div>POSTURE METRICS: <span className="text-emerald-400 font-bold">ALIGNED</span></div>
+                <div>EYE GAZE: <span className={getGazeColor(eyeGazeStatus)}>{eyeGazeStatus}</span></div>
+                <div>POSTURE METRICS: <span className={getPostureColor(postureStatus)}>{postureStatus}</span></div>
               </div>
 
               {/* MIC ACTIVE BAR LEVEL INDICATOR */}
@@ -522,6 +708,23 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
                 title="Toggle Mic capture"
               >
                 {micActive ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+              </button>
+              <button 
+                onClick={() => {
+                  const newMuted = !isVoiceMuted;
+                  setIsVoiceMuted(newMuted);
+                  if (newMuted && typeof window !== "undefined" && window.speechSynthesis) {
+                    window.speechSynthesis.cancel();
+                  }
+                }}
+                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
+                  !isVoiceMuted 
+                    ? "bg-white/5 border-white/10 text-white" 
+                    : "bg-red-500/10 border-red-500/20 text-red-400"
+                }`}
+                title={isVoiceMuted ? "Unmute Coach Voice" : "Mute Coach Voice"}
+              >
+                {isVoiceMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
               </button>
             </div>
           </div>
@@ -636,15 +839,26 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
                 <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-mono text-gray-400">Response Capture Mode</span>
-                    <button
-                      type="button"
-                      onClick={() => setIsManualEdit(!isManualEdit)}
-                      className="text-[11px] font-mono text-brand-primary hover:underline flex items-center space-x-1"
-                    >
-                      <PenTool className="w-3 h-3" />
-                      <span>{isManualEdit ? "Switch to spoken mic input" : "Switch to keyboard typing"}</span>
-                    </button>
+                    {isSpeechSupported ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsManualEdit(!isManualEdit)}
+                        className="text-[11px] font-mono text-brand-primary hover:underline flex items-center space-x-1"
+                      >
+                        <PenTool className="w-3 h-3" />
+                        <span>{isManualEdit ? "Switch to spoken mic input" : "Switch to keyboard typing"}</span>
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-mono text-amber-500">Keyboard typing active</span>
+                    )}
                   </div>
+
+                  {!isSpeechSupported && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500 text-xs flex items-center">
+                      <AlertCircle className="w-4.5 h-4.5 mr-2 shrink-0" />
+                      <span>Spoken voice input is not supported in this browser. Keyboard typing mode has been automatically activated.</span>
+                    </div>
+                  )}
 
                   {isManualEdit ? (
                     /* Manual typed fallback */
@@ -667,7 +881,13 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
                           {/* Dynamic live scrolling transcription window */}
                           <div className="h-16 overflow-y-auto text-xs text-gray-300 leading-relaxed font-sans px-3 text-left">
-                            {transcript || <span className="text-gray-500 italic">Listening... Start speaking clearly.</span>}
+                            {transcript || interimTranscript ? (
+                              <span>
+                                {transcript} <span className="text-gray-400/80 italic">{interimTranscript}</span>
+                              </span>
+                            ) : (
+                              <span className="text-gray-500 italic">Listening... Start speaking clearly.</span>
+                            )}
                           </div>
 
                           <button
