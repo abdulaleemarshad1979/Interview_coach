@@ -521,6 +521,108 @@ Respond with STRICT JSON matching this schema:
 });
 
 
+// 5b. API Endpoint: Evaluate Group Discussion Dialogues (2 Students)
+app.post("/api/interview/evaluate-gd", requireAuth, async (req: any, res) => {
+  try {
+    const { topic, student1, student2, dialogue } = req.body;
+
+    if (!topic || !student1 || !student2 || !dialogue || !Array.isArray(dialogue) || dialogue.length === 0) {
+      res.status(400).json({ error: "Topic, student details, and dialogue history are required." });
+      return;
+    }
+
+    let groq;
+    try {
+      groq = getGroqClient();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message, requiresApiKey: true });
+      return;
+    }
+
+    const dialogueStr = dialogue.map((t: any) => `${t.speaker} (${t.roll}): ${t.text}`).join("\n");
+
+    const prompt = `You are an elite academic soft-skills evaluator and communications coach.
+Review this peer Group Discussion (GD) transcript:
+Discussion Topic: "${topic}"
+
+Student 1: Name: "${student1.name}", Roll: "${student1.roll}"
+Student 2: Name: "${student2.name}", Roll: "${student2.roll}"
+
+Dialogue Transcript:
+${dialogueStr}
+
+Perform a rigorous, objective evaluation for BOTH students individually based on these 6 criteria from the University Assessment Framework:
+1. Participation (Score: 1-5 scale) — evaluates frequency, structure of turns, initiative.
+2. Listening Skills (Score: 1-5 scale) — evaluates active listening, referencing the partner's points, and building on arguments.
+3. Argument Quality (Score: 1-5 scale) — evaluates logical reasoning, logical flow, structure, and backing points with facts.
+4. Team Collaboration (Score: 1-5 scale) — evaluates tone, respectful engagement, encouraging the peer.
+5. Leadership Indicators (Score: 1-5 scale) — evaluates guiding the flow, initiating themes, bringing structure.
+6. Conflict Handling (Score: 1-5 scale) — evaluates response to opposing views, resolving friction professionally.
+
+Calculate:
+- Individual category scores (1 to 5 integers) and concise qualitative comments (1-2 sentences each).
+- Individual Overall Score (0 to 100).
+- Individual bullet points for Strengths and Improvements (2-3 items each).
+- Individual Coach Feedback (encouraging and professional).
+- Overall Verdict (a synthesis of the overall conversation, dynamic between speakers, and quality of dialogue).
+
+Respond with STRICT JSON matching this schema:
+{
+  "student1": {
+    "name": "${student1.name}",
+    "roll": "${student1.roll}",
+    "overallScore": 85,
+    "criteria": {
+      "participation": { "score": 4, "comments": "comments here" },
+      "listeningSkills": { "score": 5, "comments": "comments here" },
+      "argumentQuality": { "score": 4, "comments": "comments here" },
+      "teamCollaboration": { "score": 4, "comments": "comments here" },
+      "leadershipIndicators": { "score": 5, "comments": "comments here" },
+      "conflictHandling": { "score": 4, "comments": "comments here" }
+    },
+    "strengths": ["strength item"],
+    "improvements": ["improvement item"],
+    "coachFeedback": "coach commentary text"
+  },
+  "student2": {
+    "name": "${student2.name}",
+    "roll": "${student2.roll}",
+    "overallScore": 80,
+    "criteria": {
+      "participation": { "score": 4, "comments": "comments here" },
+      "listeningSkills": { "score": 4, "comments": "comments here" },
+      "argumentQuality": { "score": 4, "comments": "comments here" },
+      "teamCollaboration": { "score": 5, "comments": "comments here" },
+      "leadershipIndicators": { "score": 4, "comments": "comments here" },
+      "conflictHandling": { "score": 5, "comments": "comments here" }
+    },
+    "strengths": ["strength item"],
+    "improvements": ["improvement item"],
+    "coachFeedback": "coach commentary text"
+  },
+  "overallVerdict": "general verdict description text"
+}
+
+RULE: Assess purely communication skills and argument logic. Do not judge or refer to any private personal characteristics.`;
+
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        { role: "system", content: "You are a professional university soft skills assessor. Respond with a JSON object conforming strictly to the requested schema." },
+        { role: "user", content: prompt }
+      ],
+      model: "llama-3.3-70b-versatile",
+      response_format: { type: "json_object" }
+    });
+
+    const result = JSON.parse(chatCompletion.choices[0]?.message?.content || "{}");
+    res.json(result);
+  } catch (error: any) {
+    console.error("GD Evaluation Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 // 6. WebSocket Server Setup for Groq Fallback gateway
 // Standard Serverless environments like Vercel do not support WebSockets, but we retain it
 // for local compatibility, running it with Groq text completions as a fallback.
@@ -610,3 +712,5 @@ initServer().catch((err) => {
 });
 
 export default app;
+
+// Modified by Backend Engineer agent for Task run-3e9897-IC-102 at 2026-07-07 11:13:11

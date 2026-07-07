@@ -147,34 +147,41 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
 
   return (
-    <div className="min-h-screen bg-[#050816] flex text-[#F8FAFC] font-sans selection:bg-brand-primary/30 overflow-y-auto lg:overflow-hidden relative">
+    <div className="min-h-screen bg-white flex text-slate-800 font-sans selection:bg-brand-primary/30 overflow-y-auto lg:overflow-hidden relative">
       {/* Left Panel (Desktop only) */}
       <motion.div
         initial={{ x: -40, opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         transition={{ duration: 0.6, ease: [0.25, 0.1, 0.25, 1] }}
-        className="hidden lg:flex lg:w-[45%] bg-gradient-to-b from-[#090B14] to-[#050816] border-r border-white/[0.04] p-16 flex-col justify-between relative text-left"
+        className="hidden lg:flex lg:w-[45%] bg-slate-50 border-r border-slate-200/60 p-16 flex-col justify-between relative text-left"
       >
         {/* Logo */}
         <div className="absolute top-12 left-12 flex items-center gap-3 select-none">
-          <div className="w-9 h-9 rounded-xl bg-linear-to-tr from-brand-accent to-brand-primary flex items-center justify-center shadow-lg">
-            <GraduationCap className="w-5 h-5 text-white" />
+          <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-200/50 shadow-xs">
+            <img 
+              src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg" 
+              alt="Aditya University Logo" 
+              className="h-10 object-contain"
+            />
+            <div className="h-6 w-[1.5px] bg-slate-200" />
+            <img 
+              src="https://www.adityauniversity.in/public/frontend/assets/images/naac-logo.svg" 
+              alt="NAAC Logo" 
+              className="h-9 object-contain"
+            />
           </div>
-          <span className="font-bold text-xl tracking-tight font-sans text-white uppercase">
-            Interview<span className="text-brand-primary font-medium">Coach</span>
-          </span>
         </div>
 
         {/* Center Brand Content */}
         <div className="my-auto flex flex-col gap-8 max-w-sm mt-32">
           <div className="flex flex-col gap-3">
-            <span className="text-[12px] font-semibold text-[#3B82F6] tracking-[2px] uppercase font-mono">
+            <span className="text-[12px] font-semibold text-brand-primary tracking-[2px] uppercase font-mono">
               AI-Powered Mock Gateway
             </span>
-            <h1 className="text-5xl font-bold font-sans text-white tracking-tight leading-none">
+            <h1 className="text-5xl font-bold font-sans text-slate-900 tracking-tight leading-none">
               Your interview.
               <br />
-              <span className="text-[#94A3B8]">Perfected.</span>
+              <span className="text-brand-accent">Perfected.</span>
             </h1>
           </div>
 
@@ -184,35 +191,35 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
           <ul className="flex flex-col gap-3">
             {[
-              "Real-time audio speech simulator",
-              "Instant resume claim diagnostics",
-              "Automated scorecard & model answers"
-            ].map((item, idx) => (
-              <li key={idx} className="flex items-center gap-2.5 text-sm text-[#475569] font-sans">
-                <span className="w-5 h-5 rounded-full bg-[#3B82F6]/10 flex items-center justify-center flex-shrink-0">
-                  <Check className="w-3.5 h-3.5 text-[#3B82F6]" />
-                </span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+            "Real-time audio speech simulator",
+            "Instant resume claim diagnostics",
+            "Automated scorecard & model answers"
+          ].map((item, idx) => (
+            <li key={idx} className="flex items-center gap-2.5 text-sm text-[#475569] font-sans">
+              <span className="w-5 h-5 rounded-full bg-brand-primary/10 flex items-center justify-center flex-shrink-0">
+                <Check className="w-3.5 h-3.5 text-brand-primary" />
+              </span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
 
-        {/* Bottom Review */}
-        <div className="flex flex-col gap-2 mt-auto">
-          <div className="flex gap-0.5">
-            {[...Array(5)].map((_, i) => (
-              <Star key={i} className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
-            ))}
-          </div>
-          <p className="text-[14px] italic text-[#475569] leading-relaxed font-sans">
-            "The low-latency audio feedback felt exactly like mock interviewing with an elite lead tech recruiter."
-          </p>
-          <span className="text-xs font-semibold text-[#475569] uppercase tracking-wider font-mono">
-            — Alice Chen, B.Tech CSE, Stanford University
-          </span>
+      {/* Bottom Review */}
+      <div className="flex flex-col gap-2 mt-auto">
+        <div className="flex gap-0.5">
+          {[...Array(5)].map((_, i) => (
+            <Star key={i} className="w-3.5 h-3.5 fill-[#F59E0B] text-[#F59E0B]" />
+          ))}
         </div>
-      </motion.div>
+        <p className="text-[14px] italic text-[#475569] leading-relaxed font-sans">
+          "The low-latency audio feedback felt exactly like mock interviewing with an elite lead tech recruiter."
+        </p>
+        <span className="text-xs font-semibold text-[#475569] uppercase tracking-wider font-mono">
+          — Arjun Prasad, B.Tech CSE, Aditya University
+        </span>
+      </div>
+    </motion.div>
 
       {/* Right Panel (Form) */}
       <div className="flex-1 flex items-center justify-center p-6 lg:p-16 relative">
@@ -233,23 +240,27 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 }
               }
             }}
-            className="lg:bg-transparent bg-gradient-to-b from-[#090B14]/80 to-[#050816]/90 border border-white/[0.06] lg:border-none p-8 lg:p-0 rounded-[20px] backdrop-blur-xl lg:backdrop-blur-none"
+          className="lg:bg-transparent bg-slate-50 border border-slate-200/60 lg:border-none p-8 lg:p-0 rounded-[20px] backdrop-blur-xl lg:backdrop-blur-none"
+        >
+          {/* Mobile Header Only */}
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 15 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+            }}
+            className="lg:hidden flex items-center gap-3 mb-6 select-none"
           >
-            {/* Mobile Header Only */}
-            <motion.div
-              variants={{
-                hidden: { opacity: 0, y: 15 },
-                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
-              }}
-              className="lg:hidden flex items-center gap-3 mb-6 select-none"
-            >
-              <div className="w-8 h-8 rounded-xl bg-linear-to-tr from-brand-accent to-brand-primary flex items-center justify-center shadow-lg">
-                <GraduationCap className="w-4.5 h-4.5 text-white" />
-              </div>
-              <span className="font-bold text-lg tracking-tight font-sans text-white uppercase">
-                Interview<span className="text-brand-primary font-medium">Coach</span>
-              </span>
-            </motion.div>
+            <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-200/50 shadow-xs">
+              <img 
+                src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg" 
+                alt="Aditya University Logo" 
+                className="h-8 object-contain"
+              />
+            </div>
+            <span className="font-bold text-lg tracking-tight font-sans text-slate-800 uppercase">
+              Interview<span className="text-brand-primary font-medium">Coach</span>
+            </span>
+          </motion.div>
 
             {/* Main Header */}
             <motion.div
@@ -259,49 +270,49 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               }}
               className="flex flex-col mb-8"
             >
-              <h2 className="text-3xl font-bold font-sans tracking-tight text-white">
-                {isSignUp ? "Create Student Account" : "Welcome back"}
-              </h2>
-              <p className="text-[15px] text-[#64748B] mt-1.5 font-sans">
-                {isSignUp ? "Register with your official college email" : "Sign in to your InterviewCoach gateway"}
-              </p>
-            </motion.div>
+            <h2 className="text-3xl font-bold font-sans tracking-tight text-slate-900">
+              {isSignUp ? "Create Student Account" : "Welcome back"}
+            </h2>
+            <p className="text-[15px] text-[#64748B] mt-1.5 font-sans">
+              {isSignUp ? "Register with your official college email" : "Sign in to your InterviewCoach gateway"}
+            </p>
+          </motion.div>
 
-            {/* Sliding Switch Tabs */}
-            <motion.div
-              variants={{
-                hidden: { opacity: 0, y: 15 },
-                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
-              }}
-              className="mb-8"
-            >
-              <div className="bg-[#0B1120]/80 border border-white/[0.06] rounded-[10px] p-1 flex relative overflow-hidden">
-                {([false, true] as const).map((signupVal) => (
-                  <button
-                    key={signupVal ? "signup" : "login"}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => {
-                      setIsSignUp(signupVal);
-                      setError(null);
-                      setSuccessMessage(null);
-                    }}
-                    className={`flex-1 py-2 text-center text-sm font-medium font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 ${
-                      isSignUp === signupVal ? 'text-white' : 'text-[#64748B]'
-                    }`}
-                    data-interactive="true"
-                  >
-                    {signupVal ? 'Create Account' : 'Sign In'}
-                    {isSignUp === signupVal && (
-                      <motion.div
-                        layoutId="activeTabIndicator"
-                        className="absolute inset-0 bg-[#3B82F6]/15 border border-[#3B82F6]/30 rounded-[8px] -z-10"
-                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
-                      />
-                    )}
-                  </button>
-                ))}
-              </div>
+          {/* Sliding Switch Tabs */}
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 15 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+            }}
+            className="mb-8"
+          >
+            <div className="bg-slate-100 border border-slate-200 rounded-[10px] p-1 flex relative overflow-hidden">
+              {([false, true] as const).map((signupVal) => (
+                <button
+                  key={signupVal ? "signup" : "login"}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setIsSignUp(signupVal);
+                    setError(null);
+                    setSuccessMessage(null);
+                  }}
+                  className={`flex-1 py-2 text-center text-sm font-medium font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 ${
+                    isSignUp === signupVal ? 'text-slate-800' : 'text-[#64748B]'
+                  }`}
+                  data-interactive="true"
+                >
+                  {signupVal ? 'Create Account' : 'Sign In'}
+                  {isSignUp === signupVal && (
+                    <motion.div
+                      layoutId="activeTabIndicator"
+                      className="absolute inset-0 bg-white shadow-xs border border-slate-200 rounded-[8px] -z-10"
+                      transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
             </motion.div>
 
             {/* Form Fields */}
@@ -471,7 +482,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   type="submit"
                   loading={loading}
                   disabled={loading || (isSignUp && (!emailValid || confirmPassword !== password))}
-                  className="w-full h-12 rounded-[10px] text-sm font-bold bg-[#3B82F6] hover:bg-[#60A5FA]"
+                  className="w-full h-12 rounded-[10px] text-sm font-bold bg-brand-primary hover:bg-blue-600 border border-transparent text-white shadow-md badge-white-text"
                   data-interactive="true"
                 >
                   {isSignUp ? "Register Account" : "Enter Portal"}

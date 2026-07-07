@@ -411,29 +411,6 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
 
             {/* Sidebar guidance */}
             <div className="lg:col-span-5 space-y-6">
-              <div className="bg-brand-card/25 border border-white/5 p-5 rounded-2xl space-y-4 text-left">
-                <h4 className="text-xs font-mono uppercase tracking-wider text-gray-400 pb-2 border-b border-white/5">
-                  How Gemini Audits Your Portfolio
-                </h4>
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  Gemini Flash uses integrated vision-and-document schemas to interpret layouts, texts, dates, and technology classifications. 
-                </p>
-                <ul className="text-xs text-gray-400 space-y-2">
-                  <li className="flex items-start space-x-2">
-                    <CheckCircle className="w-3.5 h-3.5 text-brand-primary shrink-0 mt-0.5" />
-                    <span><strong>No OCR loss</strong>: Multi-column tables and dates are parsed natively.</span>
-                  </li>
-                  <li className="flex items-start space-x-2">
-                    <CheckCircle className="w-3.5 h-3.5 text-brand-primary shrink-0 mt-0.5" />
-                    <span><strong>Fact Auditing</strong>: Claims on your resume are mapped directly against active public codes found in your GitHub repositories.</span>
-                  </li>
-                  <li className="flex items-start space-x-2">
-                    <CheckCircle className="w-3.5 h-3.5 text-brand-primary shrink-0 mt-0.5" />
-                    <span><strong>Actionable reports</strong>: Suggestions highlight missing libraries, modular debt, or portfolio documentation gaps.</span>
-                  </li>
-                </ul>
-              </div>
-
               <div className="p-5 bg-brand-card/10 border border-white/5 rounded-2xl text-left flex items-start space-x-3">
                 <Lock className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-gray-400 leading-relaxed">

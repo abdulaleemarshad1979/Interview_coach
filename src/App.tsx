@@ -9,6 +9,7 @@ import InterviewPage from "./components/InterviewPage";
 import ReportPage from "./components/ReportPage";
 import SettingsPage from "./components/SettingsPage";
 import CustomCursor from "./components/effects/CustomCursor";
+import GroupDiscussionPage from "./components/GroupDiscussionPage";
 import { StudentProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
 import { supabase } from "./lib/supabaseClient";
 
@@ -199,6 +200,15 @@ export default function App() {
             onNavigate={setCurrentView}
           />
         );
+      case "group-discussion":
+        return studentProfile ? (
+          <GroupDiscussionPage
+            studentProfile={studentProfile}
+            onNavigate={setCurrentView}
+          />
+        ) : (
+          <LoginPage onLoginSuccess={handleLoginSuccess} />
+        );
       case "settings":
         return studentProfile ? (
           <SettingsPage
@@ -255,3 +265,5 @@ export default function App() {
     </div>
   );
 }
+
+// Modified by Frontend Engineer agent for Task run-3e9897-IC-103 at 2026-07-07 11:13:39

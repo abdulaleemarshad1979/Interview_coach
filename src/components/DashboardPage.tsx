@@ -195,6 +195,26 @@ export default function DashboardPage({ studentProfile, scorecard, analysisResul
             </div>
           )}
 
+          {/* Group Discussion entry point card */}
+          <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-4 shadow-sm bg-slate-50/50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-display font-bold text-slate-900">Peer Group Discussion (GD) Workspace</h3>
+                <p className="text-xs text-slate-500 font-mono uppercase mt-0.5">Turn-Based Dialogue & AI soft skills grading</p>
+              </div>
+              <button
+                onClick={() => onNavigate("group-discussion")}
+                className="inline-flex items-center justify-center space-x-2 bg-brand-accent hover:bg-orange-600 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all cursor-pointer font-sans badge-white-text"
+              >
+                <Play className="w-3.5 h-3.5 fill-white text-white" />
+                <span>Launch GD Portal</span>
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Collaborate with a peer to debate or discuss academic and professional topics. Speak using your microphone (or type directly to bypass mic issues). Submit for AI evaluation based on the official University Soft Skills Assessment rubric, and receive individual grades and coach recommendations.
+            </p>
+          </div>
+
           {/* Guidelines roadmap card */}
           <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-6">
             <div>

@@ -38,9 +38,9 @@ export default function Button({
   };
 
   const variantClasses = {
-    primary: 'bg-accent-blue hover:bg-blue-500 text-white border border-transparent shadow-lg shadow-accent-blue/10 active:scale-[0.98]',
-    secondary: 'bg-transparent border border-white/12 text-slate-300 hover:border-white/20 hover:text-white active:scale-[0.98]',
-    ghost: 'bg-transparent text-slate-400 hover:text-white border border-transparent group',
+    primary: 'bg-accent-blue hover:bg-blue-600 text-white border border-transparent shadow-lg shadow-accent-blue/10 active:scale-[0.98]',
+    secondary: 'bg-transparent border border-slate-300 text-slate-700 hover:border-slate-400 hover:text-slate-900 active:scale-[0.98]',
+    ghost: 'bg-transparent text-slate-500 hover:text-slate-900 border border-transparent group',
   };
 
   return (
@@ -90,7 +90,7 @@ export default function Button({
       )}
 
       {isGhost && (
-        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-[1.5px] bg-white transition-all duration-300 group-hover:w-full" />
+        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-0 h-[1.5px] bg-accent-blue transition-all duration-300 group-hover:w-full" />
       )}
     </motion.button>
   );
