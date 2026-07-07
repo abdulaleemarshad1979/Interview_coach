@@ -79,6 +79,59 @@ function getGroqClient(): Groq {
   return groqInstance;
 }
 
+interface CompletionOptions {
+  messages: { role: string; content: string }[];
+  jsonMode?: boolean;
+}
+
+async function getLLMCompletion(options: CompletionOptions): Promise<string> {
+  const provider = process.env.AI_PROVIDER || "groq";
+
+  if (provider === "ollama") {
+    const ollamaUrl = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
+    const ollamaModel = process.env.OLLAMA_MODEL || "qwen3-coder:480b";
+
+    const payload: any = {
+      model: ollamaModel,
+      messages: options.messages,
+      stream: false,
+    };
+    if (options.jsonMode) {
+      payload.format = "json";
+    }
+
+    const response = await fetch(`${ollamaUrl}/api/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Ollama API error: ${response.status} - ${errorText}`);
+    }
+
+    const result: any = await response.json();
+    return result.message?.content || "";
+  } else {
+    const groq = getGroqClient();
+    const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+
+    const params: any = {
+      messages: options.messages,
+      model: model,
+    };
+    if (options.jsonMode) {
+      params.response_format = { type: "json_object" };
+    }
+
+    const chatCompletion = await groq.chat.completions.create(params);
+    return chatCompletion.choices[0]?.message?.content || "";
+  }
+}
+
 const app = express();
 const server = http.createServer(app);
 const PORT = 3000;
@@ -243,16 +296,15 @@ Respond with STRICT JSON matching this schema:
   }
 }`;
 
-    const chatCompletion = await groq.chat.completions.create({
+    const completionText = await getLLMCompletion({
       messages: [
         { role: "system", content: "You are a professional technical auditor. Respond with a JSON object conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
-      model: "llama-3.3-70b-versatile",
-      response_format: { type: "json_object" }
+      jsonMode: true
     });
 
-    const result = JSON.parse(chatCompletion.choices[0]?.message?.content || "{}");
+    const result = JSON.parse(completionText || "{}");
     res.json(result);
   } catch (error: any) {
     console.error("Analysis Endpoint Error:", error);
@@ -334,16 +386,15 @@ Respond with STRICT JSON matching this schema:
   ]
 }`;
 
-    const chatCompletion = await groq.chat.completions.create({
+    const completionText = await getLLMCompletion({
       messages: [
         { role: "system", content: "You are a professional mock interviewer. Respond with a JSON object containing a 'questions' array conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
-      model: "llama-3.3-70b-versatile",
-      response_format: { type: "json_object" }
+      jsonMode: true
     });
 
-    const result = JSON.parse(chatCompletion.choices[0]?.message?.content || "{}");
+    const result = JSON.parse(completionText || "{}");
     res.json(result.questions || []);
   } catch (error: any) {
     console.error("Generate Questions Error:", error);
@@ -411,16 +462,15 @@ Provide feedback conforming to the following JSON schema:
 
 RULE: Absolutely do not judge or infer personal, physical, medical, emotional, or identity traits. Evaluate only the speech structure, communication technique, and technical accuracy of the spoken content.`;
 
-    const chatCompletion = await groq.chat.completions.create({
+    const completionText = await getLLMCompletion({
       messages: [
         { role: "system", content: "You are an expert technical interviewer and feedback coach. Respond with a JSON object conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
-      model: "llama-3.3-70b-versatile",
-      response_format: { type: "json_object" }
+      jsonMode: true
     });
 
-    const evaluation = JSON.parse(chatCompletion.choices[0]?.message?.content || "{}");
+    const evaluation = JSON.parse(completionText || "{}");
 
     const feedback = {
       questionId,
@@ -516,16 +566,15 @@ Respond with STRICT JSON matching this schema:
   "finalVerdict": "Summation verdict text"
 }`;
 
-    const chatCompletion = await groq.chat.completions.create({
+    const completionText = await getLLMCompletion({
       messages: [
         { role: "system", content: "You are an engineering director. Respond with a JSON object conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
-      model: "llama-3.3-70b-versatile",
-      response_format: { type: "json_object" }
+      jsonMode: true
     });
 
-    const rawReport = JSON.parse(chatCompletion.choices[0]?.message?.content || "{}");
+    const rawReport = JSON.parse(completionText || "{}");
     const scorecard = {
       id: "rpt_" + Math.random().toString(36).substring(2, 9),
       studentId,
@@ -626,16 +675,15 @@ Respond with STRICT JSON matching this schema:
 
 RULE: Assess purely communication skills and argument logic. Do not judge or refer to any private personal characteristics.`;
 
-    const chatCompletion = await groq.chat.completions.create({
+    const completionText = await getLLMCompletion({
       messages: [
         { role: "system", content: "You are a professional university soft skills assessor. Respond with a JSON object conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
-      model: "llama-3.3-70b-versatile",
-      response_format: { type: "json_object" }
+      jsonMode: true
     });
 
-    const result = JSON.parse(chatCompletion.choices[0]?.message?.content || "{}");
+    const result = JSON.parse(completionText || "{}");
     res.json(result);
   } catch (error: any) {
     console.error("GD Evaluation Error:", error);
@@ -666,15 +714,13 @@ wss.on("connection", async (ws: WebSocket) => {
 
       if (message.type === "text_input") {
         try {
-          const groq = getGroqClient();
-          const resp = await groq.chat.completions.create({
+          const respText = await getLLMCompletion({
             messages: [
               { role: "system", content: "You are a helpful and polite mock interview helper." },
               { role: "user", content: message.text }
-            ],
-            model: "llama-3.3-70b-versatile"
+            ]
           });
-          ws.send(JSON.stringify({ type: "text_response", text: resp.choices[0]?.message?.content || "" }));
+          ws.send(JSON.stringify({ type: "text_response", text: respText || "" }));
         } catch (err: any) {
           ws.send(JSON.stringify({ type: "error", message: err.message }));
         }
