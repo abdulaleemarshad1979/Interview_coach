@@ -354,7 +354,7 @@ Respond with STRICT JSON matching this schema:
 // 4. API Endpoint: Score Single Turn Answer
 app.post("/api/interview/submit-answer", requireAuth, async (req: any, res) => {
   try {
-    const { questionId, questionText, category, transcript } = req.body;
+    const { questionId, questionText, category, transcript, gazeStats, postureStats } = req.body;
 
     if (!questionText || !transcript) {
       res.status(400).json({ error: "Question text and response transcript are required." });
@@ -373,10 +373,26 @@ app.post("/api/interview/submit-answer", requireAuth, async (req: any, res) => {
     const pacing = wordCount < 50 ? "Slow" : wordCount > 150 ? "Fast" : "Optimal";
     const fillerWords = (transcript.match(/\b(like|um|uh|basically|actually|so|you know)\b/gi) || []).length;
 
+    let visualMetricsPrompt = "";
+    if (gazeStats && postureStats) {
+      visualMetricsPrompt = `
+Visual camera gaze stats during answer:
+- Stable gaze contact: ${gazeStats.stable || 0} checks
+- Looking away/distracted: ${(gazeStats.lookingAway || 0) + (gazeStats.distracted || 0)} checks
+
+Visual camera posture alignment stats during answer:
+- Professional aligned posture: ${postureStats.aligned || 0} checks
+- Slouching or off-center: ${(postureStats.slouching || 0) + (postureStats.leaning || 0)} checks
+
+Please evaluate these Gaze and Posture behaviors in your grading. If the candidate frequently slouched, looked away, or was distracted, constructively analyze this in the "presentationFeedback" and make appropriate adjustments to the overall score. Encourage professional, confident on-camera presence.
+`;
+    }
+
     const prompt = `You are an elite communication coach and technical grader. Grade this candidate's spoken response transcript.
 Question Category: ${category}
 Question asked: "${questionText}"
 Spoken Answer Transcript: "${transcript}"
+${visualMetricsPrompt}
 
 Provide feedback conforming to the following JSON schema:
 {
