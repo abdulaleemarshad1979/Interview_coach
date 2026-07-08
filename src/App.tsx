@@ -99,7 +99,28 @@ export default function App() {
     }
   };
 
-
+  const checkAndClearStudentCache = (userId: string) => {
+    const cachedUserId = localStorage.getItem("current_user_id");
+    if (cachedUserId && cachedUserId !== userId) {
+      console.log("New user ID detected. Clearing student cache...");
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (
+          key.startsWith("studentProfile") ||
+          key.startsWith("analysisResult") ||
+          key.startsWith("interviewQuestions") ||
+          key.startsWith("scorecard") ||
+          key.startsWith("assignedInterview") ||
+          key.startsWith("assignedGD")
+        )) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    }
+    localStorage.setItem("current_user_id", userId);
+  };
 
   // Listen to Supabase Auth Changes on boot
   useEffect(() => {
@@ -125,6 +146,7 @@ export default function App() {
           setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
         } else {
           const userRollNo = session.user.user_metadata?.roll_number || session.user.email?.split("@")[0].toUpperCase() || "STUDENT";
+          checkAndClearStudentCache(session.user.id);
           const profile: StudentProfile = {
             studentId: userRollNo,
             githubUsername: session.user.user_metadata?.github_username,
@@ -196,6 +218,7 @@ export default function App() {
           setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
         } else {
           const userRollNo = session.user.user_metadata?.roll_number || session.user.email?.split("@")[0].toUpperCase() || "STUDENT";
+          checkAndClearStudentCache(session.user.id);
           const profile: StudentProfile = {
             studentId: userRollNo,
             githubUsername: session.user.user_metadata?.github_username,
