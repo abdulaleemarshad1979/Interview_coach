@@ -92,7 +92,213 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const isRecordingRef = useRef<boolean>(false);
   const prevFrameRef = useRef<Uint8ClampedArray | null>(null);
 
+  const socketRef = useRef<WebSocket | null>(null);
+  const audioPlayerRef = useRef<any>(null);
+  const micStreamerContextRef = useRef<AudioContext | null>(null);
+  const micStreamerScriptNodeRef = useRef<ScriptProcessorNode | null>(null);
+
   const activeQuestion = interviewQuestions[currentQuestionIdx];
+
+  const playAudioChunk = (base64PCM: string) => {
+    if (isVoiceMuted) return;
+    if (!audioPlayerRef.current) {
+      const AudioPlayerClass = class {
+        private audioCtx: AudioContext | null = null;
+        private nextPlayTime: number = 0;
+
+        constructor() {
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          this.audioCtx = new AudioContextClass({ sampleRate: 24000 });
+        }
+
+        public playChunk(base64Data: string) {
+          if (!this.audioCtx) return;
+          try {
+            const binaryString = atob(base64Data);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            const int16Array = new Int16Array(bytes.buffer);
+            const float32Array = new Float32Array(int16Array.length);
+            for (let i = 0; i < int16Array.length; i++) {
+              float32Array[i] = int16Array[i] / 32768.0;
+            }
+            
+            const audioBuffer = this.audioCtx.createBuffer(1, float32Array.length, 24000);
+            audioBuffer.getChannelData(0).set(float32Array);
+            
+            const source = this.audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(this.audioCtx.destination);
+            
+            const currentTime = this.audioCtx.currentTime;
+            if (this.nextPlayTime < currentTime) {
+              this.nextPlayTime = currentTime;
+            }
+            source.start(this.nextPlayTime);
+            this.nextPlayTime += audioBuffer.duration;
+          } catch (err) {
+            console.error("Failed to play PCM chunk", err);
+          }
+        }
+
+        public stop() {
+          if (this.audioCtx) {
+            this.audioCtx.close();
+            this.audioCtx = null;
+          }
+        }
+      };
+      audioPlayerRef.current = new AudioPlayerClass();
+    }
+    audioPlayerRef.current.playChunk(base64PCM);
+  };
+
+  const connectVoiceSocket = () => {
+    if (socketRef.current) {
+      socketRef.current.close();
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.stop();
+      audioPlayerRef.current = null;
+    }
+
+    const isSecure = window.location.protocol === "https:";
+    const wsProtocol = isSecure ? "wss" : "ws";
+    const host = window.location.host;
+    let socketUrl = `${wsProtocol}://${host}/ws/interview`;
+
+    // Direct Google Gemini Live connection if Vercel or local key is present
+    const directKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
+    if ((host.includes("vercel.app") || host.includes("localhost:5173") || host.includes("127.0.0.1")) && directKey) {
+      console.log("Connecting directly to Google Gemini Live API from browser...");
+      socketUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${directKey}`;
+    }
+
+    try {
+      const ws = new WebSocket(socketUrl);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("Interview voice socket connected:", socketUrl);
+        if (socketUrl.includes("generativelanguage.googleapis.com")) {
+          const setupMsg = {
+            setup: {
+              model: "models/gemini-2.0-flash-exp",
+              generationConfig: {
+                responseModalities: ["AUDIO", "TEXT"],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: {
+                      voiceName: "Puck"
+                    }
+                  }
+                }
+              },
+              systemInstruction: {
+                parts: [
+                  {
+                    text: `You are a warm, empathetic, conversational, and highly professional mock technical interviewer.
+Greet the candidate briefly, and ask them: "${activeQuestion.text}".
+Converse naturally and speak in a human-like tone.`
+                  }
+                ]
+              }
+            }
+          };
+          ws.send(JSON.stringify(setupMsg));
+        } else {
+          ws.send(JSON.stringify({ type: "init" }));
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.serverContent?.modelTurn?.parts) {
+            payload.serverContent.modelTurn.parts.forEach((part: any) => {
+              if (part.inlineData && part.inlineData.mimeType.startsWith("audio/pcm")) {
+                playAudioChunk(part.inlineData.data);
+              }
+              if (part.text) {
+                setTranscript((prev) => (prev ? prev + " " + part.text : part.text));
+              }
+            });
+          }
+          if (payload.type === "audio_chunk") {
+            playAudioChunk(payload.data);
+          }
+          if (payload.type === "text_chunk") {
+            setTranscript((prev) => (prev ? prev + " " + payload.text : payload.text));
+          }
+        } catch (e) {
+          console.error("Error reading socket stream chunk:", e);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log("Interview voice socket closed.");
+      };
+
+      ws.onerror = (err) => {
+        console.error("Interview voice socket error:", err);
+      };
+    } catch (e) {
+      console.error("Failed to connect voice socket:", e);
+    }
+  };
+
+  const setupMicAudioStreamer = (stream: MediaStream) => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx = new AudioContextClass({ sampleRate: 16000 });
+      const source = audioCtx.createMediaStreamSource(stream);
+      const scriptNode = audioCtx.createScriptProcessor(2048, 1, 1);
+      
+      scriptNode.onaudioprocess = (e) => {
+        if (!isRecordingRef.current) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+        const pcm16 = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
+        }
+        
+        const binary = String.fromCharCode(...new Uint8Array(pcm16.buffer));
+        const base64 = btoa(binary);
+        
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+          if (socketRef.current.url.includes("generativelanguage.googleapis.com")) {
+            socketRef.current.send(JSON.stringify({
+              realtimeInput: {
+                mediaChunks: [
+                  {
+                    mimeType: "audio/pcm",
+                    data: base64
+                  }
+                ]
+              }
+            }));
+          } else {
+            socketRef.current.send(JSON.stringify({
+              type: "audio_input",
+              data: base64
+            }));
+          }
+        }
+      };
+
+      source.connect(scriptNode);
+      scriptNode.connect(audioCtx.destination);
+      
+      micStreamerContextRef.current = audioCtx;
+      micStreamerScriptNodeRef.current = scriptNode;
+    } catch (err) {
+      console.error("Failed to setup microphone audio streamer:", err);
+    }
+  };
 
   // Helper function for Text-to-Speech (speech synthesis)
   const speakText = (text: string) => {
@@ -126,14 +332,20 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     if (interviewQuestions.length > 0 && !currentFeedback) {
       const activeQ = interviewQuestions[currentQuestionIdx];
       if (activeQ) {
-        const textToSpeak = `Question ${currentQuestionIdx + 1}. In the category of ${activeQ.category}. ${activeQ.text}`;
-        const speechTimer = setTimeout(() => {
-          speakText(textToSpeak);
-        }, 1200);
-        return () => clearTimeout(speechTimer);
+        connectVoiceSocket();
       }
     }
-  }, [currentQuestionIdx, interviewQuestions, currentFeedback, isVoiceMuted]);
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.stop();
+        audioPlayerRef.current = null;
+      }
+    };
+  }, [currentQuestionIdx, interviewQuestions, currentFeedback]);
 
   // 1c. Speak the feedback evaluation overview when it is received
   useEffect(() => {
@@ -762,12 +974,13 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       }
     }
 
-    // Try to acquire separate mic capture for visualizer, catch errors to avoid mobile crashes
+    // Try to acquire separate mic capture for visualizer and streaming, catch errors to avoid mobile crashes
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       navigator.mediaDevices.getUserMedia({ audio: true })
         .then(stream => {
           if (isRecordingRef.current) {
             setupAudioVisualizer(stream);
+            setupMicAudioStreamer(stream);
           } else {
             stream.getTracks().forEach(t => t.stop());
           }
@@ -788,6 +1001,16 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       } catch (e) {
         // already stopped
       }
+    }
+
+    // Disconnect and release mic streamer nodes
+    if (micStreamerScriptNodeRef.current) {
+      micStreamerScriptNodeRef.current.disconnect();
+      micStreamerScriptNodeRef.current = null;
+    }
+    if (micStreamerContextRef.current) {
+      micStreamerContextRef.current.close().catch(() => {});
+      micStreamerContextRef.current = null;
     }
 
     // DSP Analytics summary calculations
