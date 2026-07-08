@@ -140,13 +140,15 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     let active = true;
     const poll = async () => {
       try {
-        const res = await fetch(`/api/gd-room/state?roomCode=${joinedRoomCode}&participantId=${myParticipantId}`);
+        const res = await fetch(`/api/gd-room/state?roomCode=${joinedRoomCode}&participantId=${myParticipantId}&t=${Date.now()}`);
         if (!res.ok) {
           const data = await res.json();
           throw new Error(data.error || "Failed to fetch state");
         }
         const state = await res.json();
         if (!active) return;
+
+        setError(null); // Clear connection lost error since polling succeeded
 
         // Sync local states with polled state
         setParticipants(state.participants || []);
