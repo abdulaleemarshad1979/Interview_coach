@@ -12,7 +12,6 @@ import {
   Save,
   Activity,
   Github,
-  BookOpen,
   Calendar,
   Percent
 } from "lucide-react";
@@ -57,15 +56,7 @@ export default function ProfilePage({
   const verdict = scorecard?.finalVerdict ?? 
     "While the candidate shows potential with a strong resume and GitHub profile, there is a significant need for improvement in technical depth and communication clarity. Focus on mock interview practice to build confidence.";
 
-  const defaultAssessments = [
-    { examName: "III Semester Midterm-1", percentage: 86, marks: "26/30" },
-    { examName: "III Semester Midterm-2", percentage: 78, marks: "23/30" },
-    { examName: "Java & DSA Lab Exam", percentage: 92, marks: "46/50" }
-  ];
 
-  const collegeAssessments = studentProfile.collegeAssessments && studentProfile.collegeAssessments.length > 0 
-    ? studentProfile.collegeAssessments 
-    : defaultAssessments;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,8 +69,7 @@ export default function ProfilePage({
       githubUsername,
       profileImage,
       attendance,
-      isSynced: true,
-      collegeAssessments: collegeAssessments
+      isSynced: true
     };
 
     onProfileUpdate(updatedProfile);
@@ -245,36 +235,7 @@ export default function ProfilePage({
             )}
           </form>
 
-          {/* Academic Records */}
-          <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-4">
-            <h3 className="text-lg font-display font-semibold text-white flex items-center border-b border-white/5 pb-3">
-              <BookOpen className="w-5 h-5 text-brand-primary mr-2" />
-              University Assessment Records (ACET Connect)
-            </h3>
-            
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs font-sans">
-                <thead>
-                  <tr className="border-b border-white/5 text-gray-500 font-mono uppercase text-[10px]">
-                    <th className="py-3 text-left font-normal">Assessment / Examination</th>
-                    <th className="py-3 text-center font-normal">Marks Obtained</th>
-                    <th className="py-3 text-right font-normal">Ratio Percentage</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5 text-gray-700">
-                  {collegeAssessments.map((exam, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/50">
-                      <td className="py-3.5 text-left font-medium text-white">{exam.examName}</td>
-                      <td className="py-3.5 text-center font-mono text-gray-500">{exam.marks}</td>
-                      <td className="py-3.5 text-right font-mono font-bold text-brand-primary">
-                        {exam.percentage}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+
         </div>
 
         {/* Right Column: Avatar Info Card & Coach Diagnostics (col-span-5) */}
