@@ -989,21 +989,6 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                 </div>
               </div>
 
-              {/* Text Channels List */}
-              <div className="space-y-2">
-                <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 block px-2">Text Channels</span>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-200/60 text-slate-800 text-xs font-semibold cursor-pointer">
-                    <span className="text-slate-400 text-sm">#</span>
-                    <span>lobby-chat</span>
-                  </div>
-                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-500 hover:text-slate-800 text-xs font-medium cursor-pointer hover:bg-slate-100">
-                    <span className="text-slate-400 text-sm">#</span>
-                    <span>evaluation-notes</span>
-                  </div>
-                </div>
-              </div>
-
               {/* Voice Channels List */}
               <div className="space-y-2">
                 <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 block px-2">Voice Channels</span>
@@ -1013,7 +998,9 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                       <span className="text-sm">🔊</span>
                       <span>GD Room call</span>
                     </div>
-                    <span className="px-1.5 py-0.5 bg-brand-primary/20 rounded text-[9px] font-mono">15/15</span>
+                    <span className="px-1.5 py-0.5 bg-brand-primary/20 rounded text-[9px] font-mono">
+                      {participants.length} member{participants.length !== 1 ? "s" : ""}
+                    </span>
                   </div>
                 </div>
               </div>
