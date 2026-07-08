@@ -127,4 +127,60 @@ SUPABASE_ANON_KEY="your-anon-key"
 GEMINI_API_KEY="AIzaSy..."
 ```
 
+---
+
+## 5. Configure Group Discussion & Proctor Assignments Database (New Tables)
+
+To persist Group Discussion Rooms and Faculty assignments in Supabase, execute the following SQL in your **Supabase SQL Editor**:
+
+```sql
+-- A. Create Group Discussion Rooms table (Required for Server real-time state)
+CREATE TABLE IF NOT EXISTS public.group_discussion_rooms (
+  code TEXT PRIMARY KEY,
+  topic TEXT NOT NULL,
+  participants JSONB DEFAULT '[]'::jsonb NOT NULL,
+  dialogue JSONB DEFAULT '[]'::jsonb NOT NULL,
+  created_at NUMERIC NOT NULL,
+  started_at NUMERIC,
+  evaluation JSONB,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable RLS on group_discussion_rooms
+ALTER TABLE public.group_discussion_rooms ENABLE ROW LEVEL SECURITY;
+
+-- Allow all authenticated users to CRUD rooms
+CREATE POLICY "Allow authenticated users access to group discussions"
+ON public.group_discussion_rooms FOR ALL
+TO authenticated
+USING (true)
+WITH CHECK (true);
+
+
+-- B. Create table for Faculty Assignments (Interviews & GD Tasks)
+CREATE TABLE IF NOT EXISTS public.proctor_assignments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  proctor_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  student_roll TEXT NOT NULL,
+  task_type TEXT CHECK (task_type IN ('interview', 'gd')) NOT NULL,
+  topic TEXT NOT NULL,
+  difficulty TEXT, -- only for interviews
+  room_code TEXT,  -- only for GDs
+  completed BOOLEAN DEFAULT false NOT NULL,
+  score NUMERIC,
+  assigned_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  completed_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Enable RLS on proctor_assignments
+ALTER TABLE public.proctor_assignments ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Proctors can manage their assignments
+CREATE POLICY "Proctors can CRUD assignments"
+ON public.proctor_assignments FOR ALL
+TO authenticated
+USING (true)
+WITH CHECK (true);
+```
+
 // Modified by Database Engineer agent for Task run-3e9897-IC-101 at 2026-07-07 11:12:48
