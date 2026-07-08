@@ -1215,6 +1215,7 @@ app.post("/api/gd-room/join", async (req, res) => {
 
 app.get("/api/gd-room/state", async (req, res) => {
   try {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     const roomCode = sanitizeRoomCode(String(req.query.roomCode || ""));
     const participantId = String(req.query.participantId || "");
 
