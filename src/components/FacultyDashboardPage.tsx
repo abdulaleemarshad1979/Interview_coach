@@ -85,179 +85,100 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
           .select("*");
 
         if (error) {
-          console.warn("Could not query profiles from Supabase, using simulated data.", error);
-          generateMockRoster();
+          console.warn("Could not query profiles from Supabase", error);
+          setStudents([]);
+          setIsRealData(true);
           return;
         }
 
-        if (data && data.length > 0) {
-          // Filter matching profiles
-          const matched = data.filter((row: any) => {
-            const roll = (row.roll_number || "").toLowerCase().trim();
-            const studentSection = (row.section || row.class_section || "").toLowerCase().trim();
-            
-            // Match branch and section
-            const sectionMatch = studentSection === targetSection || studentSection.includes(targetSection) || targetSection.includes(studentSection);
-            if (!sectionMatch) return false;
+        const matched = (data || []).filter((row: any) => {
+          const roll = (row.roll_number || "").toLowerCase().trim();
+          const studentSection = (row.section || row.class_section || "").toLowerCase().trim();
+          
+          // Match branch and section
+          const sectionMatch = studentSection === targetSection || studentSection.includes(targetSection) || targetSection.includes(studentSection);
+          if (!sectionMatch) return false;
 
-            if (roll.startsWith(prefix)) {
-              const suffix = roll.substring(prefix.length);
-              const numVal = parseInt(suffix, 10);
-              return !isNaN(numVal) && numVal >= start && numVal <= end;
-            }
-            return false;
-          }).map((row: any) => {
-            const roll = row.roll_number || "Unknown";
-            const name = row.name || row.student_name || `Student ${roll.slice(-2)}`;
-            const attendance = row.attendance || 80;
-            const branch = row.branch || "CSE";
-            const classSectionVal = row.section || row.class_section || facultyProfile.classSection;
-            const assessments = row.college_assessments || [];
-
-            // Local assignments
-            const localStoredInterview = localStorage.getItem(`assignedInterview_${roll}`);
-            const localStoredGD = localStorage.getItem(`assignedGD_${roll}`);
-            
-            let assignedInterview = undefined;
-            if (localStoredInterview) {
-              try {
-                assignedInterview = JSON.parse(localStoredInterview);
-              } catch {}
-            }
-
-            let assignedGD = undefined;
-            if (localStoredGD) {
-              try {
-                assignedGD = JSON.parse(localStoredGD);
-              } catch {}
-            }
-
-            const storedScorecard = localStorage.getItem(`scorecard_${roll}`);
-            if (storedScorecard) {
-              try {
-                const parsed = JSON.parse(storedScorecard);
-                if (assignedInterview) {
-                  assignedInterview.completed = true;
-                  assignedInterview.score = parsed.overallScore;
-                }
-              } catch {}
-            }
-
-            return {
-              studentId: roll,
-              name: name,
-              classSection: classSectionVal,
-              department: branch,
-              attendance: attendance,
-              isSynced: true,
-              collegeAssessments: assessments.length > 0 ? assessments : [
-                { examName: "Mid-Term 1 (Theory)", percentage: 82, marks: "32.8 / 40" },
-                { examName: "Mid-Term 2 (Theory)", percentage: 88, marks: "35.2 / 40" },
-                { examName: "Previous Semester GPA", percentage: 85, marks: "8.5 / 10.0 SGPA" }
-              ],
-              assignedInterview,
-              assignedGD
-            };
-          });
-
-          if (matched.length > 0) {
-            setStudents(matched);
-            setIsRealData(true);
-            
-            // Seed dynamic activity log updates
-            const initialActivities = matched.slice(0, 3).map((s, idx) => ({
-              id: `act_${idx}`,
-              time: `${10 + idx}:${15 + idx * 7} AM`,
-              roll: s.studentId,
-              text: idx === 0 ? "synced profile credentials" : idx === 1 ? "completed practice mock" : "joined classroom lobby",
-              type: "sync" as const
-            }));
-            setActivities(initialActivities);
-            return;
+          if (roll.startsWith(prefix)) {
+            const suffix = roll.substring(prefix.length);
+            const numVal = parseInt(suffix, 10);
+            return !isNaN(numVal) && numVal >= start && numVal <= end;
           }
-        }
+          return false;
+        }).map((row: any) => {
+          const roll = row.roll_number || "Unknown";
+          const name = row.name || row.student_name || `Student ${roll.slice(-2)}`;
+          const attendance = row.attendance || 80;
+          const branch = row.branch || "CSE";
+          const classSectionVal = row.section || row.class_section || facultyProfile.classSection;
+          const assessments = row.college_assessments || [];
 
-        // If no matches found in database, generate mock roster fallback
-        generateMockRoster();
+          // Local assignments
+          const localStoredInterview = localStorage.getItem(`assignedInterview_${roll}`);
+          const localStoredGD = localStorage.getItem(`assignedGD_${roll}`);
+          
+          let assignedInterview = undefined;
+          if (localStoredInterview) {
+            try {
+              assignedInterview = JSON.parse(localStoredInterview);
+            } catch {}
+          }
+
+          let assignedGD = undefined;
+          if (localStoredGD) {
+            try {
+              assignedGD = JSON.parse(localStoredGD);
+            } catch {}
+          }
+
+          const storedScorecard = localStorage.getItem(`scorecard_${roll}`);
+          if (storedScorecard) {
+            try {
+              const parsed = JSON.parse(storedScorecard);
+              if (assignedInterview) {
+                assignedInterview.completed = true;
+                assignedInterview.score = parsed.overallScore;
+              }
+            } catch {}
+          }
+
+          return {
+            studentId: roll,
+            name: name,
+            classSection: classSectionVal,
+            department: branch,
+            attendance: attendance,
+            isSynced: true,
+            collegeAssessments: assessments.length > 0 ? assessments : [
+              { examName: "Mid-Term 1 (Theory)", percentage: 82, marks: "32.8 / 40" },
+              { examName: "Mid-Term 2 (Theory)", percentage: 88, marks: "35.2 / 40" },
+              { examName: "Previous Semester GPA", percentage: 85, marks: "8.5 / 10.0 SGPA" }
+            ],
+            assignedInterview,
+            assignedGD
+          };
+        });
+
+        setStudents(matched);
+        setIsRealData(true);
+        
+        // Seed dynamic activity log updates
+        const initialActivities = matched.slice(0, 3).map((s, idx) => ({
+          id: `act_${idx}`,
+          time: `${10 + idx}:${15 + idx * 7} AM`,
+          roll: s.studentId,
+          text: idx === 0 ? "synced profile credentials" : idx === 1 ? "completed practice mock" : "joined classroom lobby",
+          type: "sync" as const
+        }));
+        setActivities(initialActivities);
+
       } catch (err) {
         console.error("Error fetching students:", err);
-        generateMockRoster();
+        setStudents([]);
+        setIsRealData(true);
       } finally {
         setLoadingStudents(false);
       }
-    };
-
-    const generateMockRoster = () => {
-      const prefix = facultyProfile.rollPrefix || "24P31A12";
-      const start = typeof facultyProfile.rollStart === "number" ? facultyProfile.rollStart : parseInt(String(facultyProfile.rollStart || "1"), 10);
-      const end = typeof facultyProfile.rollEnd === "number" ? facultyProfile.rollEnd : parseInt(String(facultyProfile.rollEnd || "30"), 10);
-      const generated: SimulatedStudent[] = [];
-
-      const firstNames = ["Sai", "Kiran", "Satish", "Venkatesh", "Ram", "Krishna", "Arjun", "Madhav", "Surya", "Rahul", "Priya", "Anusha", "Divya", "Sujatha", "Haritha"];
-      const lastNames = ["Rao", "Reddy", "Naidu", "Varma", "Srinivas", "Prasad", "Kumar", "Chowdary", "Patnaik", "Babu", "Rao", "Devi", "Laxmi", "Venkata", "Teja"];
-
-      for (let i = start; i <= end; i++) {
-        const suffix = String(i).padStart(2, "0");
-        const roll = `${prefix}${suffix}`;
-        
-        const seed = i * 7;
-        const attendance = 75 + (seed % 21); // 75% to 95%
-        const name = `${firstNames[(i - 1) % firstNames.length]} ${lastNames[(i * 3) % lastNames.length]}`;
-
-        const localStoredInterview = localStorage.getItem(`assignedInterview_${roll}`);
-        const localStoredGD = localStorage.getItem(`assignedGD_${roll}`);
-        
-        let assignedInterview = undefined;
-        if (localStoredInterview) {
-          try {
-            assignedInterview = JSON.parse(localStoredInterview);
-          } catch {}
-        }
-
-        let assignedGD = undefined;
-        if (localStoredGD) {
-          try {
-            assignedGD = JSON.parse(localStoredGD);
-          } catch {}
-        }
-
-        const storedScorecard = localStorage.getItem(`scorecard_${roll}`);
-        if (storedScorecard) {
-          try {
-            const parsed = JSON.parse(storedScorecard);
-            if (assignedInterview) {
-              assignedInterview.completed = true;
-              assignedInterview.score = parsed.overallScore;
-            }
-          } catch {}
-        }
-
-        generated.push({
-          studentId: roll,
-          name,
-          classSection: facultyProfile.classSection,
-          department: facultyProfile.department,
-          attendance,
-          isSynced: true,
-          collegeAssessments: [
-            { examName: "Mid-Term 1 (Theory)", percentage: 70 + (seed % 26), marks: `${(28 + (seed % 11)).toFixed(1)} / 40` },
-            { examName: "Mid-Term 2 (Theory)", percentage: 75 + ((seed * 2) % 21), marks: `${(30 + ((seed * 2) % 9)).toFixed(1)} / 40` },
-            { examName: "Previous Semester GPA", percentage: 70 + (seed % 25), marks: `${(7.0 + (seed % 25) / 10).toFixed(2)} / 10.0 SGPA` }
-          ],
-          assignedInterview,
-          assignedGD
-        });
-      }
-
-      setStudents(generated);
-      setIsRealData(false);
-
-      const initialActivities = [
-        { id: "act_1", time: "10:15 AM", roll: `${prefix}05`, text: "completed Live Interview mock. Scored 84%", type: "interview" as const },
-        { id: "act_2", time: "10:32 AM", roll: `${prefix}12`, text: "synced college portal credentials", type: "sync" as const },
-        { id: "act_3", time: "10:48 AM", roll: `${prefix}19`, text: "joined Group Discussion Room GD-9821", type: "gd" as const },
-      ];
-      setActivities(initialActivities);
     };
 
     fetchStudents();
@@ -534,11 +455,11 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
               <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-brand-primary animate-spin" />
               <span>Querying database profiles...</span>
             </div>
-          ) : !isRealData ? (
+          ) : students.length === 0 ? (
             <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 rounded-xl text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold">Simulated Preview Roster:</span> No registered student accounts match your roll number bounds in section <span className="font-semibold uppercase">"{facultyProfile.classSection}"</span> yet. Once they register, they will appear here dynamically.
+                <span className="font-bold">No Students Registered:</span> There are currently no registered student accounts in section <span className="font-semibold uppercase">"{facultyProfile.classSection}"</span> that match your roll range bounds ({facultyProfile.rollPrefix}{facultyProfile.rollStart} - {facultyProfile.rollEnd}) in the database. When students register using the gateway, they will appear here.
               </div>
             </div>
           ) : (
