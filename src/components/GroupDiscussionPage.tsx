@@ -269,6 +269,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
             if (message.type === "joined_room") {
               setJoinedRoomCode(message.roomCode);
+              setMyParticipantId(message.participantId);
               setIsHost(Boolean(message.isHost));
               setReceiveLog((prev) => [...prev, `Joined room ${message.roomCode}.`]);
             }
@@ -309,7 +310,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         socket.onclose = () => {
           setSocketConnected(false);
           setConnectionLoading(false);
-          setReceiveLog((prev) => [...prev, "Socket connection closed."]);
+          setReceiveLog((prev) => [...prev, "Socket connection closed. Switching to HTTP Polling..."]);
+          setIsPollingMode(true);
         };
 
         socket.onerror = (event) => {
@@ -940,7 +942,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Live Submission</span>
                   <h3 className="text-base font-bold text-slate-800 mt-0.5">Your turn</h3>
                 </div>
-                <span className="text-[10px] uppercase tracking-[0.5px] font-semibold text-slate-500">{socketConnected ? "Connected" : connectionLoading ? "Connecting..." : "Disconnected"}</span>
+                <span className="text-[10px] uppercase tracking-[0.5px] font-semibold text-slate-500">{socketConnected ? "Connected" : isPollingMode ? "Connected (Polling)" : connectionLoading ? "Connecting..." : "Disconnected"}</span>
               </div>
 
               <textarea

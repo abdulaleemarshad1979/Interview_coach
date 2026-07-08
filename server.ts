@@ -1011,7 +1011,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
           currentRoomCode = code;
           participantId = participant.id;
 
-          ws.send(JSON.stringify({ type: "joined_room", roomCode: code, isHost: true }));
+          ws.send(JSON.stringify({ type: "joined_room", roomCode: code, isHost: true, participantId: participant.id }));
           broadcastRoom(room, createRoomStatePayload(room));
           return;
         }
@@ -1054,7 +1054,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
         participantId = participant.id;
 
         await dbSaveRoom(room);
-        ws.send(JSON.stringify({ type: "joined_room", roomCode: requestedCode, isHost: false }));
+        ws.send(JSON.stringify({ type: "joined_room", roomCode: requestedCode, isHost: false, participantId: participant.id }));
         broadcastRoom(room, createRoomStatePayload(room));
         return;
       }
