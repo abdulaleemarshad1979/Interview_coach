@@ -528,7 +528,7 @@ Respond with STRICT JSON matching this schema:
 // 4. API Endpoint: Score Single Turn Answer
 app.post("/api/interview/submit-answer", requireAuth, async (req: any, res) => {
   try {
-    const { questionId, questionText, category, transcript, gazeStats, postureStats, expressionStats, headStats } = req.body;
+    const { questionId, questionText, category, transcript, gazeStats, postureStats, expressionStats, headStats, audioClarity, pitchVariance, speakingPace } = req.body;
 
     if (!questionText || !transcript) {
       res.status(400).json({ error: "Question text and response transcript are required." });
@@ -569,11 +569,24 @@ Please focus heavily on soft skills and on-camera presence in your grading. Eval
 `;
     }
 
+    let audioMetricsPrompt = "";
+    if (audioClarity !== undefined && pitchVariance !== undefined && speakingPace !== undefined) {
+      audioMetricsPrompt = `
+Audio recording analysis metrics captured:
+- Audio Clarity (SNR / Pronunciation Confidence): ${audioClarity}/100
+- Pitch Inflection (Voice expressiveness variance vs monotone): ${pitchVariance}/100
+- Speaking Pace: ${speakingPace} Words Per Minute (Optimal pace is between 110-150 WPM)
+
+Constructively evaluate the student's pacing and vocal confidence. If the pace is too fast (>150 WPM) or too slow (<100 WPM), or if the pitch inflection suggests monotone speech, highlight this in "presentationFeedback".
+`;
+    }
+
     const prompt = `You are an elite communication coach and technical grader. Grade this candidate's spoken response transcript.
 Question Category: ${category}
 Question asked: "${questionText}"
 Spoken Answer Transcript: "${transcript}"
 ${visualMetricsPrompt}
+${audioMetricsPrompt}
 
 Provide feedback conforming to the following JSON schema:
 {
@@ -957,6 +970,18 @@ Respond with STRICT JSON in this format:
 }
 
 async function evaluateDiscussionRoom(room: GDRoom) {
+  // Map rolls to word counts
+  const speakerWordCounts = new Map<string, number>();
+  room.participants.forEach((p) => {
+    speakerWordCounts.set(p.roll.trim().toUpperCase(), 0);
+  });
+
+  room.dialogue.forEach((turn) => {
+    const roll = turn.speakerRoll.trim().toUpperCase();
+    const words = turn.text.split(/\s+/).filter(Boolean).length;
+    speakerWordCounts.set(roll, (speakerWordCounts.get(roll) || 0) + words);
+  });
+
   const prompt = evaluateRoomPrompt(room);
   const completionText = await getLLMCompletion({
     messages: [
@@ -967,7 +992,35 @@ async function evaluateDiscussionRoom(room: GDRoom) {
   });
 
   try {
-    return JSON.parse(completionText || "{}");
+    const evalResult = JSON.parse(completionText || "{}");
+
+    if (evalResult && Array.isArray(evalResult.participants)) {
+      evalResult.participants = evalResult.participants.map((p: any) => {
+        const roll = String(p.roll || "").trim().toUpperCase();
+        const wordsSpoken = speakerWordCounts.get(roll) || 0;
+
+        if (wordsSpoken === 0) {
+          return {
+            ...p,
+            overallScore: 0,
+            criteria: {
+              participation: { score: 0, comments: "Candidate remained silent and did not speak during this discussion." },
+              listeningSkills: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
+              argumentQuality: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
+              teamCollaboration: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
+              leadershipIndicators: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
+              conflictHandling: { score: 0, comments: "Candidate did not participate or speak during this discussion." }
+            },
+            strengths: ["None (No participation)"],
+            improvements: ["Must actively speak and participate to earn credits"],
+            coachFeedback: "Zero spoken word count detected. Audio soft-skills and participation marks must reflect exactly zero."
+          };
+        }
+        return p;
+      });
+    }
+
+    return evalResult;
   } catch (err) {
     console.error("Room evaluation JSON parse failed:", err, completionText);
     return { error: "AI response could not be parsed." };
@@ -1545,17 +1598,112 @@ const wss = new WebSocketServer({ noServer: true });
 
 wss.on("connection", async (ws: WebSocket) => {
   console.log("WebSocket Client connected to Interview WebSocket");
+  let geminiWs: WebSocket | null = null;
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+
+  if (geminiKey) {
+    console.log("Gemini API Key detected. Initializing real-time voice-to-voice proxy...");
+    try {
+      const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${geminiKey}`;
+      geminiWs = new WebSocket(url);
+
+      geminiWs.on("open", () => {
+        console.log("Connected to Google Gemini Live API.");
+        // Send configuration setup payload
+        const setupMessage = {
+          setup: {
+            model: "models/gemini-2.0-flash-exp",
+            generationConfig: {
+              responseModalities: ["AUDIO", "TEXT"],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: "Puck"
+                  }
+                }
+              }
+            },
+            systemInstruction: {
+              parts: [
+                {
+                  text: "You are a warm, empathetic, conversational, and highly professional mock technical interviewer. " +
+                        "Acknowledge student responses with natural verbal cues, ask follow-up questions, and maintain a friendly yet professional tone. " +
+                        "Conduct the interview in a natural, fluid dialogue."
+                }
+              ]
+            }
+          }
+        };
+        geminiWs?.send(JSON.stringify(setupMessage));
+        ws.send(JSON.stringify({ type: "ready", status: "Live Voice-to-Voice Active" }));
+      });
+
+      geminiWs.on("message", (data: any) => {
+        try {
+          const payload = JSON.parse(data.toString());
+          if (payload.serverContent?.modelTurn?.parts) {
+            payload.serverContent.modelTurn.parts.forEach((part: any) => {
+              if (part.inlineData && part.inlineData.mimeType.startsWith("audio/pcm")) {
+                ws.send(JSON.stringify({
+                  type: "audio_chunk",
+                  data: part.inlineData.data
+                }));
+              }
+              if (part.text) {
+                ws.send(JSON.stringify({
+                  type: "text_chunk",
+                  text: part.text
+                }));
+              }
+            });
+          }
+          if (payload.serverContent?.turnComplete) {
+            ws.send(JSON.stringify({ type: "turn_complete" }));
+          }
+        } catch (e) {
+          console.error("Error parsing Gemini Live message:", e);
+        }
+      });
+
+      geminiWs.on("close", () => {
+        console.log("Gemini Live connection closed.");
+        ws.send(JSON.stringify({ type: "error", message: "Gemini Live API session ended." }));
+      });
+
+      geminiWs.on("error", (err: any) => {
+        console.error("Gemini Live connection error:", err);
+        ws.send(JSON.stringify({ type: "error", message: "Gemini Live API connection error: " + err.message }));
+      });
+
+    } catch (e: any) {
+      console.error("Failed to establish Gemini Live connection:", e);
+      ws.send(JSON.stringify({ type: "error", message: "Failed to initialize Gemini Live API connection: " + e.message }));
+    }
+  } else {
+    console.warn("No GEMINI_API_KEY found. Falling back to simulated WebSocket text interface.");
+    ws.send(JSON.stringify({ 
+      type: "ready", 
+      status: "Connected (Fallback Mode)", 
+      warning: "Voice-to-voice disabled (No GEMINI_API_KEY found). Using default speech fallback." 
+    }));
+  }
 
   ws.on("message", async (data: any) => {
     try {
       const message = JSON.parse(data.toString());
 
-      if (message.type === "init") {
-        ws.send(JSON.stringify({ 
-          type: "error", 
-          message: "Groq does not support the Gemini Live real-time audio API. Standard voice transcription via browser Web Speech API is supported. Falling back to text response mode." 
-        }));
-        ws.send(JSON.stringify({ type: "ready", status: "Connected (Text Fallback Mode)" }));
+      if (message.type === "audio_input" && geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+        const payload = {
+          realtimeInput: {
+            mediaChunks: [
+              {
+                mimeType: "audio/pcm",
+                data: message.data
+              }
+            ]
+          }
+        };
+        geminiWs.send(JSON.stringify(payload));
       }
 
       if (message.type === "text_input") {
@@ -1572,13 +1720,15 @@ wss.on("connection", async (ws: WebSocket) => {
         }
       }
     } catch (e: any) {
-      console.error("WebSocket message processing error:", e);
-      ws.send(JSON.stringify({ type: "error", message: "Failed to process socket payload" }));
+      console.error("Browser message processing error:", e);
     }
   });
 
   ws.on("close", () => {
     console.log("Client socket closed");
+    if (geminiWs && geminiWs.readyState === WebSocket.OPEN) {
+      geminiWs.close();
+    }
   });
 });
 

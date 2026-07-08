@@ -358,6 +358,11 @@ SET
   resume_file_name = COALESCE(u.raw_user_meta_data->>'resume_file_name', p.resume_file_name)
 FROM auth.users u
 WHERE p.id = u.id;
+
+-- 7. Performance Optimization Indexes (for 150+ concurrent users scale)
+CREATE INDEX IF NOT EXISTS idx_profiles_roll_number ON public.profiles(roll_number);
+CREATE INDEX IF NOT EXISTS idx_assignments_student_roll ON public.proctor_assignments(student_roll);
+CREATE INDEX IF NOT EXISTS idx_assignments_proctor_id ON public.proctor_assignments(proctor_id);
 ```
 
 // Modified by Database Engineer agent for Task run-3e9897-IC-101 at 2026-07-07 11:12:48
