@@ -21,6 +21,60 @@ export default function App() {
   const [analysisResult, setAnalysisResult] = useState<FullAnalysisResult | null>(null);
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
+  const [scorecardHistory, setScorecardHistory] = useState<Scorecard[]>([]);
+
+  // Sync basic student details from college portal API using Roll Number
+  const syncCollegeProfile = async (rollNo: string, currentProfile: StudentProfile | null) => {
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json"
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      console.log(`Syncing profile details from college API for Roll No: ${rollNo}`);
+      const res = await fetch(`/api/college/student/${rollNo}`, {
+        headers
+      });
+
+      if (res.ok) {
+        const collegeData = await res.json();
+        if (collegeData && collegeData.studentId === rollNo) {
+          const mergedProfile: StudentProfile = {
+            ...currentProfile,
+            ...collegeData,
+            githubUsername: currentProfile?.githubUsername || collegeData.githubUsername,
+            resumeFileName: currentProfile?.resumeFileName || collegeData.resumeFileName,
+            profileImage: currentProfile?.profileImage || collegeData.profileImage,
+          };
+          
+          setStudentProfile(mergedProfile);
+          localStorage.setItem(`studentProfile_${rollNo}`, JSON.stringify(mergedProfile));
+          localStorage.setItem("studentProfile", JSON.stringify(mergedProfile));
+
+          // Also try saving/updating Supabase user metadata if signed in
+          await supabase.auth.updateUser({
+            data: {
+              student_name: mergedProfile.name,
+              class_section: mergedProfile.classSection,
+              department: mergedProfile.department,
+              academic_year: mergedProfile.academicYear,
+              attendance: mergedProfile.attendance,
+              profile_image: mergedProfile.profileImage,
+              college_assessments: mergedProfile.collegeAssessments,
+              is_synced: mergedProfile.isSynced
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Failed to sync profile from college database", e);
+    }
+  };
 
 
 
@@ -56,6 +110,7 @@ export default function App() {
 
         setStudentProfile(profile);
         setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+        syncCollegeProfile(userRollNo, profile);
       }
     });
 
@@ -89,6 +144,7 @@ export default function App() {
 
         setStudentProfile(profile);
         setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+        syncCollegeProfile(userRollNo, profile);
       } else {
         setStudentProfile(null);
         setCurrentView((prev) => (prev === "landing" ? "landing" : "landing"));
@@ -109,6 +165,7 @@ export default function App() {
         const storedAnalysis = localStorage.getItem(`analysisResult_${studentId}`) || localStorage.getItem("analysisResult");
         const storedQuestions = localStorage.getItem(`interviewQuestions_${studentId}`) || localStorage.getItem("interviewQuestions");
         const storedScorecard = localStorage.getItem(`scorecard_${studentId}`) || localStorage.getItem("scorecard");
+        const storedHistory = localStorage.getItem(`scorecardHistory_${studentId}`);
 
         if (storedAnalysis) {
           setAnalysisResult(JSON.parse(storedAnalysis));
@@ -125,10 +182,21 @@ export default function App() {
         }
 
         if (storedScorecard) {
-          setScorecard(JSON.parse(storedScorecard));
+          const parsed = JSON.parse(storedScorecard);
+          setScorecard(parsed);
           localStorage.setItem(`scorecard_${studentId}`, storedScorecard);
         } else {
           setScorecard(null);
+        }
+
+        if (storedHistory) {
+          setScorecardHistory(JSON.parse(storedHistory));
+        } else if (storedScorecard) {
+          const parsed = JSON.parse(storedScorecard);
+          setScorecardHistory([parsed]);
+          localStorage.setItem(`scorecardHistory_${studentId}`, JSON.stringify([parsed]));
+        } else {
+          setScorecardHistory([]);
         }
       } catch (e) {
         console.error("Failed to parse local storage cache for user", studentId, e);
@@ -137,6 +205,7 @@ export default function App() {
       setAnalysisResult(null);
       setInterviewQuestions([]);
       setScorecard(null);
+      setScorecardHistory([]);
     }
   }, [studentProfile]);
 
@@ -156,6 +225,7 @@ export default function App() {
     localStorage.setItem("studentProfile", JSON.stringify(profile));
     localStorage.setItem(`studentProfile_${studentId}`, JSON.stringify(profile));
     setCurrentView("dashboard");
+    syncCollegeProfile(studentId, profile);
   };
 
 
@@ -166,6 +236,7 @@ export default function App() {
     setAnalysisResult(null);
     setInterviewQuestions([]);
     setScorecard(null);
+    setScorecardHistory([]);
 
 
     // Clear generic cache only
@@ -224,6 +295,12 @@ export default function App() {
     localStorage.setItem("scorecard", JSON.stringify(scorecardReport));
     if (studentProfile) {
       localStorage.setItem(`scorecard_${studentProfile.studentId}`, JSON.stringify(scorecardReport));
+      
+      setScorecardHistory((prev) => {
+        const updated = [scorecardReport, ...prev.filter((h) => h.id !== scorecardReport.id)];
+        localStorage.setItem(`scorecardHistory_${studentProfile.studentId}`, JSON.stringify(updated));
+        return updated;
+      });
     }
   };
 
@@ -308,6 +385,8 @@ export default function App() {
           <ProfilePage
             studentProfile={studentProfile}
             scorecard={scorecard}
+            scorecardHistory={scorecardHistory}
+            onSyncPortalDetails={() => syncCollegeProfile(studentProfile.studentId, studentProfile)}
             onProfileUpdate={(updatedProfile) => {
               setStudentProfile(updatedProfile);
               localStorage.setItem("studentProfile", JSON.stringify(updatedProfile));

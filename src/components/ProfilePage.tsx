@@ -13,7 +13,8 @@ import {
   Activity,
   Github,
   Calendar,
-  Percent
+  Percent,
+  RefreshCw
 } from "lucide-react";
 import { StudentProfile, Scorecard } from "../types";
 import abdulProfileImg from "../../assets/abdul_profile.png";
@@ -21,6 +22,8 @@ import abdulProfileImg from "../../assets/abdul_profile.png";
 interface ProfilePageProps {
   studentProfile: StudentProfile;
   scorecard: Scorecard | null;
+  scorecardHistory: Scorecard[];
+  onSyncPortalDetails: () => Promise<void>;
   onProfileUpdate: (updatedProfile: StudentProfile) => void;
   onNavigate: (view: string) => void;
 }
@@ -28,6 +31,8 @@ interface ProfilePageProps {
 export default function ProfilePage({ 
   studentProfile, 
   scorecard,
+  scorecardHistory,
+  onSyncPortalDetails,
   onProfileUpdate
 }: ProfilePageProps) {
   
@@ -40,20 +45,60 @@ export default function ProfilePage({
   const [profileImage, setProfileImage] = useState(studentProfile.profileImage || "");
   const [attendance, setAttendance] = useState<number>(studentProfile.attendance || 84);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncSuccess, setSyncSuccess] = useState(false);
+
+  // Active historical scorecard selector
+  const [activeReportId, setActiveReportId] = useState<string | null>(
+    scorecardHistory && scorecardHistory.length > 0 ? scorecardHistory[0].id : null
+  );
+
+  // Synchronize form states when studentProfile updates from college API sync
+  React.useEffect(() => {
+    setName(studentProfile.name || (studentProfile.studentId === "24P31A1234" ? "MOHAMMAD ABDUL ALEEM ARSHAD" : "Offline Student User"));
+    setDepartment(studentProfile.department || (studentProfile.studentId === "24P31A1234" ? "Information Technology" : "Computer Science"));
+    setClassSection(studentProfile.classSection || (studentProfile.studentId === "24P31A1234" ? "II B.Tech IT - Section A" : "Aditya College of Engineering & Technology"));
+    setAcademicYear(studentProfile.academicYear || (studentProfile.studentId === "24P31A1234" ? "2024-2028" : "2023-2027"));
+    setGithubUsername(studentProfile.githubUsername || "");
+    setProfileImage(studentProfile.profileImage || "");
+    setAttendance(studentProfile.attendance || 84);
+  }, [studentProfile]);
+
+  // Synchronize active report selection if history updates
+  React.useEffect(() => {
+    if (scorecardHistory && scorecardHistory.length > 0 && !activeReportId) {
+      setActiveReportId(scorecardHistory[0].id);
+    }
+  }, [scorecardHistory]);
+
+  const handleManualSync = async () => {
+    setSyncing(true);
+    setSyncSuccess(false);
+    try {
+      await onSyncPortalDetails();
+      setSyncSuccess(true);
+      setTimeout(() => setSyncSuccess(false), 3000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Fallbacks for profile badge & display image
   const resolvedProfileImg = profileImage || (studentProfile.studentId === "24P31A1234" ? abdulProfileImg : undefined);
 
   // Use active scorecard, or fall back to realistic dashboard values
-  const score = scorecard?.overallScore ?? 40;
-  const level = scorecard?.candidateLevel ?? "Beginner";
-  const date = scorecard?.date ?? "July 8, 2026";
+  const activeScorecard = scorecardHistory.find(h => h.id === activeReportId) || scorecard || null;
+  const score = activeScorecard?.overallScore ?? 40;
+  const level = activeScorecard?.candidateLevel ?? "Beginner";
+  const date = activeScorecard?.date ?? "July 8, 2026";
   
-  const communicationScore = scorecard?.categoryScores?.communicationClarity ?? 45;
-  const technicalScore = scorecard?.categoryScores?.technicalDepth ?? 35;
-  const problemSolvingScore = scorecard?.categoryScores?.problemSolving ?? 30;
+  const communicationScore = activeScorecard?.categoryScores?.communicationClarity ?? 45;
+  const technicalScore = activeScorecard?.categoryScores?.technicalDepth ?? 35;
+  const problemSolvingScore = activeScorecard?.categoryScores?.problemSolving ?? 30;
   
-  const verdict = scorecard?.finalVerdict ?? 
+  const verdict = activeScorecard?.finalVerdict ?? 
     "While the candidate shows potential with a strong resume and GitHub profile, there is a significant need for improvement in technical depth and communication clarity. Focus on mock interview practice to build confidence.";
 
 
@@ -214,13 +259,34 @@ export default function ProfilePage({
                 Saving updates will synchronize details with both the browser cache and the Aditya Supabase cluster.
               </p>
               
-              <button
-                type="submit"
-                className="w-full sm:w-auto flex items-center justify-center space-x-2 bg-linear-to-r from-brand-accent to-brand-primary text-white font-bold px-6 py-3 rounded-xl text-xs hover:scale-[1.01] transition-all duration-200 cursor-pointer shadow-md neon-glow-btn"
-              >
-                <Save className="w-4 h-4 text-white" />
-                <span>Save & Sync Profile</span>
-              </button>
+              <div className="flex items-center space-x-3 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={handleManualSync}
+                  disabled={syncing}
+                  className="flex-1 sm:flex-none flex items-center justify-center space-x-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 font-bold px-4 py-3 rounded-xl text-xs hover:scale-[1.01] transition-all duration-200 cursor-pointer disabled:opacity-50"
+                >
+                  {syncing ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-brand-primary mr-1" />
+                      <span>Syncing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Database className="w-3.5 h-3.5 text-brand-primary" />
+                      <span>Sync Connect</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="submit"
+                  className="flex-1 sm:flex-none flex items-center justify-center space-x-2 bg-linear-to-r from-brand-accent to-brand-primary text-white font-bold px-6 py-3 rounded-xl text-xs hover:scale-[1.01] transition-all duration-200 cursor-pointer shadow-md neon-glow-btn"
+                >
+                  <Save className="w-4 h-4 text-white" />
+                  <span>Save Profile</span>
+                </button>
+              </div>
             </div>
 
             {saveSuccess && (
@@ -233,9 +299,82 @@ export default function ProfilePage({
                 <span>Success! Profile updated and synchronized with Supabase portal variables.</span>
               </motion.div>
             )}
+
+            {syncSuccess && (
+              <motion.div 
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-3 bg-blue-50 border border-blue-200 text-brand-primary text-xs rounded-xl flex items-center space-x-2"
+              >
+                <Check className="w-4 h-4 text-brand-primary shrink-0" />
+                <span>Successfully synced student details with Campus Connect University Database!</span>
+              </motion.div>
+            )}
           </form>
 
+          {/* Previous Reports History Card */}
+          <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-4">
+            <h3 className="text-lg font-display font-semibold text-white flex items-center border-b border-white/5 pb-3">
+              <Award className="w-5 h-5 text-brand-primary mr-2" />
+              Previous Mock Assessment Reports
+            </h3>
 
+            {scorecardHistory && scorecardHistory.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs font-sans">
+                  <thead>
+                    <tr className="border-b border-white/5 text-gray-500 font-mono uppercase text-[10px]">
+                      <th className="py-3 text-left font-normal">Date Completed</th>
+                      <th className="py-3 text-center font-normal">Readiness Level</th>
+                      <th className="py-3 text-center font-normal">Score</th>
+                      <th className="py-3 text-right font-normal">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5 text-gray-700">
+                    {scorecardHistory.map((report) => (
+                      <tr 
+                        key={report.id} 
+                        className={`hover:bg-slate-50/50 cursor-pointer transition-colors ${
+                          activeReportId === report.id ? "bg-slate-100/50" : ""
+                        }`}
+                        onClick={() => setActiveReportId(report.id)}
+                      >
+                        <td className="py-3.5 text-left font-medium text-white">{report.date}</td>
+                        <td className="py-3.5 text-center font-mono">
+                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                            report.overallScore >= 85 
+                              ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
+                              : report.overallScore >= 73 
+                                ? "bg-blue-50 text-brand-primary border border-blue-100" 
+                                : "bg-amber-50 text-amber-600 border border-amber-100"
+                          }`}>
+                            {report.candidateLevel}
+                          </span>
+                        </td>
+                        <td className="py-3.5 text-center font-mono font-bold text-slate-800">{report.overallScore}/100</td>
+                        <td className="py-3.5 text-right font-mono">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveReportId(report.id);
+                            }}
+                            className={`text-[10px] font-bold uppercase transition-colors hover:underline ${
+                              activeReportId === report.id ? "text-brand-primary font-extrabold" : "text-gray-400"
+                            }`}
+                          >
+                            {activeReportId === report.id ? "Viewing" : "View"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 py-2">No previous assessment history found. Complete a live interview to generate reports.</p>
+            )}
+          </div>
         </div>
 
         {/* Right Column: Avatar Info Card & Coach Diagnostics (col-span-5) */}
