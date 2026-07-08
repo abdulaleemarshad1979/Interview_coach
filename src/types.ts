@@ -6,7 +6,20 @@ export interface StudentProfile {
   studentId: string;
   githubUsername?: string;
   resumeFileName?: string;
+  name?: string;
+  classSection?: string;
+  department?: string;
+  academicYear?: string;
+  attendance?: number;
+  profileImage?: string;
+  collegeAssessments?: Array<{
+    examName: string;
+    percentage: number;
+    marks: string;
+  }>;
+  isSynced?: boolean;
 }
+
 
 export interface ParsedResume {
   name: string;

@@ -7,9 +7,10 @@ interface NavbarProps {
   currentView: string;
   onNavigate: (view: string) => void;
   onLogout: () => void;
+  onOpenProfile: () => void;
 }
 
-export default function Navbar({ studentProfile, currentView, onNavigate, onLogout }: NavbarProps) {
+export default function Navbar({ studentProfile, currentView, onNavigate, onLogout, onOpenProfile }: NavbarProps) {
   return (
     <header id="app-navbar" className="glass-nav sticky top-0 z-50 w-full px-6 py-4 transition-all duration-300">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -110,14 +111,30 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
         <div className="flex items-center space-x-4">
           {studentProfile ? (
             <div className="flex items-center space-x-3">
-              {/* Student Identification badge */}
-              <div className="flex items-center bg-brand-card border border-white/5 rounded-full px-3 py-1 text-xs font-mono text-gray-300">
-                <User className="w-3 h-3 text-brand-primary mr-1.5" />
-                <span>ID: {studentProfile.studentId}</span>
-              </div>
+              {/* Student Identification badge (Clickable profile image and name/roll number) */}
+              <button
+                onClick={onOpenProfile}
+                className="flex items-center space-x-2 bg-brand-card hover:bg-slate-800 border border-white/5 rounded-full pl-1.5 pr-3 py-1 text-xs font-mono text-gray-300 cursor-pointer hover:border-brand-primary/30 transition-all duration-200 group"
+                title="View & Sync College Profile"
+              >
+                {studentProfile.profileImage ? (
+                  <img 
+                    src={studentProfile.profileImage} 
+                    alt="avatar" 
+                    className="w-5 h-5 rounded-full object-cover border border-white/10"
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-white/5 group-hover:border-brand-primary/20">
+                    <User className="w-2.5 h-2.5 text-brand-primary" />
+                  </div>
+                )}
+                <span className="font-mono text-[11px] group-hover:text-white transition-colors">
+                  {studentProfile.name ? studentProfile.name.split(" ")[0] : studentProfile.studentId}
+                </span>
+              </button>
               <button
                 onClick={onLogout}
-                className="flex items-center space-x-1.5 bg-red-950/30 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200"
+                className="flex items-center space-x-1.5 bg-red-950/30 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 cursor-pointer"
                 id="btn-logout"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -127,7 +144,7 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
           ) : (
             <button
               onClick={() => onNavigate("login")}
-              className="px-5 py-2 rounded-xl bg-linear-to-r from-brand-accent to-brand-primary text-brand-bg font-semibold text-sm hover:scale-[1.02] neon-glow-btn transition-all duration-300 shadow-md"
+              className="px-5 py-2 rounded-xl bg-linear-to-r from-brand-accent to-brand-primary text-brand-bg font-semibold text-sm hover:scale-[1.02] neon-glow-btn transition-all duration-300 shadow-md cursor-pointer"
               id="btn-nav-login"
             >
               Get Started
