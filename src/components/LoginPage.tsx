@@ -39,6 +39,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [isFacultyPortal, setIsFacultyPortal] = useState(false);
   const [rollNo, setRollNo] = useState("");
+  const [studentName, setStudentName] = useState("");
+  const [studentBranch, setStudentBranch] = useState("");
+  const [studentSection, setStudentSection] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -76,6 +79,18 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         }
         if (rollNo.trim().length < 4) {
           setError("Roll Number must be at least 4 characters long.");
+          return;
+        }
+        if (!studentName.trim()) {
+          setError("Please enter your Full Name.");
+          return;
+        }
+        if (!studentBranch.trim()) {
+          setError("Please enter your Branch.");
+          return;
+        }
+        if (!studentSection.trim()) {
+          setError("Please enter your Class Section.");
           return;
         }
       } else {
@@ -143,6 +158,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         } : {
           is_faculty: false,
           roll_number: rollNo.trim(),
+          student_name: studentName.trim(),
+          branch: studentBranch.trim(),
+          class_section: studentSection.trim(),
         };
 
         const { data, error: signUpError } = await supabase.auth.signUp({
@@ -504,15 +522,28 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 </motion.div>
               )}
 
-              {/* Student Roll Number Input */}
+              {/* Student Roll Number & Name Inputs */}
               {isSignUp && !isFacultyPortal && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
+                  className="flex flex-col gap-4 overflow-hidden"
                 >
+                  <InputField
+                    label="Full Name"
+                    type="text"
+                    placeholder="e.g. Arjun Prasad"
+                    value={studentName}
+                    onChange={(val) => {
+                      setStudentName(val);
+                      setError(null);
+                    }}
+                    disabled={loading}
+                    icon={User}
+                    required
+                  />
                   <InputField
                     label="Roll Number"
                     type="text"
@@ -526,6 +557,34 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     icon={Fingerprint}
                     required
                   />
+                  <div className="grid grid-cols-2 gap-4">
+                    <InputField
+                      label="Branch / Department"
+                      type="text"
+                      placeholder="e.g. CSE"
+                      value={studentBranch}
+                      onChange={(val) => {
+                        setStudentBranch(val);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      icon={GraduationCap}
+                      required
+                    />
+                    <InputField
+                      label="Class Section"
+                      type="text"
+                      placeholder="e.g. Section A"
+                      value={studentSection}
+                      onChange={(val) => {
+                        setStudentSection(val);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      icon={GraduationCap}
+                      required
+                    />
+                  </div>
                 </motion.div>
               )}
 
