@@ -70,6 +70,14 @@ If you wish to store user profiles and scorecards in a Postgres database instead
 CREATE TABLE public.profiles (
   id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
   roll_number TEXT,
+  name TEXT,
+  student_name TEXT,
+  class_section TEXT,
+  section TEXT,
+  attendance NUMERIC,
+  branch TEXT,
+  college_assessments JSONB DEFAULT '[]'::jsonb,
+  is_synced BOOLEAN DEFAULT false,
   github_username TEXT,
   resume_file_name TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -78,15 +86,18 @@ CREATE TABLE public.profiles (
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- Allow users to view their own profile
-CREATE POLICY "Users can view their own profile"
+-- Allow users to view their own profile OR faculty to view all profiles
+CREATE POLICY "Users can view own profile or faculty view all"
 ON public.profiles FOR SELECT
 TO authenticated
-USING (auth.uid() = id);
+USING (
+  (auth.uid() = id) OR 
+  ((auth.jwt()->'user_metadata'->>'is_faculty')::boolean = true)
+);
 
 -- Allow users to update their own profile
 CREATE POLICY "Users can update their own profile"
-ON public.profiles FOR UPDATE
+ON public.profiles FOR ALL
 TO authenticated
 USING (auth.uid() = id)
 WITH CHECK (auth.uid() = id);
@@ -95,10 +106,29 @@ WITH CHECK (auth.uid() = id);
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, roll_number)
+  INSERT INTO public.profiles (
+    id, 
+    roll_number, 
+    name, 
+    student_name, 
+    class_section, 
+    section, 
+    attendance, 
+    branch, 
+    college_assessments, 
+    is_synced
+  )
   VALUES (
     new.id,
-    COALESCE(new.raw_user_meta_data->>'roll_number', '')
+    COALESCE(new.raw_user_meta_data->>'roll_number', ''),
+    COALESCE(new.raw_user_meta_data->>'student_name', ''),
+    COALESCE(new.raw_user_meta_data->>'student_name', ''),
+    COALESCE(new.raw_user_meta_data->>'class_section', ''),
+    COALESCE(new.raw_user_meta_data->>'class_section', ''),
+    COALESCE((new.raw_user_meta_data->>'attendance')::numeric, 80),
+    COALESCE(new.raw_user_meta_data->>'branch', COALESCE(new.raw_user_meta_data->>'department', '')),
+    COALESCE(new.raw_user_meta_data->'college_assessments', '[]'::jsonb),
+    COALESCE((new.raw_user_meta_data->>'is_synced')::boolean, false)
   );
   RETURN NEW;
 END;
@@ -107,6 +137,35 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Trigger to automatically update a profile when user metadata is updated
+CREATE OR REPLACE FUNCTION public.handle_update_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE public.profiles
+  SET
+    roll_number = COALESCE(new.raw_user_meta_data->>'roll_number', roll_number),
+    name = COALESCE(new.raw_user_meta_data->>'student_name', name),
+    student_name = COALESCE(new.raw_user_meta_data->>'student_name', student_name),
+    class_section = COALESCE(new.raw_user_meta_data->>'class_section', class_section),
+    section = COALESCE(new.raw_user_meta_data->>'class_section', section),
+    attendance = COALESCE((new.raw_user_meta_data->>'attendance')::numeric, attendance),
+    branch = COALESCE(new.raw_user_meta_data->>'branch', COALESCE(new.raw_user_meta_data->>'department', branch)),
+    college_assessments = COALESCE(new.raw_user_meta_data->'college_assessments', college_assessments),
+    is_synced = COALESCE((new.raw_user_meta_data->>'is_synced')::boolean, is_synced),
+    github_username = COALESCE(new.raw_user_meta_data->>'github_username', github_username),
+    resume_file_name = COALESCE(new.raw_user_meta_data->>'resume_file_name', resume_file_name),
+    updated_at = now()
+  WHERE id = new.id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE TRIGGER on_auth_user_updated
+  AFTER UPDATE ON auth.users
+  FOR EACH ROW
+  WHEN (old.raw_user_meta_data IS DISTINCT FROM new.raw_user_meta_data)
+  EXECUTE FUNCTION public.handle_update_user();
 ```
 
 ---
@@ -181,6 +240,124 @@ ON public.proctor_assignments FOR ALL
 TO authenticated
 USING (true)
 WITH CHECK (true);
+```
+
+---
+
+## 6. Migration & Backfill Existing Profiles Data (SQL Script)
+
+If your `public.profiles` table was created before the schema columns were updated, you will see errors like `column p.name does not exist` when trying to run the update. 
+
+Execute this unified SQL block in your **Supabase SQL Editor**. It will safely alter your existing table to add the missing columns, set up the required RLS policies and trigger functions, and sync your pre-existing student users:
+
+```sql
+-- 1. Alter table to add missing columns if they do not exist
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS student_name TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS class_section TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS section TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS attendance NUMERIC;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS branch TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS college_assessments JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_synced BOOLEAN DEFAULT false;
+
+-- 2. Drop the restrictive select policy if it exists and replace it
+DROP POLICY IF EXISTS "Users can view their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can view own profile or faculty view all" ON public.profiles;
+
+CREATE POLICY "Users can view own profile or faculty view all"
+ON public.profiles FOR SELECT
+TO authenticated
+USING (
+  (auth.uid() = id) OR 
+  ((auth.jwt()->'user_metadata'->>'is_faculty')::boolean = true)
+);
+
+-- 3. Replace the update policy
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+CREATE POLICY "Users can update their own profile"
+ON public.profiles FOR ALL
+TO authenticated
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+
+-- 4. Recreate the signup trigger function
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (
+    id, 
+    roll_number, 
+    name, 
+    student_name, 
+    class_section, 
+    section, 
+    attendance, 
+    branch, 
+    college_assessments, 
+    is_synced
+  )
+  VALUES (
+    new.id,
+    COALESCE(new.raw_user_meta_data->>'roll_number', ''),
+    COALESCE(new.raw_user_meta_data->>'student_name', ''),
+    COALESCE(new.raw_user_meta_data->>'student_name', ''),
+    COALESCE(new.raw_user_meta_data->>'class_section', ''),
+    COALESCE(new.raw_user_meta_data->>'class_section', ''),
+    COALESCE((new.raw_user_meta_data->>'attendance')::numeric, 80),
+    COALESCE(new.raw_user_meta_data->>'branch', COALESCE(new.raw_user_meta_data->>'department', '')),
+    COALESCE(new.raw_user_meta_data->'college_assessments', '[]'::jsonb),
+    COALESCE((new.raw_user_meta_data->>'is_synced')::boolean, false)
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 5. Recreate the metadata update trigger function
+CREATE OR REPLACE FUNCTION public.handle_update_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE public.profiles
+  SET
+    roll_number = COALESCE(new.raw_user_meta_data->>'roll_number', roll_number),
+    name = COALESCE(new.raw_user_meta_data->>'student_name', name),
+    student_name = COALESCE(new.raw_user_meta_data->>'student_name', student_name),
+    class_section = COALESCE(new.raw_user_meta_data->>'class_section', class_section),
+    section = COALESCE(new.raw_user_meta_data->>'class_section', section),
+    attendance = COALESCE((new.raw_user_meta_data->>'attendance')::numeric, attendance),
+    branch = COALESCE(new.raw_user_meta_data->>'branch', COALESCE(new.raw_user_meta_data->>'department', branch)),
+    college_assessments = COALESCE(new.raw_user_meta_data->'college_assessments', college_assessments),
+    is_synced = COALESCE((new.raw_user_meta_data->>'is_synced')::boolean, is_synced),
+    github_username = COALESCE(new.raw_user_meta_data->>'github_username', github_username),
+    resume_file_name = COALESCE(new.raw_user_meta_data->>'resume_file_name', resume_file_name),
+    updated_at = now()
+  WHERE id = new.id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_updated ON auth.users;
+CREATE TRIGGER on_auth_user_updated
+  AFTER UPDATE ON auth.users
+  FOR EACH ROW
+  WHEN (old.raw_user_meta_data IS DISTINCT FROM new.raw_user_meta_data)
+  EXECUTE FUNCTION public.handle_update_user();
+
+-- 6. Backfill/update existing profile rows from auth user metadata
+UPDATE public.profiles p
+SET
+  name = COALESCE(u.raw_user_meta_data->>'student_name', p.name),
+  student_name = COALESCE(u.raw_user_meta_data->>'student_name', p.student_name),
+  class_section = COALESCE(u.raw_user_meta_data->>'class_section', p.class_section),
+  section = COALESCE(u.raw_user_meta_data->>'class_section', p.section),
+  attendance = COALESCE((u.raw_user_meta_data->>'attendance')::numeric, p.attendance),
+  branch = COALESCE(u.raw_user_meta_data->>'branch', COALESCE(u.raw_user_meta_data->>'department', p.branch)),
+  college_assessments = COALESCE(u.raw_user_meta_data->'college_assessments', p.college_assessments),
+  is_synced = COALESCE((u.raw_user_meta_data->>'is_synced')::boolean, p.is_synced),
+  github_username = COALESCE(u.raw_user_meta_data->>'github_username', p.github_username),
+  resume_file_name = COALESCE(u.raw_user_meta_data->>'resume_file_name', p.resume_file_name)
+FROM auth.users u
+WHERE p.id = u.id;
 ```
 
 // Modified by Database Engineer agent for Task run-3e9897-IC-101 at 2026-07-07 11:12:48
