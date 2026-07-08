@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Mail, Fingerprint, Check, Star, AlertCircle, GraduationCap, CheckCircle2, Lock } from "lucide-react";
+import { Mail, Fingerprint, Check, Star, AlertCircle, GraduationCap, CheckCircle2, Lock, User } from "lucide-react";
 import InputField from "./ui/InputField";
 import Button from "./ui/Button";
 import { supabase } from "../lib/supabaseClient";
@@ -37,10 +37,20 @@ const isValidCollegeEmail = (email: string): boolean => {
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [isSignUp, setIsSignUp] = useState(false);
+  const [isFacultyPortal, setIsFacultyPortal] = useState(false);
   const [rollNo, setRollNo] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  
+  // Faculty states
+  const [facultyName, setFacultyName] = useState("");
+  const [department, setDepartment] = useState("");
+  const [classSection, setClassSection] = useState("");
+  const [rollPrefix, setRollPrefix] = useState("24P31A12");
+  const [rollStart, setRollStart] = useState("1");
+  const [rollEnd, setRollEnd] = useState("30");
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -59,13 +69,40 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     e.preventDefault();
 
     if (isSignUp) {
-      if (!rollNo.trim()) {
-        setError("Please enter your Roll Number.");
-        return;
-      }
-      if (rollNo.trim().length < 4) {
-        setError("Roll Number must be at least 4 characters long.");
-        return;
+      if (!isFacultyPortal) {
+        if (!rollNo.trim()) {
+          setError("Please enter your Roll Number.");
+          return;
+        }
+        if (rollNo.trim().length < 4) {
+          setError("Roll Number must be at least 4 characters long.");
+          return;
+        }
+      } else {
+        if (!facultyName.trim()) {
+          setError("Please enter your Name.");
+          return;
+        }
+        if (!department.trim()) {
+          setError("Please enter your Department.");
+          return;
+        }
+        if (!classSection.trim()) {
+          setError("Please enter your Class Section.");
+          return;
+        }
+        if (!rollPrefix.trim()) {
+          setError("Please enter Roll Prefix.");
+          return;
+        }
+        if (!rollStart.trim() || isNaN(Number(rollStart))) {
+          setError("Please enter a valid start roll number range.");
+          return;
+        }
+        if (!rollEnd.trim() || isNaN(Number(rollEnd))) {
+          setError("Please enter a valid end roll number range.");
+          return;
+        }
       }
     }
 
@@ -95,13 +132,24 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
     try {
       if (isSignUp) {
+        const metaData: Record<string, any> = isFacultyPortal ? {
+          is_faculty: true,
+          faculty_name: facultyName.trim(),
+          department: department.trim(),
+          class_section: classSection.trim(),
+          roll_prefix: rollPrefix.trim(),
+          roll_start: parseInt(rollStart, 10),
+          roll_end: parseInt(rollEnd, 10),
+        } : {
+          is_faculty: false,
+          roll_number: rollNo.trim(),
+        };
+
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: email.trim(),
           password: password,
           options: {
-            data: {
-              roll_number: rollNo.trim(),
-            },
+            data: metaData,
           },
         });
 
@@ -115,7 +163,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           if (data.session) {
             setSuccessMessage("Account created successfully! Auto-logging you in...");
             setTimeout(() => {
-              onLoginSuccess(rollNo.trim(), email);
+              const displayName = isFacultyPortal ? facultyName.trim() : rollNo.trim();
+              onLoginSuccess(displayName, email);
             }, 1500);
           } else {
             setSuccessMessage("Account created! Please check your email to verify your registration, then sign in.");
@@ -135,8 +184,14 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         }
 
         if (data.user) {
-          const userRollNo = data.user.user_metadata?.roll_number || email.split("@")[0].toUpperCase();
-          onLoginSuccess(userRollNo, data.user.email);
+          const isFacultyUser = data.user.user_metadata?.is_faculty || false;
+          if (isFacultyUser) {
+            const displayName = data.user.user_metadata?.faculty_name || "Faculty Member";
+            onLoginSuccess(displayName, data.user.email);
+          } else {
+            const userRollNo = data.user.user_metadata?.roll_number || email.split("@")[0].toUpperCase();
+            onLoginSuccess(userRollNo, data.user.email);
+          }
         }
       }
     } catch (err: any) {
@@ -268,14 +323,53 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 hidden: { opacity: 0, y: 15 },
                 visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
               }}
-              className="flex flex-col mb-8"
+              className="flex flex-col mb-4"
             >
               <h2 className="text-3xl font-bold font-sans tracking-tight text-slate-900">
-                {isSignUp ? "Create Student Account" : "Welcome back"}
+                {isSignUp 
+                  ? (isFacultyPortal ? "Create Proctor Account" : "Create Student Account") 
+                  : (isFacultyPortal ? "Proctor Portal" : "Welcome back")}
               </h2>
               <p className="text-[15px] text-[#64748B] mt-1.5 font-sans">
-                {isSignUp ? "Register with your official college email" : "Sign in to your InterviewCoach gateway"}
+                {isSignUp 
+                  ? (isFacultyPortal ? "Register as a faculty proctor" : "Register with your official college email") 
+                  : (isFacultyPortal ? "Access the proctor dashboard and supervise students" : "Sign in to your InterviewCoach gateway")}
               </p>
+            </motion.div>
+
+            {/* Portal Selection Toggle */}
+            <motion.div
+              variants={{
+                hidden: { opacity: 0, y: 15 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+              }}
+              className="mb-4"
+            >
+              <div className="bg-slate-100 border border-slate-200 rounded-[10px] p-1 flex relative overflow-hidden">
+                {([false, true] as const).map((facultyVal) => (
+                  <button
+                    key={facultyVal ? "faculty" : "student"}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => {
+                      setIsFacultyPortal(facultyVal);
+                      setError(null);
+                      setSuccessMessage(null);
+                    }}
+                    className={`flex-1 py-1.5 text-center text-xs font-semibold font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 ${isFacultyPortal === facultyVal ? 'text-slate-800' : 'text-[#64748B]'
+                      }`}
+                  >
+                    {facultyVal ? 'Proctor Portal' : 'Student Gateway'}
+                    {isFacultyPortal === facultyVal && (
+                      <motion.div
+                        layoutId="activePortalIndicator"
+                        className="absolute inset-0 bg-white shadow-xs border border-slate-200 rounded-[8px] -z-10"
+                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
             </motion.div>
 
             {/* Sliding Switch Tabs */}
@@ -284,7 +378,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 hidden: { opacity: 0, y: 15 },
                 visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
               }}
-              className="mb-8"
+              className="mb-6"
             >
               <div className="bg-slate-100 border border-slate-200 rounded-[10px] p-1 flex relative overflow-hidden">
                 {([false, true] as const).map((signupVal) => (
@@ -315,9 +409,103 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             </motion.div>
 
             {/* Form Fields */}
-            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-              {/* Roll Number Input */}
-              {isSignUp && (
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              {/* Proctor signup extra fields */}
+              {isSignUp && isFacultyPortal && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex flex-col gap-4 overflow-hidden"
+                >
+                  <InputField
+                    label="Full Name"
+                    type="text"
+                    placeholder="e.g. Dr. Ramesh Kumar"
+                    value={facultyName}
+                    onChange={(val) => {
+                      setFacultyName(val);
+                      setError(null);
+                    }}
+                    disabled={loading}
+                    icon={User}
+                    required
+                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <InputField
+                      label="Department"
+                      type="text"
+                      placeholder="e.g. CSE"
+                      value={department}
+                      onChange={(val) => {
+                        setDepartment(val);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      icon={GraduationCap}
+                      required
+                    />
+                    <InputField
+                      label="Class Section"
+                      type="text"
+                      placeholder="e.g. Section A"
+                      value={classSection}
+                      onChange={(val) => {
+                        setClassSection(val);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      icon={GraduationCap}
+                      required
+                    />
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200/60 flex flex-col gap-2.5">
+                    <span className="text-xs font-semibold text-slate-700 block">Supervised Student Roll Range</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      <InputField
+                        label="Prefix"
+                        type="text"
+                        placeholder="e.g. 24P31A12"
+                        value={rollPrefix}
+                        onChange={(val) => {
+                          setRollPrefix(val);
+                          setError(null);
+                        }}
+                        disabled={loading}
+                        required
+                      />
+                      <InputField
+                        label="Start No"
+                        type="text"
+                        placeholder="1"
+                        value={rollStart}
+                        onChange={(val) => {
+                          setRollStart(val);
+                          setError(null);
+                        }}
+                        disabled={loading}
+                        required
+                      />
+                      <InputField
+                        label="End No"
+                        type="text"
+                        placeholder="30"
+                        value={rollEnd}
+                        onChange={(val) => {
+                          setRollEnd(val);
+                          setError(null);
+                        }}
+                        disabled={loading}
+                        required
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Student Roll Number Input */}
+              {isSignUp && !isFacultyPortal && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}

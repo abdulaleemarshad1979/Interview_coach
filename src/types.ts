@@ -20,6 +20,12 @@ export interface StudentProfile {
   isSynced?: boolean;
 
   course?: string;
+
+  assignedInterviewTopic?: string;
+  assignedInterviewDifficulty?: string;
+  assignedGDTopic?: string;
+  assignedGDRoomCode?: string;
+  assignedByProctorName?: string;
 }
 
 
@@ -128,3 +134,33 @@ export interface Scorecard {
   }>;
   finalVerdict: string;
 }
+
+export interface FacultyProfile {
+  facultyId: string;
+  name: string;
+  email: string;
+  department: string;
+  classSection: string;
+  rollPrefix: string;
+  rollStart: number;
+  rollEnd: number;
+  isFaculty: boolean;
+  assignedInterviews?: Array<{
+    id: string;
+    studentId: string;
+    topic: string;
+    difficulty: string;
+    assignedAt: string;
+    completed: boolean;
+    score?: number;
+  }>;
+  assignedGDs?: Array<{
+    id: string;
+    roomCode: string;
+    topic: string;
+    students: string[]; // list of studentIds
+    assignedAt: string;
+    completed: boolean;
+  }>;
+}
+
