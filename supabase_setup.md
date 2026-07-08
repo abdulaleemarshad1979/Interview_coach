@@ -363,6 +363,35 @@ WHERE p.id = u.id;
 CREATE INDEX IF NOT EXISTS idx_profiles_roll_number ON public.profiles(roll_number);
 CREATE INDEX IF NOT EXISTS idx_assignments_student_roll ON public.proctor_assignments(student_roll);
 CREATE INDEX IF NOT EXISTS idx_assignments_proctor_id ON public.proctor_assignments(proctor_id);
+
+-- 8. User Deletion Cleanup Trigger
+-- Run this SQL block to automatically wipe a student's profile and proctor assignments
+-- when their user account is deleted from auth.users.
+CREATE OR REPLACE FUNCTION public.handle_deleted_user()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_roll TEXT;
+BEGIN
+  -- 1. Grab the roll number of the student before their profile is deleted
+  SELECT roll_number INTO v_roll FROM public.profiles WHERE id = old.id;
+
+  -- 2. Delete the profile row
+  DELETE FROM public.profiles WHERE id = old.id;
+
+  -- 3. Delete any proctor assignments associated with this student's roll number
+  IF v_roll IS NOT NULL AND v_roll <> '' THEN
+    DELETE FROM public.proctor_assignments WHERE student_roll = v_roll;
+  END IF;
+
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_deleted ON auth.users;
+CREATE TRIGGER on_auth_user_deleted
+  AFTER DELETE ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_deleted_user();
 ```
 
 // Modified by Database Engineer agent for Task run-3e9897-IC-101 at 2026-07-07 11:12:48
