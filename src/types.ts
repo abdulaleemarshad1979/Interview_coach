@@ -18,7 +18,10 @@ export interface StudentProfile {
     marks: string;
   }>;
   isSynced?: boolean;
+
+  course?: string;
 }
+
 
 
 export interface ParsedResume {
