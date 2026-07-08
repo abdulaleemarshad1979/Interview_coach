@@ -1,14 +1,15 @@
 import { StudentProfile } from "../types";
+import abdulProfileImg from "../../assets/abdul_profile.png";
 
 // Mock Database representing student details stored in Aditya University's Campus Connect
 const MOCK_COLLEGE_DB: Record<string, Omit<StudentProfile, "studentId">> = {
   "24P31A1234": {
-    name: "Abdul Aleem Arshad",
+    name: "MOHAMMAD ABDUL ALEEM ARSHAD",
     classSection: "III B.Tech CSE - Section A",
     department: "Computer Science & Engineering",
     academicYear: "3rd Year (V Semester)",
     attendance: 88.5,
-    profileImage: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?q=80&w=256&auto=format&fit=crop", // Professional student portrait
+    profileImage: abdulProfileImg,
     collegeAssessments: [
       { examName: "Mid-Term 1 (Theory)", percentage: 84, marks: "33.6 / 40" },
       { examName: "Mid-Term 2 (Theory)", percentage: 90, marks: "36.0 / 40" },
