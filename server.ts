@@ -82,6 +82,7 @@ function getGroqClient(): Groq {
 interface CompletionOptions {
   messages: { role: string; content: string }[];
   jsonMode?: boolean;
+  temperature?: number;
 }
 
 async function getLLMCompletion(options: CompletionOptions): Promise<string> {
@@ -98,6 +99,9 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
     };
     if (options.jsonMode) {
       payload.format = "json";
+    }
+    if (options.temperature !== undefined) {
+      payload.options = { temperature: options.temperature };
     }
 
     const headers: Record<string, string> = {
@@ -140,6 +144,9 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
     };
     if (options.jsonMode) {
       params.response_format = { type: "json_object" };
+    }
+    if (options.temperature !== undefined) {
+      params.temperature = options.temperature;
     }
 
     const chatCompletion = await groq.chat.completions.create(params);
@@ -268,7 +275,7 @@ app.get("/api/college/student/:rollNo", requireAuth, async (req: any, res) => {
 // Helper: Fetch public repos via GitHub API
 async function fetchGitHubRepos(username: string): Promise<any[]> {
   try {
-    const response = await fetch(`https://api.github.com/users/${username}/repos?sort=updated&per_page=6`, {
+    const response = await fetch(`https://api.github.com/users/${username}/repos?sort=updated&per_page=100`, {
       headers: {
         "User-Agent": "interview-coach-app"
       }
@@ -509,12 +516,14 @@ Respond with STRICT JSON matching this schema:
   ]
 }`;
 
+    const entropySeed = Math.random().toString(36).substring(2, 10);
     const completionText = await getLLMCompletion({
       messages: [
         { role: "system", content: "You are a professional mock interviewer. Respond with a JSON object containing a 'questions' array conforming strictly to the requested schema." },
-        { role: "user", content: prompt }
+        { role: "user", content: prompt + `\n\n[System directive: Generate a completely fresh and unique set of questions. Random seed/entropy: ${entropySeed}]` }
       ],
-      jsonMode: true
+      jsonMode: true,
+      temperature: 0.9
     });
 
     const result = JSON.parse(completionText || "{}");
