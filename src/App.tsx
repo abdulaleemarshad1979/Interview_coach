@@ -12,6 +12,8 @@ import CustomCursor from "./components/effects/CustomCursor";
 import GroupDiscussionPage from "./components/GroupDiscussionPage";
 import { StudentProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
 import { supabase } from "./lib/supabaseClient";
+import ProfileModal from "./components/ProfileModal";
+
 
 export default function App() {
   const [currentView, setCurrentView] = useState<string>("landing");
@@ -19,6 +21,8 @@ export default function App() {
   const [analysisResult, setAnalysisResult] = useState<FullAnalysisResult | null>(null);
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
 
   // Listen to Supabase Auth Changes on boot
   useEffect(() => {
@@ -30,7 +34,26 @@ export default function App() {
           studentId: userRollNo,
           githubUsername: session.user.user_metadata?.github_username,
           resumeFileName: session.user.user_metadata?.resume_file_name,
+          name: session.user.user_metadata?.student_name,
+          classSection: session.user.user_metadata?.class_section,
+          department: session.user.user_metadata?.department,
+          academicYear: session.user.user_metadata?.academic_year,
+          attendance: session.user.user_metadata?.attendance,
+          profileImage: session.user.user_metadata?.profile_image,
+          collegeAssessments: session.user.user_metadata?.college_assessments,
+          isSynced: session.user.user_metadata?.is_synced,
         };
+
+        const storedProfileStr = localStorage.getItem(`studentProfile_${userRollNo}`) || localStorage.getItem("studentProfile");
+        if (storedProfileStr) {
+          try {
+            const storedProfile = JSON.parse(storedProfileStr);
+            if (storedProfile.studentId === userRollNo) {
+              Object.assign(profile, storedProfile);
+            }
+          } catch (e) {}
+        }
+
         setStudentProfile(profile);
         setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
       }
@@ -44,7 +67,26 @@ export default function App() {
           studentId: userRollNo,
           githubUsername: session.user.user_metadata?.github_username,
           resumeFileName: session.user.user_metadata?.resume_file_name,
+          name: session.user.user_metadata?.student_name,
+          classSection: session.user.user_metadata?.class_section,
+          department: session.user.user_metadata?.department,
+          academicYear: session.user.user_metadata?.academic_year,
+          attendance: session.user.user_metadata?.attendance,
+          profileImage: session.user.user_metadata?.profile_image,
+          collegeAssessments: session.user.user_metadata?.college_assessments,
+          isSynced: session.user.user_metadata?.is_synced,
         };
+
+        const storedProfileStr = localStorage.getItem(`studentProfile_${userRollNo}`) || localStorage.getItem("studentProfile");
+        if (storedProfileStr) {
+          try {
+            const storedProfile = JSON.parse(storedProfileStr);
+            if (storedProfile.studentId === userRollNo) {
+              Object.assign(profile, storedProfile);
+            }
+          } catch (e) {}
+        }
+
         setStudentProfile(profile);
         setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
       } else {
@@ -57,6 +99,7 @@ export default function App() {
       subscription.unsubscribe();
     };
   }, []);
+
 
   // Sync user-specific data from local storage when student profile changes
   useEffect(() => {
@@ -99,11 +142,22 @@ export default function App() {
 
   // Login Success Event
   const handleLoginSuccess = (studentId: string, email?: string) => {
-    const profile: StudentProfile = { studentId };
+    let profile: StudentProfile = { studentId };
+    const storedProfileStr = localStorage.getItem(`studentProfile_${studentId}`) || localStorage.getItem("studentProfile");
+    if (storedProfileStr) {
+      try {
+        const storedProfile = JSON.parse(storedProfileStr);
+        if (storedProfile.studentId === studentId) {
+          profile = storedProfile;
+        }
+      } catch (e) {}
+    }
     setStudentProfile(profile);
     localStorage.setItem("studentProfile", JSON.stringify(profile));
+    localStorage.setItem(`studentProfile_${studentId}`, JSON.stringify(profile));
     setCurrentView("dashboard");
   };
+
 
   // Logout Event
   const handleLogout = async () => {
@@ -112,6 +166,7 @@ export default function App() {
     setAnalysisResult(null);
     setInterviewQuestions([]);
     setScorecard(null);
+    setIsProfileModalOpen(false);
 
     // Clear generic cache only
     localStorage.removeItem("studentProfile");
@@ -121,6 +176,7 @@ export default function App() {
 
     setCurrentView("landing");
   };
+
 
 
   // Analysis success callback
@@ -273,7 +329,9 @@ export default function App() {
         currentView={currentView}
         onNavigate={setCurrentView}
         onLogout={handleLogout}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
       />
+
 
       {/* Primary animated main stage content */}
       <main className="flex-1 w-full relative">
@@ -291,7 +349,37 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {/* College Sync Profile Modal overlays */}
+      {studentProfile && (
+        <ProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          studentProfile={studentProfile}
+          onProfileUpdate={(updatedProfile) => {
+            setStudentProfile(updatedProfile);
+            localStorage.setItem("studentProfile", JSON.stringify(updatedProfile));
+            localStorage.setItem(`studentProfile_${updatedProfile.studentId}`, JSON.stringify(updatedProfile));
+            
+            // Try updating Supabase User metadata if authenticated
+            supabase.auth.updateUser({
+              data: {
+                student_name: updatedProfile.name,
+                class_section: updatedProfile.classSection,
+                department: updatedProfile.department,
+                academic_year: updatedProfile.academicYear,
+                attendance: updatedProfile.attendance,
+                profile_image: updatedProfile.profileImage,
+                college_assessments: updatedProfile.collegeAssessments,
+                is_synced: updatedProfile.isSynced
+              }
+            }).catch(e => console.error("Error saving updated profile to supabase metadata", e));
+          }}
+          scorecard={scorecard}
+        />
+      )}
     </div>
+
   );
 }
 
