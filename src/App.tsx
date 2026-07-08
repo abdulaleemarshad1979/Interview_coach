@@ -7,7 +7,7 @@ import DashboardPage from "./components/DashboardPage";
 import AnalyzePage from "./components/AnalyzePage";
 import InterviewPage from "./components/InterviewPage";
 import ReportPage from "./components/ReportPage";
-import SettingsPage from "./components/SettingsPage";
+
 import CustomCursor from "./components/effects/CustomCursor";
 import GroupDiscussionPage from "./components/GroupDiscussionPage";
 import FacultyDashboardPage from "./components/FacultyDashboardPage";
@@ -544,23 +544,7 @@ export default function App() {
         ) : (
           <LoginPage onLoginSuccess={handleLoginSuccess} />
         );
-      case "settings":
-        if (facultyProfile) {
-          return (
-            <SettingsPage
-              studentProfile={{ studentId: facultyProfile.facultyId, name: facultyProfile.name } as any}
-              onNavigate={setCurrentView}
-            />
-          );
-        }
-        return studentProfile ? (
-          <SettingsPage
-            studentProfile={studentProfile}
-            onNavigate={setCurrentView}
-          />
-        ) : (
-          <LoginPage onLoginSuccess={handleLoginSuccess} />
-        );
+
       case "profile":
         return studentProfile ? (
           <ProfilePage

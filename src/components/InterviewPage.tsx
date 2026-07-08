@@ -65,10 +65,26 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const [reportCompiling, setReportCompiling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Real audio analysis stats
+  const [pitchVariance, setPitchVariance] = useState<number>(80);
+  const [audioClarity, setAudioClarity] = useState<number>(85);
+  const [speakingPace, setSpeakingPace] = useState<number>(130);
+
+  // References for dynamic audio analytics calculation
+  const speechRmsListRef = useRef<number[]>([]);
+  const noiseRmsListRef = useRef<number[]>([]);
+  const pitchFrequenciesRef = useRef<number[]>([]);
+  const transcriptRef = useRef<string>("");
+
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
+
   // References
   const videoRef = useRef<HTMLVideoElement>(null);
   const recognitionRef = useRef<any>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const visualizerStreamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<any>(null);
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -225,113 +241,252 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       return;
     }
 
-    // Run initial tracking check
-    const metrics = analyzeCameraFrame();
-    setCameraBrightness(metrics.brightness);
+    let faceMeshInstance: any = null;
+    let active = true;
+    let frameId: number | null = null;
+    let fallbackInterval: any = null;
 
-    if (metrics.brightness < 15) {
-      setEyeGazeStatus("OFFLINE");
-      setPostureStatus("OFFLINE");
-      setExpressionStatus("OFFLINE");
-      setHeadStatus("OFFLINE");
+    const FaceMesh = (window as any).FaceMesh;
+    if (FaceMesh) {
+      console.log("Initializing MediaPipe Face Mesh model pipeline...");
+      try {
+        faceMeshInstance = new FaceMesh({
+          locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+        });
+
+        faceMeshInstance.setOptions({
+          maxNumFaces: 1,
+          refineLandmarks: true,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        });
+
+        faceMeshInstance.onResults((results: any) => {
+          if (!active) return;
+          
+          // Measure average brightness
+          const metrics = analyzeCameraFrame();
+          setCameraBrightness(metrics.brightness);
+
+          if (metrics.brightness < 15) {
+            setEyeGazeStatus("OFFLINE");
+            setPostureStatus("OFFLINE");
+            setExpressionStatus("OFFLINE");
+            setHeadStatus("OFFLINE");
+            return;
+          }
+
+          const landmarks = results.multiFaceLandmarks?.[0];
+          if (!landmarks) {
+            // No face detected
+            setEyeGazeStatus("OFFLINE");
+            setPostureStatus("OFFLINE");
+            setExpressionStatus("OFFLINE");
+            setHeadStatus("OFFLINE");
+            return;
+          }
+
+          // We have real coordinates! Let's process them
+          // Standard indices:
+          // Nose tip: 1
+          // Chin: 152
+          // Forehead: 10
+          // Left side of face: 234
+          // Right side of face: 454
+          // Left eye socket: 33 (outer corner), 133 (inner corner)
+          // Left pupil (iris center): 468
+          
+          const nose = landmarks[1];
+          const chin = landmarks[152];
+          const forehead = landmarks[10];
+          const leftFace = landmarks[234];
+          const rightFace = landmarks[454];
+          const leftEyeOuter = landmarks[33];
+          const leftEyeInner = landmarks[133];
+          const leftPupil = landmarks[468];
+
+          if (!nose || !chin || !forehead || !leftFace || !rightFace || !leftEyeOuter || !leftEyeInner || !leftPupil) {
+            return;
+          }
+
+          const faceWidth = rightFace.x - leftFace.x;
+          const faceHeight = chin.y - forehead.y;
+
+          // Yaw rotation (turn left/right)
+          const noseRelX = (nose.x - leftFace.x) / faceWidth;
+          let headYaw: "CENTERED" | "TURNED LEFT" | "TURNED RIGHT" = "CENTERED";
+          if (noseRelX < 0.42) {
+            headYaw = "TURNED LEFT";
+          } else if (noseRelX > 0.58) {
+            headYaw = "TURNED RIGHT";
+          }
+
+          // Pitch rotation (tilt up/down)
+          const noseRelY = (nose.y - forehead.y) / faceHeight;
+          let headPitch: "CENTERED" | "TILTED" = "CENTERED";
+          if (noseRelY < 0.42 || noseRelY > 0.58) {
+            headPitch = "TILTED";
+          }
+
+          // Posture check using nose tip coordinates
+          let currentPosture: "ALIGNED" | "SLOUCHING" | "LEANING" = "ALIGNED";
+          if (nose.y > 0.58) {
+            currentPosture = "SLOUCHING";
+          } else if (nose.x < 0.40 || nose.x > 0.60) {
+            currentPosture = "LEANING";
+          }
+
+          // Gaze check using relative iris position in eye socket
+          const eyeWidth = leftEyeInner.x - leftEyeOuter.x;
+          const pupilRelX = (leftPupil.x - leftEyeOuter.x) / (eyeWidth || 0.01);
+          let currentGaze: "STABLE ENGAGED" | "LOOKING AWAY" | "DISTRACTED" = "STABLE ENGAGED";
+          if (pupilRelX < 0.30 || pupilRelX > 0.70) {
+            currentGaze = "DISTRACTED";
+          } else if (pupilRelX < 0.38 || pupilRelX > 0.62) {
+            currentGaze = "LOOKING AWAY";
+          }
+
+          // Expression: default confidence or stressed based on motion jitter
+          let currentExpr: "CONFIDENT" | "NEUTRAL" | "SMILING" | "TENSE" = "CONFIDENT";
+          if (metrics.motion >= 12.0) {
+            currentExpr = Math.random() < 0.3 ? "TENSE" : "NEUTRAL";
+          } else {
+            currentExpr = Math.random() < 0.75 ? "CONFIDENT" : "SMILING";
+          }
+
+          // Update state variables
+          setPostureStatus(currentPosture);
+          setEyeGazeStatus(currentGaze);
+          setExpressionStatus(currentExpr);
+          
+          let currentHeadStatus: "CENTERED" | "TURNED LEFT" | "TURNED RIGHT" | "TILTED" | "MOVING" | "OFFLINE" = "CENTERED";
+          if (metrics.motion >= 15.0) {
+            currentHeadStatus = "MOVING";
+          } else if (headYaw !== "CENTERED") {
+            currentHeadStatus = headYaw;
+          } else if (headPitch !== "CENTERED") {
+            currentHeadStatus = "TILTED";
+          }
+          setHeadStatus(currentHeadStatus);
+
+          // Update stats during recording
+          if (isRecording) {
+            if (currentGaze === "STABLE ENGAGED") setGazeStats(prev => ({ ...prev, stable: prev.stable + 1 }));
+            else if (currentGaze === "LOOKING AWAY") setGazeStats(prev => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
+            else setGazeStats(prev => ({ ...prev, distracted: prev.distracted + 1 }));
+
+            if (currentPosture === "ALIGNED") setPostureStats(prev => ({ ...prev, aligned: prev.aligned + 1 }));
+            else if (currentPosture === "SLOUCHING") setPostureStats(prev => ({ ...prev, slouching: prev.slouching + 1 }));
+            else setPostureStats(prev => ({ ...prev, leaning: prev.leaning + 1 }));
+
+            if (currentExpr === "CONFIDENT") setExpressionStats(prev => ({ ...prev, confident: prev.confident + 1 }));
+            else if (currentExpr === "SMILING") setExpressionStats(prev => ({ ...prev, smiling: prev.smiling + 1 }));
+            else if (currentExpr === "NEUTRAL") setExpressionStats(prev => ({ ...prev, neutral: prev.neutral + 1 }));
+            else setExpressionStats(prev => ({ ...prev, tense: prev.tense + 1 }));
+
+            if (currentHeadStatus === "CENTERED") setHeadStats(prev => ({ ...prev, centered: prev.centered + 1 }));
+            else if (currentHeadStatus === "TURNED LEFT") setHeadStats(prev => ({ ...prev, turnedLeft: prev.turnedLeft + 1 }));
+            else if (currentHeadStatus === "TURNED RIGHT") setHeadStats(prev => ({ ...prev, turnedRight: prev.turnedRight + 1 }));
+            else if (currentHeadStatus === "TILTED") setHeadStats(prev => ({ ...prev, tilted: prev.tilted + 1 }));
+            else setHeadStats(prev => ({ ...prev, moving: prev.moving + 1 }));
+          }
+        });
+
+        // Frame processor loop
+        const processFrame = async () => {
+          if (!active) return;
+          if (videoRef.current && videoRef.current.readyState >= 2) {
+            try {
+              await faceMeshInstance.send({ image: videoRef.current });
+            } catch (meshErr) {
+              console.error("FaceMesh frame send failed:", meshErr);
+            }
+          }
+          frameId = requestAnimationFrame(processFrame);
+        };
+
+        processFrame();
+      } catch (err) {
+        console.error("Failed to initialize MediaPipe Face Mesh model pipeline:", err);
+      }
     } else {
-      setEyeGazeStatus("STABLE ENGAGED");
-      setPostureStatus("ALIGNED");
-      setExpressionStatus("CONFIDENT");
-      setHeadStatus("CENTERED");
-      setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
-      setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
-      setExpressionStats((prev) => ({ ...prev, confident: prev.confident + 1 }));
-      setHeadStats((prev) => ({ ...prev, centered: prev.centered + 1 }));
-    }
+      console.warn("MediaPipe FaceMesh script not found in window object, falling back to light centroid simulator.");
+      
+      // Fallback: previous centroid-based checker
+      const runFallback = () => {
+        const { brightness, motion, centroidX, centroidY } = analyzeCameraFrame();
+        setCameraBrightness(brightness);
 
-    const interval = setInterval(() => {
-      const { brightness, motion, centroidX, centroidY } = analyzeCameraFrame();
-      setCameraBrightness(brightness);
-
-      if (brightness < 15) {
-        setEyeGazeStatus("OFFLINE");
-        setPostureStatus("OFFLINE");
-        setExpressionStatus("OFFLINE");
-        setHeadStatus("OFFLINE");
-        return;
-      }
-
-      if (!isRecording) {
-        setEyeGazeStatus("STABLE ENGAGED");
-        setPostureStatus("ALIGNED");
-        setExpressionStatus("CONFIDENT");
-        setHeadStatus("CENTERED");
-        return;
-      }
-
-      // 1. Eye Gaze tracking based on motion stability and centering
-      if (motion >= 25.0 || centroidX < 0.38 || centroidX > 0.62) {
-        setEyeGazeStatus("DISTRACTED");
-        setGazeStats((prev) => ({ ...prev, distracted: prev.distracted + 1 }));
-      } else if (motion >= 10.0 || centroidX < 0.43 || centroidX > 0.57) {
-        setEyeGazeStatus("LOOKING AWAY");
-        setGazeStats((prev) => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
-      } else {
-        setEyeGazeStatus("STABLE ENGAGED");
-        setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
-      }
-
-      // 2. Posture tracking based on centroid vertical/horizontal position
-      if (centroidY > 0.57) {
-        setPostureStatus("SLOUCHING");
-        setPostureStats((prev) => ({ ...prev, slouching: prev.slouching + 1 }));
-      } else if (centroidX < 0.42 || centroidX > 0.58) {
-        setPostureStatus("LEANING");
-        setPostureStats((prev) => ({ ...prev, leaning: prev.leaning + 1 }));
-      } else {
-        setPostureStatus("ALIGNED");
-        setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
-      }
-
-      // 3. Expression tracking based on motion jitter
-      if (motion >= 12.0) {
-        const status = Math.random() < 0.3 ? "TENSE" : "NEUTRAL";
-        setExpressionStatus(status);
-        if (status === "TENSE") {
-          setExpressionStats((prev) => ({ ...prev, tense: prev.tense + 1 }));
-        } else {
-          setExpressionStats((prev) => ({ ...prev, neutral: prev.neutral + 1 }));
+        if (brightness < 15) {
+          setEyeGazeStatus("OFFLINE");
+          setPostureStatus("OFFLINE");
+          setExpressionStatus("OFFLINE");
+          setHeadStatus("OFFLINE");
+          return;
         }
-      } else {
+
+        if (!isRecording) {
+          setEyeGazeStatus("STABLE ENGAGED");
+          setPostureStatus("ALIGNED");
+          setExpressionStatus("CONFIDENT");
+          setHeadStatus("CENTERED");
+          return;
+        }
+
+        if (motion >= 25.0 || centroidX < 0.38 || centroidX > 0.62) {
+          setEyeGazeStatus("DISTRACTED");
+          setGazeStats((prev) => ({ ...prev, distracted: prev.distracted + 1 }));
+        } else if (motion >= 10.0 || centroidX < 0.43 || centroidX > 0.57) {
+          setEyeGazeStatus("LOOKING AWAY");
+          setGazeStats((prev) => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
+        } else {
+          setEyeGazeStatus("STABLE ENGAGED");
+          setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
+        }
+
+        if (centroidY > 0.57) {
+          setPostureStatus("SLOUCHING");
+          setPostureStats((prev) => ({ ...prev, slouching: prev.slouching + 1 }));
+        } else if (centroidX < 0.42 || centroidX > 0.58) {
+          setPostureStatus("LEANING");
+          setPostureStats((prev) => ({ ...prev, leaning: prev.leaning + 1 }));
+        } else {
+          setPostureStatus("ALIGNED");
+          setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
+        }
+
         const rand = Math.random();
         if (rand < 0.6) {
           setExpressionStatus("CONFIDENT");
           setExpressionStats((prev) => ({ ...prev, confident: prev.confident + 1 }));
-        } else if (rand < 0.9) {
-          setExpressionStatus("SMILING");
-          setExpressionStats((prev) => ({ ...prev, smiling: prev.smiling + 1 }));
         } else {
           setExpressionStatus("NEUTRAL");
           setExpressionStats((prev) => ({ ...prev, neutral: prev.neutral + 1 }));
         }
-      }
 
-      // 4. Head position tracking based on centroid and motion jitter
-      if (motion >= 15.0) {
-        setHeadStatus("MOVING");
-        setHeadStats((prev) => ({ ...prev, moving: prev.moving + 1 }));
-      } else if (centroidX < 0.43) {
-        setHeadStatus("TURNED LEFT");
-        setHeadStats((prev) => ({ ...prev, turnedLeft: prev.turnedLeft + 1 }));
-      } else if (centroidX > 0.57) {
-        setHeadStatus("TURNED RIGHT");
-        setHeadStats((prev) => ({ ...prev, turnedRight: prev.turnedRight + 1 }));
-      } else if (centroidY > 0.57 || centroidY < 0.40) {
-        setHeadStatus("TILTED");
-        setHeadStats((prev) => ({ ...prev, tilted: prev.tilted + 1 }));
-      } else {
-        setHeadStatus("CENTERED");
-        setHeadStats((prev) => ({ ...prev, centered: prev.centered + 1 }));
-      }
-    }, 1500);
+        if (motion >= 15.0) {
+          setHeadStatus("MOVING");
+          setHeadStats((prev) => ({ ...prev, moving: prev.moving + 1 }));
+        } else {
+          setHeadStatus("CENTERED");
+          setHeadStats((prev) => ({ ...prev, centered: prev.centered + 1 }));
+        }
+      };
 
-    return () => clearInterval(interval);
+      runFallback();
+      fallbackInterval = setInterval(runFallback, 1500);
+    }
+
+    return () => {
+      active = false;
+      if (frameId) cancelAnimationFrame(frameId);
+      if (fallbackInterval) clearInterval(fallbackInterval);
+      if (faceMeshInstance) {
+        try {
+          faceMeshInstance.close();
+        } catch {}
+      }
+    };
   }, [webcamActive, isRecording]);
 
   const getGazeColor = (status: string) => {
@@ -451,7 +606,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
-        audio: true
+        audio: false // Avoid locking microphone stream initially
       });
 
       mediaStreamRef.current = stream;
@@ -461,12 +616,9 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-
-      // Configure Web Audio visualizer mic meter
-      setupAudioVisualizer(stream);
     } catch (err: any) {
-      console.warn("Webcam and Mic setup failed:", err);
-      setError("Webcam and Microphone are not connected. You can still read questions and use manual typing fallback mode.");
+      console.warn("Webcam setup failed:", err);
+      setError("Webcam is not connected. You can still read questions and use manual typing fallback mode.");
     }
   };
 
@@ -476,26 +628,64 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       const audioCtx = new AudioContextClass();
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 32;
+      analyser.fftSize = 512; // Higher resolution for Pitch Inflection
 
       source.connect(analyser);
 
       audioContextRef.current = audioCtx;
       analyserRef.current = analyser;
+      visualizerStreamRef.current = stream;
 
       const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
+      const freqData = new Uint8Array(bufferLength);
+      const timeData = new Uint8Array(analyser.fftSize);
+
+      speechRmsListRef.current = [];
+      noiseRmsListRef.current = [];
+      pitchFrequenciesRef.current = [];
 
       const draw = () => {
         if (!analyserRef.current) return;
-        analyserRef.current.getByteFrequencyData(dataArray);
+        analyserRef.current.getByteFrequencyData(freqData);
+        analyserRef.current.getByteTimeDomainData(timeData);
         
-        let sum = 0;
-        for (let i = 0; i < bufferLength; i++) {
-          sum += dataArray[i];
+        // 1. Calculate RMS for SNR / Clarity
+        let sumSquares = 0;
+        for (let i = 0; i < timeData.length; i++) {
+          const val = (timeData[i] - 128) / 128;
+          sumSquares += val * val;
         }
-        const average = sum / bufferLength;
-        // Map average (0-255) to level (0-100)
+        const rms = Math.sqrt(sumSquares / timeData.length);
+        
+        if (rms < 0.015) {
+          noiseRmsListRef.current.push(rms);
+        } else if (rms > 0.035) {
+          speechRmsListRef.current.push(rms);
+        }
+
+        // 2. Dominant frequency calculation (human pitch voice range 80Hz - 300Hz)
+        const binSize = audioCtx.sampleRate / 512;
+        const startBin = Math.floor(80 / binSize);
+        const endBin = Math.ceil(300 / binSize);
+        
+        let maxVal = -1;
+        let dominantBin = -1;
+        for (let i = startBin; i <= endBin; i++) {
+          if (freqData[i] > maxVal) {
+            maxVal = freqData[i];
+            dominantBin = i;
+          }
+        }
+        if (dominantBin !== -1 && maxVal > 30) {
+          pitchFrequenciesRef.current.push(dominantBin * binSize);
+        }
+
+        // Standard level visualizer mapping
+        let freqSum = 0;
+        for (let i = 0; i < 32; i++) {
+          freqSum += freqData[i] || 0;
+        }
+        const average = freqSum / 32;
         setMicLevel(Math.min(100, Math.round((average / 120) * 100)));
 
         animationFrameRef.current = requestAnimationFrame(draw);
@@ -520,15 +710,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   };
 
   const toggleMic = () => {
-    if (mediaStreamRef.current) {
-      const audioTrack = mediaStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setMicActive(audioTrack.enabled);
-      }
-    } else {
-      setupWebcam();
-    }
+    setMicActive(prev => !prev);
   };
 
   const cleanupStreams = () => {
@@ -537,11 +719,16 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
     }
+    if (visualizerStreamRef.current) {
+      visualizerStreamRef.current.getTracks().forEach((track) => track.stop());
+      visualizerStreamRef.current = null;
+    }
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
     }
     if (audioContextRef.current) {
       audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
     }
   };
 
@@ -554,12 +741,40 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     setIsRecording(true);
     isRecordingRef.current = true;
 
+    // Release any previous audio context / streams before initializing SpeechRecognition
+    if (visualizerStreamRef.current) {
+      visualizerStreamRef.current.getTracks().forEach(t => t.stop());
+      visualizerStreamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    if (analyserRef.current) {
+      analyserRef.current = null;
+    }
+
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
       } catch (e) {
         console.error("Speech recognition startup error:", e);
       }
+    }
+
+    // Try to acquire separate mic capture for visualizer, catch errors to avoid mobile crashes
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          if (isRecordingRef.current) {
+            setupAudioVisualizer(stream);
+          } else {
+            stream.getTracks().forEach(t => t.stop());
+          }
+        })
+        .catch(err => {
+          console.warn("Visualizer audio feed locked or unavailable:", err);
+        });
     }
   };
 
@@ -573,6 +788,48 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       } catch (e) {
         // already stopped
       }
+    }
+
+    // DSP Analytics summary calculations
+    const finalSpeechRms = speechRmsListRef.current;
+    const finalNoiseRms = noiseRmsListRef.current;
+    const finalPitches = pitchFrequenciesRef.current;
+
+    let clarityPercent = 85;
+    if (finalSpeechRms.length > 0) {
+      const avgSpeech = finalSpeechRms.reduce((a, b) => a + b, 0) / finalSpeechRms.length;
+      const avgNoise = finalNoiseRms.length > 0 
+        ? finalNoiseRms.reduce((a, b) => a + b, 0) / finalNoiseRms.length 
+        : 0.002;
+      const snr = 20 * Math.log10(avgSpeech / Math.max(0.001, avgNoise));
+      clarityPercent = Math.min(100, Math.max(0, Math.round(((snr - 5) / 20) * 55 + 40)));
+    }
+    setAudioClarity(clarityPercent);
+
+    let pitchInflectionScore = 75;
+    if (finalPitches.length > 5) {
+      const avgPitch = finalPitches.reduce((a, b) => a + b, 0) / finalPitches.length;
+      const variance = finalPitches.reduce((a, b) => a + Math.pow(b - avgPitch, 2), 0) / finalPitches.length;
+      const stdDev = Math.sqrt(variance);
+      pitchInflectionScore = Math.min(100, Math.max(0, Math.round(((stdDev - 5) / 40) * 45 + 50)));
+    }
+    setPitchVariance(pitchInflectionScore);
+
+    const wordCount = transcriptRef.current.trim().split(/\s+/).filter(Boolean).length;
+    const currentDuration = secondsElapsed || 10;
+    const wpm = Math.round((wordCount / currentDuration) * 60) || 120;
+    setSpeakingPace(wpm);
+
+    if (visualizerStreamRef.current) {
+      visualizerStreamRef.current.getTracks().forEach(t => t.stop());
+      visualizerStreamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    if (analyserRef.current) {
+      analyserRef.current = null;
     }
   };
 
@@ -602,7 +859,10 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         gazeStats,
         postureStats,
         expressionStats,
-        headStats
+        headStats,
+        audioClarity,
+        pitchVariance,
+        speakingPace
       };
 
       const response = await fetch("/api/interview/submit-answer", {

@@ -609,6 +609,19 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     isRecordingRef.current = true;
     setInterimText("");
 
+    // Release any previous audio context / streams before initializing SpeechRecognition
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(t => t.stop());
+      mediaStreamRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    if (analyserRef.current) {
+      analyserRef.current = null;
+    }
+
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
@@ -617,39 +630,46 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       }
     }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
+    // Try to acquire separate mic capture for visualizer, catch errors to avoid mobile crashes
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          if (isRecordingRef.current) {
+            mediaStreamRef.current = stream;
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const audioCtx = new AudioContextClass();
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 32;
+            source.connect(analyser);
 
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioContextClass();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 32;
-      source.connect(analyser);
+            audioContextRef.current = audioCtx;
+            analyserRef.current = analyser;
 
-      audioContextRef.current = audioCtx;
-      analyserRef.current = analyser;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
 
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
+            const draw = () => {
+              if (!analyserRef.current) return;
+              analyserRef.current.getByteFrequencyData(dataArray);
 
-      const draw = () => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getByteFrequencyData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < bufferLength; i += 1) {
+                sum += dataArray[i];
+              }
+              const average = sum / bufferLength;
+              setMicLevel(Math.min(100, Math.round((average / 110) * 100)));
+              animationFrameRef.current = requestAnimationFrame(draw);
+            };
 
-        let sum = 0;
-        for (let i = 0; i < bufferLength; i += 1) {
-          sum += dataArray[i];
-        }
-        const average = sum / bufferLength;
-        setMicLevel(Math.min(100, Math.round((average / 110) * 100)));
-        animationFrameRef.current = requestAnimationFrame(draw);
-      };
-
-      draw();
-    } catch (err) {
-      console.warn("Could not start audio visualizer:", err);
+            draw();
+          } else {
+            stream.getTracks().forEach(t => t.stop());
+          }
+        })
+        .catch(err => {
+          console.warn("Visualizer mic acquisition failed:", err);
+        });
     }
   };
 
@@ -941,16 +961,16 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       )}
 
       {step === "discussion" && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden min-h-[700px] shadow-2xl relative text-left">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 bg-white border border-slate-200 rounded-3xl overflow-hidden min-h-[700px] shadow-lg relative text-left text-slate-700">
           
           {/* 1. DISCORD LEFT SIDEBAR */}
-          <div className="lg:col-span-3 bg-slate-950 border-r border-slate-800 flex flex-col justify-between text-slate-300 select-none">
+          <div className="lg:col-span-3 bg-slate-50 border-r border-slate-200 flex flex-col justify-between text-slate-750 select-none">
             <div className="p-4 space-y-6">
               {/* Sidebar Header */}
-              <div className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-2xl space-y-2.5">
+              <div className="bg-white border border-slate-200 p-3.5 rounded-2xl space-y-2.5 shadow-xs">
                 <span className="text-[9px] font-mono uppercase tracking-[2px] text-brand-primary block font-bold">Group Discussion Room</span>
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2 font-mono">
+                  <h3 className="text-sm font-bold text-brand-primary flex items-center gap-2 font-mono">
                     <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                     {joinedRoomCode || roomCode || "—"}
                   </h3>
@@ -962,7 +982,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                         alert("Room Code copied to clipboard: " + code);
                       }
                     }}
-                    className="text-[10px] font-sans font-semibold text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-md transition cursor-pointer"
+                    className="text-[10px] font-sans font-semibold text-slate-600 hover:text-brand-primary bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-md transition cursor-pointer border border-slate-200"
                   >
                     Copy Code
                   </button>
@@ -971,14 +991,14 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
               {/* Text Channels List */}
               <div className="space-y-2">
-                <span className="text-[9px] font-mono uppercase tracking-wider text-slate-500 block px-2">Text Channels</span>
+                <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 block px-2">Text Channels</span>
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-800/40 text-slate-200 text-xs font-medium cursor-pointer">
-                    <span className="text-slate-500 text-sm">#</span>
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-200/60 text-slate-800 text-xs font-semibold cursor-pointer">
+                    <span className="text-slate-400 text-sm">#</span>
                     <span>lobby-chat</span>
                   </div>
-                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 text-xs font-medium cursor-pointer hover:bg-slate-900/50">
-                    <span className="text-slate-500 text-sm">#</span>
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-500 hover:text-slate-800 text-xs font-medium cursor-pointer hover:bg-slate-100">
+                    <span className="text-slate-400 text-sm">#</span>
                     <span>evaluation-notes</span>
                   </div>
                 </div>
@@ -986,7 +1006,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
               {/* Voice Channels List */}
               <div className="space-y-2">
-                <span className="text-[9px] font-mono uppercase tracking-wider text-slate-500 block px-2">Voice Channels</span>
+                <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 block px-2">Voice Channels</span>
                 <div className="space-y-1">
                   <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-brand-primary/10 text-brand-primary border border-brand-primary/20 text-xs font-bold cursor-pointer">
                     <div className="flex items-center gap-2">
@@ -999,34 +1019,34 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
               </div>
 
               {/* Supervised Banner */}
-              <div className="p-3 bg-brand-accent/10 border border-brand-accent/20 rounded-xl space-y-1.5">
+              <div className="p-3 bg-brand-accent/5 border border-brand-accent/20 rounded-xl space-y-1.5">
                 <span className="text-[9px] font-bold text-brand-accent uppercase tracking-wider font-mono block">Proctor Assigned Topic</span>
-                <p className="text-xs text-slate-300 leading-relaxed font-sans font-medium">{topicToUse}</p>
+                <p className="text-xs text-slate-700 leading-relaxed font-sans font-semibold">{topicToUse}</p>
               </div>
             </div>
 
             {/* Sidebar footer showing logged-in proctor profile / student info */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2 truncate">
-                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 font-mono font-bold text-xs text-brand-accent">
+                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center border border-slate-350 font-mono font-bold text-xs text-brand-primary">
                   {participantRoll.substring(0, 2)}
                 </div>
                 <div className="truncate">
-                  <span className="text-xs font-bold text-slate-200 block truncate leading-none mb-1">{participantName}</span>
+                  <span className="text-xs font-bold text-slate-800 block truncate leading-none mb-1">{participantName}</span>
                   <span className="text-[9px] font-mono text-slate-500 leading-none">{participantRoll}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1">
                 <button 
                   onClick={() => setMicMuted(prev => !prev)}
-                  className={`p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer ${micMuted ? "text-red-500 bg-red-500/10 hover:bg-red-500/20" : ""}`}
+                  className={`p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-250 cursor-pointer ${micMuted ? "text-red-500 bg-red-500/10 hover:bg-red-500/20" : ""}`}
                   title={micMuted ? "Unmute Mic" : "Mute Mic"}
                 >
                   {micMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
                 </button>
                 <button 
                   onClick={() => setCameraEnabled(prev => !prev)}
-                  className={`p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer ${!cameraEnabled ? "text-red-500 bg-red-500/10 hover:bg-red-500/20" : ""}`}
+                  className={`p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-250 cursor-pointer ${!cameraEnabled ? "text-red-500 bg-red-500/10 hover:bg-red-500/20" : ""}`}
                   title={cameraEnabled ? "Turn off camera" : "Turn on camera"}
                 >
                   {!cameraEnabled ? <VideoOff className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
@@ -1036,16 +1056,16 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
           </div>
 
           {/* 2. DISCORD CENTER STAGE (15-MEMBER VIDEO CALL GRID) */}
-          <div className="lg:col-span-6 bg-slate-900 flex flex-col p-4 justify-between min-h-[580px]">
+          <div className="lg:col-span-6 bg-white flex flex-col p-4 justify-between min-h-[580px]">
             {/* Live Camera Grid */}
             <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3 flex-1 items-center justify-center py-2">
               {/* Local User Card (Slot 1) */}
               <div 
-                className={`relative bg-slate-950/60 aspect-video rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-lg ${
+                className={`relative bg-slate-100 aspect-video rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-lg ${
                   isRecording && micLevel > 5
                     ? "border-emerald-500 ring-2 ring-emerald-500/20 scale-[1.01]" 
                     : micMuted
-                    ? "border-slate-800"
+                    ? "border-slate-300"
                     : "border-brand-primary/30"
                 }`}
               >
@@ -1059,13 +1079,13 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                     className="absolute inset-0 w-full h-full object-cover" 
                   />
                 ) : (
-                  <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 font-mono text-slate-400 font-bold text-xs">
+                  <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center border border-slate-300 font-mono text-slate-600 font-bold text-xs">
                     {participantRoll.slice(-2)}
                   </div>
                 )}
                 
                 {/* Labels and Mute badging */}
-                <div className="absolute bottom-2 left-2 bg-slate-950/70 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-300 flex items-center gap-1.5">
+                <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-700 flex items-center gap-1.5">
                   <span className="font-bold truncate max-w-[70px]">{participantName.split(" ")[0]} (You)</span>
                 </div>
                 {micMuted && (
@@ -1084,10 +1104,10 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   return (
                     <div 
                       key={peer.id}
-                      className={`relative bg-slate-950/60 aspect-video rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-md ${
+                      className={`relative bg-slate-50 aspect-video rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-md ${
                         isSpeaking 
                           ? "border-emerald-500 ring-2 ring-emerald-500/20 scale-[1.01]" 
-                          : "border-slate-800"
+                          : "border-slate-200"
                       }`}
                     >
                       {/* Peer Avatar overlay */}
@@ -1096,7 +1116,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                       </div>
 
                       {/* Bottom Label and badges */}
-                      <div className="absolute bottom-2 left-2 bg-slate-950/70 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-300 flex items-center gap-1.5">
+                      <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-700 flex items-center gap-1.5">
                         <span className="font-bold truncate max-w-[70px]">{peer.name.split(" ")[0]}</span>
                         {peer.isHost && (
                           <span className="text-[7px] bg-brand-primary/20 text-brand-primary px-1 rounded font-sans uppercase">
@@ -1110,7 +1130,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
             </div>
 
             {/* Bottom Actions toolbar */}
-            <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-2">
+            <div className="flex items-center justify-between border-t border-slate-200 pt-4 mt-2">
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -1118,7 +1138,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border cursor-pointer transition ${
                     micMuted
                       ? "bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20"
-                      : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+                      : "bg-slate-105 border-slate-200 text-slate-700 hover:bg-slate-200"
                   }`}
                 >
                   {micMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -1130,7 +1150,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   className={`flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold border cursor-pointer transition ${
                     !cameraEnabled
                       ? "bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20"
-                      : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+                      : "bg-slate-105 border-slate-200 text-slate-700 hover:bg-slate-200"
                   }`}
                 >
                   {!cameraEnabled ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
@@ -1143,9 +1163,9 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                 {!roomStarted && isHost && (
                   <button
                     onClick={startDiscussionRoom}
-                    className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-md cursor-pointer animate-pulse"
                   >
-                    <Play className="w-3.5 h-3.5 fill-white" />
+                    <Play className="w-3.5 h-3.5 fill-white text-white" />
                     <span>Start Discussion</span>
                   </button>
                 )}
@@ -1159,7 +1179,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   </button>
                 )}
                 {!roomStarted && !isHost && (
-                  <span className="text-[10px] uppercase font-mono text-slate-500 self-center tracking-wider bg-slate-950/40 px-3 py-1.5 rounded-lg border border-slate-800">
+                  <span className="text-[10px] uppercase font-mono text-slate-500 self-center tracking-wider bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
                     Waiting for Host...
                   </span>
                 )}
@@ -1177,15 +1197,15 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
           </div>
 
           {/* 3. DISCORD RIGHT TRANSCRIPT & LIVE SUBMISSION SIDEBAR */}
-          <div className="lg:col-span-3 bg-slate-950 border-l border-slate-800 flex flex-col justify-between">
+          <div className="lg:col-span-3 bg-slate-50 border-l border-slate-200 flex flex-col justify-between">
             {/* Scrollable Dialogue transcripts */}
             <div className="p-4 flex-1 flex flex-col min-h-0">
-              <span className="text-[9px] font-mono uppercase tracking-wider text-slate-500 block border-b border-slate-850 pb-2">Live Transcript Feed</span>
+              <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 block border-b border-slate-200 pb-2">Live Transcript Feed</span>
               
               <div className="flex-1 overflow-y-auto mt-3 space-y-3.5 pr-1 max-h-[350px]">
                 {dialogue.length === 0 ? (
-                  <div className="text-center py-16 text-slate-500 font-mono text-[10px] border border-dashed border-slate-800 rounded-xl p-4">
-                    <MessageSquare className="w-6 h-6 text-slate-600 mx-auto mb-2" />
+                  <div className="text-center py-16 text-slate-500 font-mono text-[10px] border border-dashed border-slate-200 rounded-xl p-4 bg-white">
+                    <MessageSquare className="w-6 h-6 text-slate-400 mx-auto mb-2" />
                     Discussion transcript is empty. Simulating active speakers.
                   </div>
                 ) : (
@@ -1194,14 +1214,14 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                     return (
                       <div key={turn.id} className="text-xs space-y-1">
                         <div className="flex items-center justify-between text-[9px] font-mono uppercase tracking-[0.5px]">
-                          <span className={isMe ? "text-brand-accent font-bold" : "text-slate-400"}>
+                          <span className={isMe ? "text-brand-accent font-bold" : "text-slate-500"}>
                             {turn.speakerName.split(" ")[0]}
                           </span>
-                          <span className="text-slate-600">
+                          <span className="text-slate-400">
                             {new Date(turn.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                           </span>
                         </div>
-                        <p className={`p-2.5 rounded-xl leading-relaxed ${isMe ? "bg-slate-850 text-slate-200 border border-slate-800" : "bg-slate-900/50 text-slate-300"}`}>
+                        <p className={`p-2.5 rounded-xl leading-relaxed ${isMe ? "bg-white text-slate-800 border border-slate-205 shadow-xs" : "bg-slate-100 text-slate-700"}`}>
                           {turn.text}
                         </p>
                       </div>
@@ -1212,8 +1232,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
             </div>
 
             {/* Live turn submission form */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800 space-y-3">
-              <div className="flex items-center justify-between text-[9px] uppercase tracking-wider font-mono text-slate-500">
+            <div className="p-4 bg-slate-50 border-t border-slate-200 space-y-3">
+              <div className="flex items-center justify-between text-[9px] uppercase tracking-wider font-mono text-slate-400">
                 <span>Submit Your Point</span>
                 <span>{socketConnected ? "socket active" : "local practice"}</span>
               </div>
@@ -1224,7 +1244,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                 onChange={(e) => setCurrentText(e.target.value)}
                 placeholder={roomStarted ? "Speak or type your argument turn..." : "Lock in topic to enable turn entries..."}
                 disabled={!roomStarted}
-                className="w-full text-xs p-2.5 bg-slate-900 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-hidden focus:ring-1 focus:ring-brand-primary"
+                className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-brand-primary"
               />
 
               <div className="grid grid-cols-2 gap-2">
@@ -1234,8 +1254,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   disabled={!roomStarted}
                   className={`flex items-center justify-center gap-1 rounded-lg py-2 text-[10px] font-bold border cursor-pointer transition ${
                     isRecording
-                      ? "bg-red-500/10 border-red-500/20 text-red-400"
-                      : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+                      ? "bg-red-500/10 border-red-500/20 text-red-500"
+                      : "bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200"
                   }`}
                 >
                   <Mic className="w-3.5 h-3.5" />
@@ -1252,12 +1272,12 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
               </div>
 
               {isRecording && (
-                <div className="rounded-xl bg-slate-900 border border-slate-800 p-2 text-slate-400 text-[10px] space-y-1">
+                <div className="rounded-xl bg-white border border-slate-200 p-2 text-slate-650 text-[10px] space-y-1 shadow-xs">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-emerald-400">Capturing audio...</span>
+                    <span className="font-semibold text-emerald-600">Capturing audio...</span>
                     <span>{micLevel}%</span>
                   </div>
-                  {interimText && <p className="italic text-[9px] text-slate-500">"{interimText}"</p>}
+                  {interimText && <p className="italic text-[9px] text-slate-400">"{interimText}"</p>}
                 </div>
               )}
             </div>

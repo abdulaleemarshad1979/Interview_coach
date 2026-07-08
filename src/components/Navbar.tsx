@@ -104,16 +104,7 @@ export default function Navbar({ studentProfile, facultyProfile, currentView, on
             >
               Profile
             </button>
-            <button
-              onClick={() => onNavigate("settings")}
-              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
-                currentView === "settings"
-                  ? "text-brand-primary bg-slate-100 font-semibold"
-                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
-              }`}
-            >
-              Settings
-            </button>
+
           </nav>
         ) : facultyProfile ? (
           <nav id="nav-menu" className="hidden lg:flex items-center space-x-1">
@@ -137,16 +128,7 @@ export default function Navbar({ studentProfile, facultyProfile, currentView, on
             >
               Group Discussion
             </button>
-            <button
-              onClick={() => onNavigate("settings")}
-              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
-                currentView === "settings"
-                  ? "text-brand-primary bg-slate-100 font-semibold"
-                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
-              }`}
-            >
-              Settings
-            </button>
+
           </nav>
         ) : null}
 
