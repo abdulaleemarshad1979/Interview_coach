@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 import { StudentProfile, Scorecard } from "../types";
 import { fetchStudentFromAdityaDb } from "../lib/collegeDb";
+import abdulProfileImg from "../../assets/abdul_profile.png";
+
+
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -38,6 +41,12 @@ export default function ProfileModal({
 }: ProfileModalProps) {
   const [activeTab, setActiveTab] = useState<"academics" | "coach" | "integration">("academics");
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Dynamic fallbacks for Roll Number 24P31A1234 to show correct avatar and official name
+  const displayProfileImage = studentProfile.profileImage || (studentProfile.studentId === "24P31A1234" ? abdulProfileImg : undefined);
+  const displayName = studentProfile.name || (studentProfile.studentId === "24P31A1234" ? "MOHAMMAD ABDUL ALEEM ARSHAD" : "Offline Student User");
+  const displayClass = studentProfile.classSection || (studentProfile.studentId === "24P31A1234" ? "III B.Tech CSE - Section A" : "Aditya College of Engineering & Technology");
+
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncStepText, setSyncStepText] = useState("");
   const [syncPassword, setSyncPassword] = useState("");
@@ -142,10 +151,10 @@ export default function ProfileModal({
             <div className="relative group">
               <div className="absolute inset-0 bg-gradient-to-tr from-brand-primary to-brand-accent rounded-full blur-md opacity-50 group-hover:opacity-85 transition-opacity duration-300" />
               <div className="relative w-28 h-28 rounded-full border-2 border-brand-primary/50 overflow-hidden bg-slate-800 flex items-center justify-center shadow-lg">
-                {studentProfile.profileImage ? (
+                {displayProfileImage ? (
                   <img 
-                    src={studentProfile.profileImage} 
-                    alt={studentProfile.name || "Student"} 
+                    src={displayProfileImage} 
+                    alt={displayName} 
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -157,13 +166,13 @@ export default function ProfileModal({
             {/* Student Info */}
             <div className="text-center space-y-1">
               <h3 className="text-lg font-display font-bold text-white tracking-tight">
-                {studentProfile.name || "Offline Student User"}
+                {displayName}
               </h3>
               <div className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-brand-primary/10 border border-brand-primary/20 text-[10px] font-mono text-brand-primary">
                 ID: {studentProfile.studentId}
               </div>
               <p className="text-xs text-gray-400 font-mono mt-1.5">
-                {studentProfile.classSection || "Aditya Engineering College"}
+                {displayClass}
               </p>
               {studentProfile.department && (
                 <p className="text-[10px] text-gray-500 uppercase tracking-wider font-mono">
@@ -425,90 +434,129 @@ export default function ProfileModal({
                     </div>
 
                     {isSyncing ? (
-                      <div className="py-10 flex flex-col items-center justify-center space-y-4">
-                        <Loader2 className="w-8 h-8 text-brand-primary animate-spin" />
-                        <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden max-w-[200px]">
-                          <div 
-                            className="h-full bg-gradient-to-r from-brand-primary to-brand-accent rounded-full transition-all duration-300"
-                            style={{ width: `${syncProgress}%` }}
-                          />
+                      <div className="py-12 flex items-center justify-center w-full bg-[#f0f4f8] rounded-2xl border border-slate-200 min-h-[300px]">
+                        <div className="bg-white border-2 border-[#82b4df] p-8 rounded-lg shadow-md text-center flex flex-col items-center justify-center max-w-[240px] w-full">
+                          {/* Dotted rotating spinner matching the exact AEC portal loader */}
+                          <svg className="w-10 h-10 animate-spin text-[#004f9f]" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="3 3" />
+                            <circle className="opacity-75" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" strokeDasharray="8 20" />
+                          </svg>
+                          <p className="text-[11px] font-semibold text-slate-700 mt-4 font-sans">Please wait while processing....</p>
+                          <div className="text-[8px] text-slate-400 font-mono mt-2 truncate w-full">{syncStepText}</div>
                         </div>
-                        <p className="text-[10px] text-gray-400 font-mono text-center max-w-[200px] leading-relaxed">
-                          {syncStepText}
-                        </p>
                       </div>
                     ) : (
-                      <form onSubmit={handleStartSync} className="space-y-3.5">
-                        <div>
-                          <label className="block text-[10px] font-mono text-gray-500 uppercase mb-1">AEC Portal Roll Number</label>
-                          <input 
-                            type="text" 
-                            disabled 
-                            value={studentProfile.studentId}
-                            className="w-full bg-slate-900 border border-white/5 rounded-xl px-3 py-2 text-xs font-mono text-gray-400"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[10px] font-mono text-gray-500 uppercase mb-1">AEC Portal Password</label>
-                          <div className="relative">
-                            <input 
-                              type={showPassword ? "text" : "password"} 
-                              value={syncPassword}
-                              onChange={(e) => setSyncPassword(e.target.value)}
-                              placeholder="••••••••"
-                              className="w-full bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-hidden focus:border-brand-primary"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowPassword(!showPassword)}
-                              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 hover:text-white font-mono"
-                            >
-                              {showPassword ? "HIDE" : "SHOW"}
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Turnstile Checkbox */}
-                        <div className="bg-slate-900/60 border border-white/5 rounded-xl p-3 flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <button
-                              type="button"
-                              onClick={handleTurnstileClick}
-                              className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
-                                turnstilePassed 
-                                  ? "bg-emerald-500/20 border-emerald-500 text-emerald-400" 
-                                  : turnstileLoading 
-                                    ? "bg-slate-800 border-slate-700"
-                                    : "bg-slate-950 border-white/10 hover:border-brand-primary"
-                              }`}
-                            >
-                              {turnstilePassed && <Check className="w-3.5 h-3.5" />}
-                              {turnstileLoading && <Loader2 className="w-3 h-3 animate-spin text-brand-primary" />}
-                            </button>
-                            <span className="text-[10px] text-gray-400 font-mono">Verify student identity with Turnstile</span>
-                          </div>
-                          
+                      <div className="bg-[#f0f4f8] rounded-2xl border border-slate-200 p-4 space-y-4">
+                        {/* Logos banner */}
+                        <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
                           <img 
-                            src="https://www.cloudflare.com/img/logo-cloudflare-dark.svg" 
-                            alt="Cloudflare Logo" 
-                            className="h-3.5 opacity-40 object-contain"
+                            src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg" 
+                            alt="Aditya University Logo" 
+                            className="h-6 object-contain"
                           />
+                          <div className="h-4 w-[1px] bg-slate-300" />
+                          <span className="text-[10px] font-bold text-slate-800 tracking-tight font-sans">CAMPUS CONNECT</span>
                         </div>
 
-                        {syncError && (
-                          <div className="text-[10px] text-red-400 font-mono bg-red-950/20 border border-red-500/10 p-2 rounded-lg">
-                            {syncError}
+                        {/* White Login Card */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                          <h5 className="text-[#0f4c81] font-bold font-sans text-center text-sm mb-3">LOGIN</h5>
+                          
+                          {/* Radio selectors */}
+                          <div className="flex justify-center space-x-4 mb-4 text-[10px] font-sans text-slate-600">
+                            <label className="flex items-center space-x-1.5 cursor-pointer">
+                              <input type="radio" disabled name="loginType" />
+                              <span>Parent</span>
+                            </label>
+                            <label className="flex items-center space-x-1.5 cursor-pointer font-semibold text-[#0f4c81]">
+                              <input type="radio" defaultChecked name="loginType" className="accent-[#0f4c81]" />
+                              <span>Student</span>
+                            </label>
+                            <label className="flex items-center space-x-1.5 cursor-pointer">
+                              <input type="radio" disabled name="loginType" />
+                              <span>Employee</span>
+                            </label>
                           </div>
-                        )}
 
-                        <button
-                          type="submit"
-                          className="w-full py-2 bg-linear-to-r from-brand-accent to-brand-primary hover:scale-[1.01] transition-transform text-brand-bg font-bold rounded-xl text-xs cursor-pointer font-mono"
-                        >
-                          Begin Secure Sync
-                        </button>
-                      </form>
+                          <form onSubmit={handleStartSync} className="space-y-3">
+                            {/* User field */}
+                            <div className="relative">
+                              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                                <User className="w-3.5 h-3.5" />
+                              </div>
+                              <input 
+                                type="text" 
+                                disabled 
+                                value={studentProfile.studentId}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-1.5 text-xs font-mono text-slate-500 focus:outline-hidden"
+                              />
+                            </div>
+
+                            {/* Password field */}
+                            <div className="relative">
+                              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                                <Lock className="w-3.5 h-3.5" />
+                              </div>
+                              <input 
+                                type={showPassword ? "text" : "password"} 
+                                value={syncPassword}
+                                onChange={(e) => setSyncPassword(e.target.value)}
+                                placeholder="Portal Password"
+                                className="w-full bg-white border border-slate-300 rounded-lg pl-9 pr-14 py-1.5 text-xs font-mono text-slate-800 focus:outline-hidden focus:border-[#0f4c81] focus:ring-1 focus:ring-[#0f4c81]"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-[#0f4c81] hover:underline font-mono"
+                              >
+                                {showPassword ? "HIDE" : "SHOW"}
+                              </button>
+                            </div>
+
+                            {/* Cloudflare turnstile */}
+                            <div className="border border-slate-200 bg-slate-50 rounded-lg p-2 flex items-center justify-between">
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={handleTurnstileClick}
+                                  className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+                                    turnstilePassed 
+                                      ? "bg-emerald-100 border-emerald-500 text-emerald-600" 
+                                      : turnstileLoading 
+                                        ? "bg-slate-200 border-slate-300"
+                                        : "bg-white border-slate-300 hover:border-[#0f4c81]"
+                                  }`}
+                                >
+                                  {turnstilePassed && <Check className="w-3 h-3" />}
+                                  {turnstileLoading && <Loader2 className="w-2.5 h-2.5 animate-spin text-[#0f4c81]" />}
+                                </button>
+                                <span className="text-[9px] text-slate-500 font-sans">
+                                  {turnstilePassed ? "Success! Turnstile Verified" : "Verify identity with Turnstile"}
+                                </span>
+                              </div>
+                              <img 
+                                src="https://www.cloudflare.com/img/logo-cloudflare-dark.svg" 
+                                alt="Cloudflare" 
+                                className="h-3 opacity-40 grayscale"
+                              />
+                            </div>
+
+                            {syncError && (
+                              <div className="text-[9px] text-red-500 font-sans bg-red-50 border border-red-200 p-1.5 rounded-lg">
+                                {syncError}
+                              </div>
+                            )}
+
+                            {/* Submit button */}
+                            <button
+                              type="submit"
+                              className="w-full py-2 bg-[#0f4c81] hover:bg-[#0d4270] transition-colors text-white font-bold rounded-lg text-xs font-sans tracking-wide cursor-pointer"
+                            >
+                              LOGIN
+                            </button>
+                          </form>
+                        </div>
+                      </div>
                     )}
                   </div>
 
