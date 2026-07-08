@@ -1365,12 +1365,22 @@ app.get("/api/gd-room/diagnose", async (req, res) => {
 
     if (client) {
       try {
-        const { data, error } = await client.from("group_discussion_rooms").select("code").limit(1);
-        if (error) {
-          dbTestStatus = "Failed";
-          dbTestError = error;
+        const testCode = "TEST_" + Math.random().toString(36).substring(2, 6).toUpperCase();
+        const { error: writeError } = await client.from("group_discussion_rooms").upsert({
+          code: testCode,
+          topic: "Test Write Diagnostics",
+          participants: [],
+          dialogue: [],
+          created_at: Date.now(),
+        });
+
+        if (writeError) {
+          dbTestStatus = "Write Failed";
+          dbTestError = writeError;
         } else {
-          dbTestStatus = "Success";
+          dbTestStatus = "Write Success";
+          // Cleanup
+          await client.from("group_discussion_rooms").delete().eq("code", testCode);
         }
       } catch (err: any) {
         dbTestStatus = "Error throwing";
