@@ -100,11 +100,26 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
       payload.format = "json";
     }
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (process.env.OLLAMA_AUTH_TOKEN) {
+      headers["Authorization"] = `Bearer ${process.env.OLLAMA_AUTH_TOKEN}`;
+    }
+
+    if (process.env.OLLAMA_HEADERS) {
+      try {
+        const parsedHeaders = JSON.parse(process.env.OLLAMA_HEADERS);
+        Object.assign(headers, parsedHeaders);
+      } catch (err) {
+        console.error("Failed to parse OLLAMA_HEADERS:", err);
+      }
+    }
+
     const response = await fetch(`${ollamaUrl}/api/chat`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(payload),
     });
 
@@ -186,13 +201,15 @@ app.post("/api/analyze", requireAuth, async (req: any, res) => {
       return;
     }
 
-    // Initialize Groq safely
-    let groq;
-    try {
-      groq = getGroqClient();
-    } catch (err: any) {
-      res.status(500).json({ error: err.message, requiresApiKey: true });
-      return;
+    // Validate AI credentials safely depending on provider
+    const provider = process.env.AI_PROVIDER || "groq";
+    if (provider === "groq") {
+      try {
+        getGroqClient();
+      } catch (err: any) {
+        res.status(500).json({ error: err.message, requiresApiKey: true });
+        return;
+      }
     }
 
     // Step A: Fetch GitHub data
@@ -322,12 +339,14 @@ app.post("/api/interview/generate-questions", requireAuth, async (req: any, res)
       return;
     }
 
-    let groq;
-    try {
-      groq = getGroqClient();
-    } catch (err: any) {
-      res.status(500).json({ error: err.message, requiresApiKey: true });
-      return;
+    const provider = process.env.AI_PROVIDER || "groq";
+    if (provider === "groq") {
+      try {
+        getGroqClient();
+      } catch (err: any) {
+        res.status(500).json({ error: err.message, requiresApiKey: true });
+        return;
+      }
     }
 
     const prompt = `You are a world-class technical interviewer compiling a personalized, adaptive interview plan.
@@ -412,12 +431,14 @@ app.post("/api/interview/submit-answer", requireAuth, async (req: any, res) => {
       return;
     }
 
-    let groq;
-    try {
-      groq = getGroqClient();
-    } catch (err: any) {
-      res.status(500).json({ error: err.message, requiresApiKey: true });
-      return;
+    const provider = process.env.AI_PROVIDER || "groq";
+    if (provider === "groq") {
+      try {
+        getGroqClient();
+      } catch (err: any) {
+        res.status(500).json({ error: err.message, requiresApiKey: true });
+        return;
+      }
     }
 
     const wordCount = transcript.split(/\s+/).length;
@@ -503,12 +524,14 @@ app.post("/api/interview/generate-report", requireAuth, async (req: any, res) =>
       return;
     }
 
-    let groq;
-    try {
-      groq = getGroqClient();
-    } catch (err: any) {
-      res.status(500).json({ error: err.message, requiresApiKey: true });
-      return;
+    const provider = process.env.AI_PROVIDER || "groq";
+    if (provider === "groq") {
+      try {
+        getGroqClient();
+      } catch (err: any) {
+        res.status(500).json({ error: err.message, requiresApiKey: true });
+        return;
+      }
     }
 
     const prompt = `You are a senior talent architect and engineering director. Review the performance logs of a college student mock interview:
@@ -601,12 +624,14 @@ app.post("/api/interview/evaluate-gd", requireAuth, async (req: any, res) => {
       return;
     }
 
-    let groq;
-    try {
-      groq = getGroqClient();
-    } catch (err: any) {
-      res.status(500).json({ error: err.message, requiresApiKey: true });
-      return;
+    const provider = process.env.AI_PROVIDER || "groq";
+    if (provider === "groq") {
+      try {
+        getGroqClient();
+      } catch (err: any) {
+        res.status(500).json({ error: err.message, requiresApiKey: true });
+        return;
+      }
     }
 
     const dialogueStr = dialogue.map((t: any) => `${t.speaker} (${t.roll}): ${t.text}`).join("\n");
