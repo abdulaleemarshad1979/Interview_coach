@@ -86,47 +86,20 @@ const PRESET_TOPICS = [
 
 
 
-// Simulated Virtual Peers list for 15-member Discord-like GD call
-const VIRTUAL_PEERS_PRESET = [
-  { id: "peer_1", name: "Anusha Rao", roll: "24P31A1201", muted: false, cameraOn: true, avatarColor: "bg-emerald-500" },
-  { id: "peer_2", name: "Sai Krishna", roll: "24P31A1202", muted: false, cameraOn: true, avatarColor: "bg-blue-500" },
-  { id: "peer_3", name: "Srinivas Teja", roll: "24P31A1203", muted: true, cameraOn: true, avatarColor: "bg-indigo-500" },
-  { id: "peer_4", name: "Divya Raju", roll: "24P31A1204", muted: false, cameraOn: true, avatarColor: "bg-purple-500" },
-  { id: "peer_5", name: "Kiran Prasad", roll: "24P31A1205", muted: false, cameraOn: true, avatarColor: "bg-pink-500" },
-  { id: "peer_6", name: "Priya Devi", roll: "24P31A1206", muted: false, cameraOn: true, avatarColor: "bg-rose-500" },
-  { id: "peer_7", name: "Arjun Kumar", roll: "24P31A1207", muted: true, cameraOn: true, avatarColor: "bg-orange-500" },
-  { id: "peer_8", name: "Swathi Bhaskar", roll: "24P31A1208", muted: false, cameraOn: true, avatarColor: "bg-amber-500" },
-  { id: "peer_9", name: "Ramesh Varma", roll: "24P31A1209", muted: false, cameraOn: true, avatarColor: "bg-yellow-500" },
-  { id: "peer_10", name: "Haritha Murthy", roll: "24P31A1210", muted: false, cameraOn: true, avatarColor: "bg-teal-500" },
-  { id: "peer_11", name: "Rahul Gupta", roll: "24P31A1211", muted: true, cameraOn: true, avatarColor: "bg-cyan-500" },
-  { id: "peer_12", name: "Kavya Malhotra", roll: "24P31A1212", muted: false, cameraOn: true, avatarColor: "bg-violet-500" },
-  { id: "peer_13", name: "Rao Naidu", roll: "24P31A1213", muted: false, cameraOn: true, avatarColor: "bg-sky-500" },
-  { id: "peer_14", name: "Soma Reddy", roll: "24P31A1214", muted: false, cameraOn: true, avatarColor: "bg-lime-500" },
-];
-
-// Seeded arguments by topic to simulate high-fidelity debates
-const GD_SIMULATED_ARGUMENTS: Record<string, string[]> = {
-  "Will AI and ChatGPT replace software engineers?": [
-    "I believe AI will write syntax, but software engineers will focus on architectural designs and systems integrity.",
-    "True! ChatGPT lacks the contextual comprehension of full business workflows.",
-    "But we are already seeing automated pull request reviews and unit testing AI agents. The role will change drastically.",
-    "Exactly. We won't be replaced, but engineers who don't use AI will be replaced by those who do.",
-    "AI cannot easily solve complex, custom hardware-software integration tradeoffs either."
-  ],
-  "Should engineering education prioritize coding skills over core theoretical foundations?": [
-    "Foundations like DSA and Operating Systems are critical. Languages change, but principles remain forever.",
-    "Yes, but you need coding to get hired! Industry wants developers who can build apps from day one.",
-    "But without sound system-design theory, the code they build will not scale.",
-    "We need a project-based curriculum where theory is applied directly to code.",
-    "I agree. Pure coding without theory leads to bad practices and security vulnerabilities."
-  ],
-  "Remote work vs. Office work: Impact on team productivity and culture.": [
-    "Remote work saves hours of travel and allows deep focus work without interruptions.",
-    "True, but collaborative brainstorming is 10x slower over Zoom calls.",
-    "I feel hybrid is the optimal solution. Two days for meetings, three days for remote code execution.",
-    "Also, remote work isolates fresh graduates who learn by shadowing senior team members.",
-    "Office boundaries help separating professional tasks from domestic chores."
-  ]
+// Helper to generate a dynamic avatar color based on the participant's roll number
+const getAvatarColor = (roll: string) => {
+  const colors = [
+    "bg-emerald-500", "bg-blue-500", "bg-indigo-500", "bg-purple-500",
+    "bg-pink-500", "bg-rose-500", "bg-orange-500", "bg-amber-500",
+    "bg-yellow-500", "bg-teal-500", "bg-cyan-500", "bg-violet-500",
+    "bg-sky-500", "bg-lime-500"
+  ];
+  let sum = 0;
+  const cleanRoll = String(roll || "").trim();
+  for (let i = 0; i < cleanRoll.length; i++) {
+    sum += cleanRoll.charCodeAt(i);
+  }
+  return colors[sum % colors.length];
 };
 
 export default function GroupDiscussionPage({ studentProfile, onNavigate }: GroupDiscussionPageProps) {
@@ -217,48 +190,17 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     }
   }, [step, cameraEnabled]);
 
-  // Simulated peer speaking rotation
+  // Active speaker detection: highlight the peer who submitted the last dialogue turn
   useEffect(() => {
-    if (step !== "discussion" || !roomStarted) return;
-
-    const topicToUse = useCustomTopic ? customTopic : topic;
-    const argumentsList = GD_SIMULATED_ARGUMENTS[topicToUse] || [
-      "I believe we need to critically evaluate this issue from first principles.",
-      "The trade-offs are significant. We must balance speed with reliability.",
-      "Agreed, standard engineering processes will need to evolve.",
-      "Also, we should consider cost overheads and cloud resources.",
-      "Let's focus on user experience and feedback loops."
-    ];
-
-    let argIdx = 0;
-    const interval = setInterval(() => {
-      // Pick a random virtual peer to speak
-      const peerIdx = Math.floor(Math.random() * VIRTUAL_PEERS_PRESET.length);
-      const speaker = VIRTUAL_PEERS_PRESET[peerIdx];
-      
-      setSpeakingPeerId(speaker.id);
-      
-      // Submit a simulated dialogue turn
-      const turn: GDTurn = {
-        id: "turn_" + Math.random().toString(36).substring(2, 9),
-        speakerId: speaker.id,
-        speakerName: speaker.name,
-        speakerRoll: speaker.roll,
-        text: argumentsList[argIdx % argumentsList.length],
-        timestamp: Date.now()
-      };
-      
-      setTimeout(() => {
-        setDialogue(prev => [...prev, turn]);
-        setReceiveLog(prev => [...prev, `${speaker.name} submitted a response.`]);
+    if (dialogue.length > 0) {
+      const lastTurn = dialogue[dialogue.length - 1];
+      setSpeakingPeerId(lastTurn.speakerId);
+      const timer = setTimeout(() => {
         setSpeakingPeerId(null);
-        argIdx++;
-      }, 5000); // speaks for 5 seconds
-
-    }, 14000); // every 14 seconds a peer speaks
-
-    return () => clearInterval(interval);
-  }, [step, roomStarted, topic, customTopic, useCustomTopic]);
+      }, 5000); // highlight for 5 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [dialogue]);
 
   useEffect(() => {
     setupSpeechRecognition();
@@ -1005,12 +947,26 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
           <div className="lg:col-span-3 bg-slate-950 border-r border-slate-800 flex flex-col justify-between text-slate-300 select-none">
             <div className="p-4 space-y-6">
               {/* Sidebar Header */}
-              <div>
-                <span className="text-[10px] font-mono uppercase tracking-[2px] text-slate-500 block">Active Debate Room</span>
-                <h3 className="text-base font-bold text-white mt-1 flex items-center gap-2">
-                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Code: {joinedRoomCode || roomCode || "—"}
-                </h3>
+              <div className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-2xl space-y-2.5">
+                <span className="text-[9px] font-mono uppercase tracking-[2px] text-brand-primary block font-bold">Group Discussion Room</span>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2 font-mono">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    {joinedRoomCode || roomCode || "—"}
+                  </h3>
+                  <button
+                    onClick={() => {
+                      const code = joinedRoomCode || roomCode;
+                      if (code) {
+                        navigator.clipboard.writeText(code);
+                        alert("Room Code copied to clipboard: " + code);
+                      }
+                    }}
+                    className="text-[10px] font-sans font-semibold text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-md transition cursor-pointer"
+                  >
+                    Copy Code
+                  </button>
+                </div>
               </div>
 
               {/* Text Channels List */}
@@ -1119,55 +1075,38 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                 )}
               </div>
 
-              {/* 14 Simulated Virtual Peers Cards (Slots 2-15) */}
-              {VIRTUAL_PEERS_PRESET.map((peer) => {
-                const isSpeaking = speakingPeerId === peer.id;
-                return (
-                  <div 
-                    key={peer.id}
-                    className={`relative bg-slate-950/60 aspect-video rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-md ${
-                      isSpeaking 
-                        ? "border-emerald-500 ring-2 ring-emerald-500/20 scale-[1.01]" 
-                        : peer.muted
-                        ? "border-slate-800"
-                        : "border-slate-800"
-                    }`}
-                  >
-                    {/* Simulated High-Fidelity Active Camera feed */}
-                    {peer.cameraOn && (
-                      <div className="absolute inset-0 w-full h-full opacity-30 flex items-center justify-center overflow-hidden pointer-events-none">
-                        {isSpeaking ? (
-                          <div className="flex items-end gap-1 h-8">
-                            <span className="w-1 bg-emerald-500 rounded-full animate-bounce" style={{ height: '70%', animationDelay: '0.1s' }} />
-                            <span className="w-1 bg-emerald-500 rounded-full animate-bounce" style={{ height: '100%', animationDelay: '0.3s' }} />
-                            <span className="w-1 bg-emerald-500 rounded-full animate-bounce" style={{ height: '40%', animationDelay: '0.2s' }} />
-                            <span className="w-1 bg-emerald-500 rounded-full animate-bounce" style={{ height: '80%', animationDelay: '0.5s' }} />
-                          </div>
-                        ) : (
-                          <div className="w-12 h-12 rounded-full border border-slate-700/40 flex items-center justify-center bg-slate-950/20">
-                            <span className="block w-2.5 h-2.5 rounded-full bg-slate-600/30 animate-pulse" />
-                          </div>
+              {/* Real Participants Cards */}
+              {participants
+                .filter((p) => p.id !== myParticipantId)
+                .map((peer) => {
+                  const isSpeaking = speakingPeerId === peer.id;
+                  const avatarColor = getAvatarColor(peer.roll);
+                  return (
+                    <div 
+                      key={peer.id}
+                      className={`relative bg-slate-950/60 aspect-video rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-md ${
+                        isSpeaking 
+                          ? "border-emerald-500 ring-2 ring-emerald-500/20 scale-[1.01]" 
+                          : "border-slate-800"
+                      }`}
+                    >
+                      {/* Peer Avatar overlay */}
+                      <div className={`w-8 h-8 rounded-full ${avatarColor} flex items-center justify-center font-bold font-mono text-[10px] text-white z-10 border border-white/5`}>
+                        {peer.roll.slice(-2) || "??"}
+                      </div>
+
+                      {/* Bottom Label and badges */}
+                      <div className="absolute bottom-2 left-2 bg-slate-950/70 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-300 flex items-center gap-1.5">
+                        <span className="font-bold truncate max-w-[70px]">{peer.name.split(" ")[0]}</span>
+                        {peer.isHost && (
+                          <span className="text-[7px] bg-brand-primary/20 text-brand-primary px-1 rounded font-sans uppercase">
+                            Host
+                          </span>
                         )}
                       </div>
-                    )}
-                    
-                    {/* Peer Avatar overlay */}
-                    <div className={`w-8 h-8 rounded-full ${peer.avatarColor} flex items-center justify-center font-bold font-mono text-[10px] text-white z-10 border border-white/5`}>
-                      {peer.roll.slice(-2)}
                     </div>
-
-                    {/* Bottom Label and badges */}
-                    <div className="absolute bottom-2 left-2 bg-slate-950/70 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-300 flex items-center gap-1.5">
-                      <span className="font-bold truncate max-w-[70px]">{peer.name.split(" ")[0]}</span>
-                    </div>
-                    {peer.muted && (
-                      <div className="absolute top-2 right-2 bg-red-500/80 p-1.5 rounded-full text-white">
-                        <MicOff className="w-2.5 h-2.5" />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
 
             {/* Bottom Actions toolbar */}
