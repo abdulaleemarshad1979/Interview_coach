@@ -1,15 +1,16 @@
 import React from "react";
 import { GraduationCap, LogOut, Code, User, Settings, Award } from "lucide-react";
-import { StudentProfile } from "../types";
+import { StudentProfile, FacultyProfile } from "../types";
 
 interface NavbarProps {
   studentProfile: StudentProfile | null;
+  facultyProfile?: FacultyProfile | null;
   currentView: string;
   onNavigate: (view: string) => void;
   onLogout: () => void;
 }
 
-export default function Navbar({ studentProfile, currentView, onNavigate, onLogout }: NavbarProps) {
+export default function Navbar({ studentProfile, facultyProfile, currentView, onNavigate, onLogout }: NavbarProps) {
   return (
     <header id="app-navbar" className="glass-nav sticky top-0 z-50 w-full px-6 py-4 transition-all duration-300">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -40,12 +41,12 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
           </div>
         </div>
 
-        {/* Navigation Options - shown if student is logged in */}
-        {studentProfile && (
+        {/* Navigation Options - shown if student or faculty is logged in */}
+        {studentProfile ? (
           <nav id="nav-menu" className="hidden lg:flex items-center space-x-1">
             <button
               onClick={() => onNavigate("dashboard")}
-              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
                 currentView === "dashboard"
                   ? "text-brand-primary bg-slate-100 font-semibold"
                   : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
@@ -55,7 +56,7 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
             </button>
             <button
               onClick={() => onNavigate("analyze")}
-              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
                 currentView === "analyze"
                   ? "text-brand-primary bg-slate-100 font-semibold"
                   : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
@@ -65,7 +66,7 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
             </button>
             <button
               onClick={() => onNavigate("interview")}
-              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
                 currentView === "interview"
                   ? "text-brand-primary bg-slate-100 font-semibold"
                   : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
@@ -75,7 +76,7 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
             </button>
             <button
               onClick={() => onNavigate("group-discussion")}
-              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
                 currentView === "group-discussion"
                   ? "text-brand-primary bg-slate-100 font-semibold"
                   : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
@@ -85,7 +86,7 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
             </button>
             <button
               onClick={() => onNavigate("report")}
-              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
                 currentView === "report"
                   ? "text-brand-primary bg-slate-100 font-semibold"
                   : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
@@ -95,7 +96,7 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
             </button>
             <button
               onClick={() => onNavigate("profile")}
-              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
                 currentView === "profile"
                   ? "text-brand-primary bg-slate-100 font-semibold"
                   : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
@@ -105,7 +106,7 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
             </button>
             <button
               onClick={() => onNavigate("settings")}
-              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
                 currentView === "settings"
                   ? "text-brand-primary bg-slate-100 font-semibold"
                   : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
@@ -114,35 +115,80 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
               Settings
             </button>
           </nav>
-        )}
+        ) : facultyProfile ? (
+          <nav id="nav-menu" className="hidden lg:flex items-center space-x-1">
+            <button
+              onClick={() => onNavigate("dashboard")}
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
+                currentView === "dashboard"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
+              }`}
+            >
+              Proctor Panel
+            </button>
+            <button
+              onClick={() => onNavigate("group-discussion")}
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
+                currentView === "group-discussion"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
+              }`}
+            >
+              Group Discussion
+            </button>
+            <button
+              onClick={() => onNavigate("settings")}
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
+                currentView === "settings"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
+              }`}
+            >
+              Settings
+            </button>
+          </nav>
+        ) : null}
 
         {/* Action Button Group */}
         <div className="flex items-center space-x-4">
-          {studentProfile ? (
+          {(studentProfile || facultyProfile) ? (
             <div className="flex items-center space-x-3">
-              {/* Student Identification badge (Clickable profile image and name/roll number) */}
-              <button
-                onClick={() => onNavigate("profile")}
-                className={`flex items-center space-x-2 bg-brand-card hover:bg-slate-800 border border-white/5 rounded-full pl-1.5 pr-3 py-1 text-xs font-mono text-gray-300 cursor-pointer hover:border-brand-primary/30 transition-all duration-200 group ${
-                  currentView === "profile" ? "ring-2 ring-brand-primary/50" : ""
-                }`}
-                title="View & Sync College Profile"
-              >
-                {studentProfile.profileImage ? (
-                  <img 
-                    src={studentProfile.profileImage} 
-                    alt="avatar" 
-                    className="w-5 h-5 rounded-full object-cover border border-white/10"
-                  />
-                ) : (
-                  <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-white/5 group-hover:border-brand-primary/20">
-                    <User className="w-2.5 h-2.5 text-brand-primary" />
-                  </div>
-                )}
-                <span className="font-mono text-[11px] group-hover:text-white transition-colors">
-                  {studentProfile.name ? studentProfile.name.split(" ")[0] : studentProfile.studentId}
-                </span>
-              </button>
+              {/* User Identification badge */}
+              {studentProfile ? (
+                <button
+                  onClick={() => onNavigate("profile")}
+                  className={`flex items-center space-x-2 bg-brand-card hover:bg-slate-800 border border-white/5 rounded-full pl-1.5 pr-3 py-1 text-xs font-mono text-gray-300 cursor-pointer hover:border-brand-primary/30 transition-all duration-200 group ${
+                    currentView === "profile" ? "ring-2 ring-brand-primary/50" : ""
+                  }`}
+                  title="View & Sync College Profile"
+                >
+                  {studentProfile.profileImage ? (
+                    <img 
+                      src={studentProfile.profileImage} 
+                      alt="avatar" 
+                      className="w-5 h-5 rounded-full object-cover border border-white/10"
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-white/5 group-hover:border-brand-primary/20">
+                      <User className="w-2.5 h-2.5 text-brand-primary" />
+                    </div>
+                  )}
+                  <span className="font-mono text-[11px] group-hover:text-white transition-colors">
+                    {studentProfile.name ? studentProfile.name.split(" ")[0] : studentProfile.studentId}
+                  </span>
+                </button>
+              ) : (
+                <div
+                  className="flex items-center space-x-2 bg-brand-primary/10 border border-brand-primary/20 rounded-full px-3 py-1 text-xs font-mono text-brand-primary"
+                  title={`Proctor: ${facultyProfile?.name} (${facultyProfile?.classSection})`}
+                >
+                  <GraduationCap className="w-3.5 h-3.5" />
+                  <span className="font-mono font-bold text-[11px]">
+                    Proctor {facultyProfile?.name.split(" ")[0]}
+                  </span>
+                </div>
+              )}
               <button
                 onClick={onLogout}
                 className="flex items-center space-x-1.5 bg-red-950/30 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 cursor-pointer"

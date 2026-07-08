@@ -10,7 +10,8 @@ import ReportPage from "./components/ReportPage";
 import SettingsPage from "./components/SettingsPage";
 import CustomCursor from "./components/effects/CustomCursor";
 import GroupDiscussionPage from "./components/GroupDiscussionPage";
-import { StudentProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
+import FacultyDashboardPage from "./components/FacultyDashboardPage";
+import { StudentProfile, FacultyProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
 import { supabase } from "./lib/supabaseClient";
 import ProfilePage from "./components/ProfilePage";
 
@@ -18,6 +19,7 @@ import ProfilePage from "./components/ProfilePage";
 export default function App() {
   const [currentView, setCurrentView] = useState<string>("landing");
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
+  const [facultyProfile, setFacultyProfile] = useState<FacultyProfile | null>(null);
   const [analysisResult, setAnalysisResult] = useState<FullAnalysisResult | null>(null);
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
@@ -83,70 +85,145 @@ export default function App() {
     // Check current Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session && session.user) {
-        const userRollNo = session.user.user_metadata?.roll_number || session.user.email?.split("@")[0].toUpperCase() || "STUDENT";
-        const profile: StudentProfile = {
-          studentId: userRollNo,
-          githubUsername: session.user.user_metadata?.github_username,
-          resumeFileName: session.user.user_metadata?.resume_file_name,
-          name: session.user.user_metadata?.student_name,
-          classSection: session.user.user_metadata?.class_section,
-          department: session.user.user_metadata?.department,
-          academicYear: session.user.user_metadata?.academic_year,
-          attendance: session.user.user_metadata?.attendance,
-          profileImage: session.user.user_metadata?.profile_image,
-          collegeAssessments: session.user.user_metadata?.college_assessments,
-          isSynced: session.user.user_metadata?.is_synced,
-        };
+        const isFacultyUser = session.user.user_metadata?.is_faculty || false;
 
-        const storedProfileStr = localStorage.getItem(`studentProfile_${userRollNo}`) || localStorage.getItem("studentProfile");
-        if (storedProfileStr) {
-          try {
-            const storedProfile = JSON.parse(storedProfileStr);
-            if (storedProfile.studentId === userRollNo) {
-              Object.assign(profile, storedProfile);
-            }
-          } catch (e) {}
+        if (isFacultyUser) {
+          const facProfile: FacultyProfile = {
+            facultyId: session.user.user_metadata?.faculty_name || "PROCTOR",
+            name: session.user.user_metadata?.faculty_name || "Proctor",
+            email: session.user.email || "",
+            department: session.user.user_metadata?.department || "CSE",
+            classSection: session.user.user_metadata?.class_section || "Section A",
+            rollPrefix: session.user.user_metadata?.roll_prefix || "24P31A12",
+            rollStart: session.user.user_metadata?.roll_start || 1,
+            rollEnd: session.user.user_metadata?.roll_end || 30,
+            isFaculty: true,
+          };
+          setFacultyProfile(facProfile);
+          setStudentProfile(null);
+          setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+        } else {
+          const userRollNo = session.user.user_metadata?.roll_number || session.user.email?.split("@")[0].toUpperCase() || "STUDENT";
+          const profile: StudentProfile = {
+            studentId: userRollNo,
+            githubUsername: session.user.user_metadata?.github_username,
+            resumeFileName: session.user.user_metadata?.resume_file_name,
+            name: session.user.user_metadata?.student_name,
+            classSection: session.user.user_metadata?.class_section,
+            department: session.user.user_metadata?.department,
+            academicYear: session.user.user_metadata?.academic_year,
+            attendance: session.user.user_metadata?.attendance,
+            profileImage: session.user.user_metadata?.profile_image,
+            collegeAssessments: session.user.user_metadata?.college_assessments,
+            isSynced: session.user.user_metadata?.is_synced,
+          };
+
+          const storedInterview = localStorage.getItem(`assignedInterview_${userRollNo}`);
+          const storedGD = localStorage.getItem(`assignedGD_${userRollNo}`);
+          if (storedInterview) {
+            try {
+              const parsed = JSON.parse(storedInterview);
+              profile.assignedInterviewTopic = parsed.topic;
+              profile.assignedInterviewDifficulty = parsed.difficulty;
+            } catch {}
+          }
+          if (storedGD) {
+            try {
+              const parsed = JSON.parse(storedGD);
+              profile.assignedGDTopic = parsed.topic;
+              profile.assignedGDRoomCode = parsed.roomCode;
+            } catch {}
+          }
+
+          const storedProfileStr = localStorage.getItem(`studentProfile_${userRollNo}`) || localStorage.getItem("studentProfile");
+          if (storedProfileStr) {
+            try {
+              const storedProfile = JSON.parse(storedProfileStr);
+              if (storedProfile.studentId === userRollNo) {
+                Object.assign(profile, storedProfile);
+              }
+            } catch (e) {}
+          }
+
+          setStudentProfile(profile);
+          setFacultyProfile(null);
+          setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+          syncCollegeProfile(userRollNo, profile);
         }
-
-        setStudentProfile(profile);
-        setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
-        syncCollegeProfile(userRollNo, profile);
       }
     });
 
     // Listen to changes in authentication state
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session && session.user) {
-        const userRollNo = session.user.user_metadata?.roll_number || session.user.email?.split("@")[0].toUpperCase() || "STUDENT";
-        const profile: StudentProfile = {
-          studentId: userRollNo,
-          githubUsername: session.user.user_metadata?.github_username,
-          resumeFileName: session.user.user_metadata?.resume_file_name,
-          name: session.user.user_metadata?.student_name,
-          classSection: session.user.user_metadata?.class_section,
-          department: session.user.user_metadata?.department,
-          academicYear: session.user.user_metadata?.academic_year,
-          attendance: session.user.user_metadata?.attendance,
-          profileImage: session.user.user_metadata?.profile_image,
-          collegeAssessments: session.user.user_metadata?.college_assessments,
-          isSynced: session.user.user_metadata?.is_synced,
-        };
+        const isFacultyUser = session.user.user_metadata?.is_faculty || false;
 
-        const storedProfileStr = localStorage.getItem(`studentProfile_${userRollNo}`) || localStorage.getItem("studentProfile");
-        if (storedProfileStr) {
-          try {
-            const storedProfile = JSON.parse(storedProfileStr);
-            if (storedProfile.studentId === userRollNo) {
-              Object.assign(profile, storedProfile);
-            }
-          } catch (e) {}
+        if (isFacultyUser) {
+          const facProfile: FacultyProfile = {
+            facultyId: session.user.user_metadata?.faculty_name || "PROCTOR",
+            name: session.user.user_metadata?.faculty_name || "Proctor",
+            email: session.user.email || "",
+            department: session.user.user_metadata?.department || "CSE",
+            classSection: session.user.user_metadata?.class_section || "Section A",
+            rollPrefix: session.user.user_metadata?.roll_prefix || "24P31A12",
+            rollStart: session.user.user_metadata?.roll_start || 1,
+            rollEnd: session.user.user_metadata?.roll_end || 30,
+            isFaculty: true,
+          };
+          setFacultyProfile(facProfile);
+          setStudentProfile(null);
+          setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+        } else {
+          const userRollNo = session.user.user_metadata?.roll_number || session.user.email?.split("@")[0].toUpperCase() || "STUDENT";
+          const profile: StudentProfile = {
+            studentId: userRollNo,
+            githubUsername: session.user.user_metadata?.github_username,
+            resumeFileName: session.user.user_metadata?.resume_file_name,
+            name: session.user.user_metadata?.student_name,
+            classSection: session.user.user_metadata?.class_section,
+            department: session.user.user_metadata?.department,
+            academicYear: session.user.user_metadata?.academic_year,
+            attendance: session.user.user_metadata?.attendance,
+            profileImage: session.user.user_metadata?.profile_image,
+            collegeAssessments: session.user.user_metadata?.college_assessments,
+            isSynced: session.user.user_metadata?.is_synced,
+          };
+
+          const storedInterview = localStorage.getItem(`assignedInterview_${userRollNo}`);
+          const storedGD = localStorage.getItem(`assignedGD_${userRollNo}`);
+          if (storedInterview) {
+            try {
+              const parsed = JSON.parse(storedInterview);
+              profile.assignedInterviewTopic = parsed.topic;
+              profile.assignedInterviewDifficulty = parsed.difficulty;
+            } catch {}
+          }
+          if (storedGD) {
+            try {
+              const parsed = JSON.parse(storedGD);
+              profile.assignedGDTopic = parsed.topic;
+              profile.assignedGDRoomCode = parsed.roomCode;
+            } catch {}
+          }
+
+          const storedProfileStr = localStorage.getItem(`studentProfile_${userRollNo}`) || localStorage.getItem("studentProfile");
+          if (storedProfileStr) {
+            try {
+              const storedProfile = JSON.parse(storedProfileStr);
+              if (storedProfile.studentId === userRollNo) {
+                Object.assign(profile, storedProfile);
+              }
+            } catch (e) {}
+          }
+
+          setStudentProfile(profile);
+          setFacultyProfile(null);
+          setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+          syncCollegeProfile(userRollNo, profile);
         }
-
-        setStudentProfile(profile);
-        setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
-        syncCollegeProfile(userRollNo, profile);
       } else {
         setStudentProfile(null);
+        setFacultyProfile(null);
         setCurrentView((prev) => (prev === "landing" ? "landing" : "landing"));
       }
     });
@@ -210,22 +287,67 @@ export default function App() {
   }, [studentProfile]);
 
   // Login Success Event
-  const handleLoginSuccess = (studentId: string, email?: string) => {
-    let profile: StudentProfile = { studentId };
-    const storedProfileStr = localStorage.getItem(`studentProfile_${studentId}`) || localStorage.getItem("studentProfile");
-    if (storedProfileStr) {
-      try {
-        const storedProfile = JSON.parse(storedProfileStr);
-        if (storedProfile.studentId === studentId) {
-          profile = storedProfile;
+  const handleLoginSuccess = (displayName: string, email?: string) => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        const isFacultyUser = user.user_metadata?.is_faculty || false;
+        if (isFacultyUser) {
+          const facProfile: FacultyProfile = {
+            facultyId: user.user_metadata?.faculty_name || displayName,
+            name: user.user_metadata?.faculty_name || displayName,
+            email: user.email || email || "",
+            department: user.user_metadata?.department || "CSE",
+            classSection: user.user_metadata?.class_section || "Section A",
+            rollPrefix: user.user_metadata?.roll_prefix || "24P31A12",
+            rollStart: user.user_metadata?.roll_start || 1,
+            rollEnd: user.user_metadata?.roll_end || 30,
+            isFaculty: true,
+          };
+          setFacultyProfile(facProfile);
+          setStudentProfile(null);
+          localStorage.setItem("facultyProfile", JSON.stringify(facProfile));
+        } else {
+          const userRollNo = user.user_metadata?.roll_number || displayName;
+          const profile: StudentProfile = {
+            studentId: userRollNo,
+            githubUsername: user.user_metadata?.github_username,
+            resumeFileName: user.user_metadata?.resume_file_name,
+            name: user.user_metadata?.student_name,
+            classSection: user.user_metadata?.class_section,
+            department: user.user_metadata?.department,
+            academicYear: user.user_metadata?.academic_year,
+            attendance: user.user_metadata?.attendance,
+            profileImage: user.user_metadata?.profile_image,
+            collegeAssessments: user.user_metadata?.college_assessments,
+            isSynced: user.user_metadata?.is_synced,
+          };
+
+          const storedInterview = localStorage.getItem(`assignedInterview_${userRollNo}`);
+          const storedGD = localStorage.getItem(`assignedGD_${userRollNo}`);
+          if (storedInterview) {
+            try {
+              const parsed = JSON.parse(storedInterview);
+              profile.assignedInterviewTopic = parsed.topic;
+              profile.assignedInterviewDifficulty = parsed.difficulty;
+            } catch {}
+          }
+          if (storedGD) {
+            try {
+              const parsed = JSON.parse(storedGD);
+              profile.assignedGDTopic = parsed.topic;
+              profile.assignedGDRoomCode = parsed.roomCode;
+            } catch {}
+          }
+
+          setStudentProfile(profile);
+          setFacultyProfile(null);
+          localStorage.setItem("studentProfile", JSON.stringify(profile));
+          localStorage.setItem(`studentProfile_${userRollNo}`, JSON.stringify(profile));
+          syncCollegeProfile(userRollNo, profile);
         }
-      } catch (e) {}
-    }
-    setStudentProfile(profile);
-    localStorage.setItem("studentProfile", JSON.stringify(profile));
-    localStorage.setItem(`studentProfile_${studentId}`, JSON.stringify(profile));
-    setCurrentView("dashboard");
-    syncCollegeProfile(studentId, profile);
+        setCurrentView("dashboard");
+      }
+    });
   };
 
 
@@ -233,6 +355,7 @@ export default function App() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setStudentProfile(null);
+    setFacultyProfile(null);
     setAnalysisResult(null);
     setInterviewQuestions([]);
     setScorecard(null);
@@ -241,6 +364,7 @@ export default function App() {
 
     // Clear generic cache only
     localStorage.removeItem("studentProfile");
+    localStorage.removeItem("facultyProfile");
     localStorage.removeItem("analysisResult");
     localStorage.removeItem("interviewQuestions");
     localStorage.removeItem("scorecard");
@@ -311,7 +435,7 @@ export default function App() {
         return (
           <LandingPage
             onNavigate={setCurrentView}
-            isLoggedIn={!!studentProfile}
+            isLoggedIn={!!studentProfile || !!facultyProfile}
           />
         );
       case "login":
@@ -321,6 +445,14 @@ export default function App() {
           />
         );
       case "dashboard":
+        if (facultyProfile) {
+          return (
+            <FacultyDashboardPage
+              facultyProfile={facultyProfile}
+              onNavigate={setCurrentView}
+            />
+          );
+        }
         return studentProfile ? (
           <DashboardPage
             studentProfile={studentProfile}
@@ -363,6 +495,14 @@ export default function App() {
           />
         );
       case "group-discussion":
+        if (facultyProfile) {
+          return (
+            <GroupDiscussionPage
+              studentProfile={{ studentId: facultyProfile.facultyId, name: facultyProfile.name } as any}
+              onNavigate={setCurrentView}
+            />
+          );
+        }
         return studentProfile ? (
           <GroupDiscussionPage
             studentProfile={studentProfile}
@@ -372,6 +512,14 @@ export default function App() {
           <LoginPage onLoginSuccess={handleLoginSuccess} />
         );
       case "settings":
+        if (facultyProfile) {
+          return (
+            <SettingsPage
+              studentProfile={{ studentId: facultyProfile.facultyId, name: facultyProfile.name } as any}
+              onNavigate={setCurrentView}
+            />
+          );
+        }
         return studentProfile ? (
           <SettingsPage
             studentProfile={studentProfile}
@@ -415,7 +563,7 @@ export default function App() {
         return (
           <LandingPage
             onNavigate={setCurrentView}
-            isLoggedIn={!!studentProfile}
+            isLoggedIn={!!studentProfile || !!facultyProfile}
           />
         );
     }
@@ -434,6 +582,7 @@ export default function App() {
       {/* Universal header navigation */}
       <Navbar
         studentProfile={studentProfile}
+        facultyProfile={facultyProfile}
         currentView={currentView}
         onNavigate={setCurrentView}
         onLogout={handleLogout}
