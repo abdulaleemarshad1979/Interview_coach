@@ -776,6 +776,9 @@ Respond with STRICT JSON matching this schema:
     });
 
     const result = JSON.parse(completionText || "{}");
+    if (result.githubAnalysis) {
+      result.githubAnalysis.repos = repos;
+    }
     res.json(result);
   } catch (error: any) {
     console.error("Analysis Endpoint Error:", error);

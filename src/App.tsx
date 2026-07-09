@@ -146,6 +146,33 @@ export default function App() {
     localStorage.setItem("current_user_id", userId);
   };
 
+  const restoreStudentDataFromMetadata = (user: any, rollNo: string) => {
+    const metaAnalysis = user.user_metadata?.analysis_result;
+    const metaQuestions = user.user_metadata?.interview_questions;
+    const metaScorecard = user.user_metadata?.active_scorecard;
+    const metaHistory = user.user_metadata?.scorecard_history;
+
+    if (metaAnalysis) {
+      setAnalysisResult(metaAnalysis);
+      localStorage.setItem(`analysisResult_${rollNo}`, JSON.stringify(metaAnalysis));
+      localStorage.setItem("analysisResult", JSON.stringify(metaAnalysis));
+    }
+    if (metaQuestions) {
+      setInterviewQuestions(metaQuestions);
+      localStorage.setItem(`interviewQuestions_${rollNo}`, JSON.stringify(metaQuestions));
+      localStorage.setItem("interviewQuestions", JSON.stringify(metaQuestions));
+    }
+    if (metaScorecard) {
+      setScorecard(metaScorecard);
+      localStorage.setItem(`scorecard_${rollNo}`, JSON.stringify(metaScorecard));
+      localStorage.setItem("scorecard", JSON.stringify(metaScorecard));
+    }
+    if (metaHistory) {
+      setScorecardHistory(metaHistory);
+      localStorage.setItem(`scorecardHistory_${rollNo}`, JSON.stringify(metaHistory));
+    }
+  };
+
   // Listen to Supabase Auth Changes on boot
   useEffect(() => {
     // Check current Supabase session
@@ -215,6 +242,7 @@ export default function App() {
           setStudentProfile(profile);
           setFacultyProfile(null);
           setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+          restoreStudentDataFromMetadata(session.user, userRollNo);
           syncCollegeProfile(userRollNo, profile);
         }
       }
@@ -287,6 +315,7 @@ export default function App() {
           setStudentProfile(profile);
           setFacultyProfile(null);
           setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+          restoreStudentDataFromMetadata(session.user, userRollNo);
           syncCollegeProfile(userRollNo, profile);
         }
       } else {
@@ -475,7 +504,8 @@ export default function App() {
       await supabase.auth.updateUser({
         data: {
           github_username: githubUser,
-          resume_file_name: fileName
+          resume_file_name: fileName,
+          analysis_result: result
         }
       });
 
@@ -501,6 +531,11 @@ export default function App() {
     localStorage.setItem("interviewQuestions", JSON.stringify(questions));
     if (studentProfile) {
       localStorage.setItem(`interviewQuestions_${studentProfile.studentId}`, JSON.stringify(questions));
+      supabase.auth.updateUser({
+        data: {
+          interview_questions: questions
+        }
+      }).catch(e => console.error("Error saving questions to Supabase metadata", e));
     }
   };
 
@@ -514,6 +549,14 @@ export default function App() {
       setScorecardHistory((prev) => {
         const updated = [scorecardReport, ...prev.filter((h) => h.id !== scorecardReport.id)];
         localStorage.setItem(`scorecardHistory_${studentProfile.studentId}`, JSON.stringify(updated));
+
+        supabase.auth.updateUser({
+          data: {
+            active_scorecard: scorecardReport,
+            scorecard_history: updated
+          }
+        }).catch(e => console.error("Error saving scorecards to Supabase metadata", e));
+
         return updated;
       });
     }
