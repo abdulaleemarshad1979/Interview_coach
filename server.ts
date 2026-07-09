@@ -20,13 +20,13 @@ function getSupabaseClient() {
   if (!supabaseInstance) {
     const rawUrl = process.env.SUPABASE_URL || "";
     const rawKey = process.env.SUPABASE_ANON_KEY || "";
-    
-    const url = rawUrl && !rawUrl.includes("your-project-id") 
-      ? rawUrl 
+
+    const url = rawUrl && !rawUrl.includes("your-project-id")
+      ? rawUrl
       : process.env.VITE_SUPABASE_URL;
-      
+
     const key = rawKey && !rawKey.includes("your-anon-public-key")
-      ? rawKey 
+      ? rawKey
       : process.env.VITE_SUPABASE_ANON_KEY;
 
     if (!url || !key) {
@@ -41,7 +41,7 @@ function getSupabaseClient() {
 async function requireAuth(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization;
   const supabase = getSupabaseClient();
-  
+
   if (!supabase) {
     // If Supabase is not configured yet, bypass token check to prevent app lockout during local development
     return next();
@@ -524,7 +524,7 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
     // 5. Query the AjaxPro method to fetch BIO-DATA HTML
     const ajaxUrl = "https://info.aec.edu.in/acet/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw";
     const ajaxBody = `RollNo=${encodeURIComponent(cleanRollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
-    
+
     const ajaxRes = await fetchPortalWithCookies(ajaxUrl, "POST", {
       "X-AjaxPro-Method": "ShowStudentProfileNew",
       "Content-Type": "text/plain; charset=utf-8",
@@ -545,6 +545,79 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
     res.status(520).json({ error: `Connection to University Portal failed: ${err.message}` });
   }
 });
+
+// 1d-v3. Public API Endpoint: Synchronize details directly from college portal via real-time login scraper during login
+app.post("/api/college/auth-sync", async (req: any, res) => {
+  const { rollNo, password } = req.body;
+  const cleanRollNo = String(rollNo || "").trim().toUpperCase();
+
+  if (!cleanRollNo || !password) {
+    res.status(400).json({ error: "Roll number and password are required." });
+    return;
+  }
+
+  console.log(`[Auth Scraper] Commencing auth-sync routine for: ${cleanRollNo}`);
+  const loginUrl = "https://info.aec.edu.in/acet/default.aspx";
+  const cookieJar: Record<string, string> = {};
+
+  try {
+    // 1. Get initial ASP.NET cookies & fields
+    const initRes = await fetchPortalWithCookies(loginUrl, "GET", {}, null, cookieJar);
+    const formFields = extractPortalFormFields(initRes.body);
+
+    // 2. Encrypt password
+    const encryptedPwd = encryptPortalPassword(password);
+
+    // 3. Prepare login POST payload
+    formFields["txtId2"] = cleanRollNo;
+    formFields["txtPwd2"] = encryptedPwd;
+    formFields["hdnpwd2"] = encryptedPwd;
+    formFields["imgBtn2.x"] = "30";
+    formFields["imgBtn2.y"] = "20";
+
+    // Delete other button clicks
+    delete formFields["imgBtn1"];
+    delete formFields["imgBtn3"];
+
+    const postData = Object.entries(formFields)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join("&");
+
+    // 4. Perform Login POST request
+    const postRes = await fetchPortalWithCookies(loginUrl, "POST", { "Referer": loginUrl }, postData, cookieJar);
+
+    // Verify if we actually reached the logged-in StudentMaster page
+    const dashboardHtml = postRes.body;
+    if (!dashboardHtml.includes("lnkLogOut") && !dashboardHtml.includes("StudentMaster")) {
+      res.status(401).json({ error: "Authentication failed. Invalid Roll Number or Portal Password." });
+      return;
+    }
+
+    // 5. Query the AjaxPro method to fetch BIO-DATA HTML
+    const ajaxUrl = "https://info.aec.edu.in/acet/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw";
+    const ajaxBody = `RollNo=${encodeURIComponent(cleanRollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
+
+    const ajaxRes = await fetchPortalWithCookies(ajaxUrl, "POST", {
+      "X-AjaxPro-Method": "ShowStudentProfileNew",
+      "Content-Type": "text/plain; charset=utf-8",
+      "Referer": "https://info.aec.edu.in/acet/Academics/StudentProfile.aspx?scrid=17"
+    }, ajaxBody, cookieJar);
+
+    if (ajaxRes.statusCode !== 200 || !ajaxRes.body) {
+      res.status(500).json({ error: "Failed to query profile details from the college database." });
+      return;
+    }
+
+    // 6. Parse details
+    const profile = parsePortalProfileHtml(ajaxRes.body, cleanRollNo);
+    console.log(`[Auth Scraper] Profile auth-sync successful for ${cleanRollNo}: Name="${profile.name}"`);
+    res.json(profile);
+  } catch (err: any) {
+    console.error(`[Auth Scraper] Error scraping details for ${cleanRollNo}:`, err.message);
+    res.status(520).json({ error: `Connection to University Portal failed: ${err.message}` });
+  }
+});
+
 
 // Helper: Fetch public repos via GitHub API
 async function fetchGitHubRepos(username: string): Promise<any[]> {
@@ -1814,12 +1887,12 @@ app.get("/api/gd-room/diagnose", async (req, res) => {
     const viteUrl = process.env.VITE_SUPABASE_URL || "";
     const viteKey = process.env.VITE_SUPABASE_ANON_KEY || "";
 
-    const url = rawUrl && !rawUrl.includes("your-project-id") 
-      ? rawUrl 
+    const url = rawUrl && !rawUrl.includes("your-project-id")
+      ? rawUrl
       : viteUrl;
 
     const key = rawKey && !rawKey.includes("your-anon-public-key")
-      ? rawKey 
+      ? rawKey
       : viteKey;
 
     const hasCreds = Boolean(url && key);
@@ -1910,8 +1983,8 @@ wss.on("connection", async (ws: WebSocket) => {
               parts: [
                 {
                   text: "You are a warm, empathetic, conversational, and highly professional mock technical interviewer. " +
-                        "Acknowledge student responses with natural verbal cues, ask follow-up questions, and maintain a friendly yet professional tone. " +
-                        "Conduct the interview in a natural, fluid dialogue."
+                    "Acknowledge student responses with natural verbal cues, ask follow-up questions, and maintain a friendly yet professional tone. " +
+                    "Conduct the interview in a natural, fluid dialogue."
                 }
               ]
             }
@@ -1964,10 +2037,10 @@ wss.on("connection", async (ws: WebSocket) => {
     }
   } else {
     console.warn("No GEMINI_API_KEY found. Falling back to simulated WebSocket text interface.");
-    ws.send(JSON.stringify({ 
-      type: "ready", 
-      status: "Connected (Fallback Mode)", 
-      warning: "Voice-to-voice disabled (No GEMINI_API_KEY found). Using default speech fallback." 
+    ws.send(JSON.stringify({
+      type: "ready",
+      status: "Connected (Fallback Mode)",
+      warning: "Voice-to-voice disabled (No GEMINI_API_KEY found). Using default speech fallback."
     }));
   }
 

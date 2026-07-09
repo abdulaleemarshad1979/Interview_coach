@@ -108,16 +108,16 @@ export default function ProfilePage({
 
   // Use active scorecard, or fall back to realistic dashboard values
   const activeScorecard = scorecardHistory.find(h => h.id === activeReportId) || scorecard || null;
-  const score = activeScorecard?.overallScore ?? 40;
-  const level = activeScorecard?.candidateLevel ?? "Beginner";
-  const date = activeScorecard?.date ?? "July 8, 2026";
+  const score = activeScorecard?.overallScore ?? 0;
+  const level = activeScorecard?.candidateLevel ?? "No Data";
+  const date = activeScorecard?.date ?? "N/A";
   
-  const communicationScore = activeScorecard?.categoryScores?.communicationClarity ?? 45;
-  const technicalScore = activeScorecard?.categoryScores?.technicalDepth ?? 35;
-  const problemSolvingScore = activeScorecard?.categoryScores?.problemSolving ?? 30;
+  const communicationScore = activeScorecard?.categoryScores?.communicationClarity ?? 0;
+  const technicalScore = activeScorecard?.categoryScores?.technicalDepth ?? 0;
+  const problemSolvingScore = activeScorecard?.categoryScores?.problemSolving ?? 0;
   
   const verdict = activeScorecard?.finalVerdict ?? 
-    "While the candidate shows potential with a strong resume and GitHub profile, there is a significant need for improvement in technical depth and communication clarity. Focus on mock interview practice to build confidence.";
+    "No mock assessment history found. Complete a live mock interview to generate diagnostics.";
 
 
 

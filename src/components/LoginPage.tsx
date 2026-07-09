@@ -107,53 +107,160 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!isFacultyPortal) {
+      // Student Gateway Unified Auth
+      const cleanRollNo = rollNo.trim().toUpperCase();
+      if (!cleanRollNo) {
+        setError("Please enter your Roll Number.");
+        return;
+      }
+      if (cleanRollNo.length < 4) {
+        setError("Roll Number must be at least 4 characters long.");
+        return;
+      }
+      if (!password) {
+        setError("Please enter your ECAP Password.");
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      setSuccessMessage("Verifying credentials with Aditya Student Portal...");
+
+      try {
+        // 1. Verify credentials and sync details from college website scraper
+        const syncRes = await fetch("/api/college/auth-sync", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ rollNo: cleanRollNo, password })
+        });
+
+        if (!syncRes.ok) {
+          const errMsg = await syncRes.json().catch(() => ({ error: "Verification failed." }));
+          setError(errMsg.error || "Authentication failed. Invalid Roll Number or Portal Password.");
+          setLoading(false);
+          return;
+        }
+
+        const syncedProfile = await syncRes.json();
+        setSuccessMessage("Credentials verified! Connecting to gateway...");
+
+        // 2. Map student credentials to Supabase
+        const mappedEmail = `${cleanRollNo.toLowerCase()}@aec.edu.in`;
+
+        // Try signing in
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email: mappedEmail,
+          password: password,
+        });
+
+        if (!signInError && signInData.user) {
+          // User exists, signed in successfully!
+          setSuccessMessage("Successfully logged in! Fetching portal details...");
+          
+          // Save synced details to localStorage
+          localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(syncedProfile));
+          localStorage.setItem("studentProfile", JSON.stringify(syncedProfile));
+          localStorage.setItem("portal_pwd", password);
+
+          // Update user metadata in Supabase
+          await supabase.auth.updateUser({
+            data: {
+              student_name: syncedProfile.name,
+              class_section: syncedProfile.classSection,
+              department: syncedProfile.department,
+              academic_year: syncedProfile.academicYear,
+              attendance: syncedProfile.attendance,
+              profile_image: syncedProfile.profileImage,
+              is_synced: true
+            }
+          });
+
+          onLoginSuccess(cleanRollNo, mappedEmail);
+          return;
+        }
+
+        // If signIn failed (e.g. user does not exist), try signing up!
+        setSuccessMessage("Creating new student account on the gateway...");
+        const metaData = {
+          is_faculty: false,
+          roll_number: cleanRollNo,
+          student_name: syncedProfile.name,
+          branch: syncedProfile.department,
+          class_section: syncedProfile.classSection,
+          academic_year: syncedProfile.academicYear,
+          attendance: syncedProfile.attendance,
+          profile_image: syncedProfile.profileImage,
+          is_synced: true
+        };
+
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: mappedEmail,
+          password: password,
+          options: {
+            data: metaData,
+          },
+        });
+
+        if (signUpError) {
+          if (signUpError.message.includes("already registered") || signUpError.message.includes("already exists")) {
+            setError("This Roll Number is already registered, but the password entered does not match our records.");
+          } else {
+            setError(signUpError.message);
+          }
+          setLoading(false);
+          return;
+        }
+
+        if (signUpData.user) {
+          if (signUpData.session) {
+            setSuccessMessage("Account created successfully! Syncing details...");
+            localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(syncedProfile));
+            localStorage.setItem("studentProfile", JSON.stringify(syncedProfile));
+            localStorage.setItem("portal_pwd", password);
+            setTimeout(() => {
+              onLoginSuccess(cleanRollNo, mappedEmail);
+            }, 1000);
+          } else {
+            setSuccessMessage("Account registered on gateway! Please verify your student profile at next sign in.");
+            setLoading(false);
+          }
+        }
+      } catch (err: any) {
+        console.error("Student Gateway Auth error:", err);
+        setError("Unable to connect to the authentication server. Please check your connection.");
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Faculty (Proctor) auth flow
     if (isSignUp) {
-      if (!isFacultyPortal) {
-        if (!rollNo.trim()) {
-          setError("Please enter your Roll Number.");
-          return;
-        }
-        if (rollNo.trim().length < 4) {
-          setError("Roll Number must be at least 4 characters long.");
-          return;
-        }
-        if (!studentName.trim()) {
-          setError("Please enter your Full Name.");
-          return;
-        }
-        if (!studentBranch.trim()) {
-          setError("Please enter your Branch.");
-          return;
-        }
-        if (!studentSection.trim()) {
-          setError("Please enter your Class Section.");
-          return;
-        }
-      } else {
-        if (!facultyName.trim()) {
-          setError("Please enter your Name.");
-          return;
-        }
-        if (!department.trim()) {
-          setError("Please enter your Department.");
-          return;
-        }
-        if (!classSection.trim()) {
-          setError("Please enter your Class Section.");
-          return;
-        }
-        if (!rollPrefix.trim()) {
-          setError("Please enter Roll Prefix.");
-          return;
-        }
-        if (!rollStart.trim() || isNaN(Number(rollStart))) {
-          setError("Please enter a valid start roll number range.");
-          return;
-        }
-        if (!rollEnd.trim() || isNaN(Number(rollEnd))) {
-          setError("Please enter a valid end roll number range.");
-          return;
-        }
+      if (!facultyName.trim()) {
+        setError("Please enter your Name.");
+        return;
+      }
+      if (!department.trim()) {
+        setError("Please enter your Department.");
+        return;
+      }
+      if (!classSection.trim()) {
+        setError("Please enter your Class Section.");
+        return;
+      }
+      if (!rollPrefix.trim()) {
+        setError("Please enter Roll Prefix.");
+        return;
+      }
+      if (!rollStart.trim() || isNaN(Number(rollStart))) {
+        setError("Please enter a valid start roll number range.");
+        return;
+      }
+      if (!rollEnd.trim() || isNaN(Number(rollEnd))) {
+        setError("Please enter a valid end roll number range.");
+        return;
       }
     }
 
@@ -183,7 +290,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
     try {
       if (isSignUp) {
-        const metaData: Record<string, any> = isFacultyPortal ? {
+        const metaData = {
           is_faculty: true,
           faculty_name: facultyName.trim(),
           department: department.trim(),
@@ -191,12 +298,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           roll_prefix: rollPrefix.trim(),
           roll_start: parseInt(rollStart, 10),
           roll_end: parseInt(rollEnd, 10),
-        } : {
-          is_faculty: false,
-          roll_number: rollNo.trim(),
-          student_name: studentName.trim(),
-          branch: studentBranch.trim(),
-          class_section: studentSection.trim(),
         };
 
         const { data, error: signUpError } = await supabase.auth.signUp({
@@ -215,11 +316,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
         if (data.user) {
           if (data.session) {
-            setSuccessMessage("Account created successfully! Auto-syncing profile...");
-            const userRollNo = rollNo.trim();
-            await syncOnLogin(userRollNo, password);
+            setSuccessMessage("Account created successfully!");
             setTimeout(() => {
-              onLoginSuccess(userRollNo, email);
+              onLoginSuccess(facultyName.trim(), email);
             }, 1000);
           } else {
             setSuccessMessage("Account created! Please check your email to verify your registration, then sign in.");
@@ -383,14 +482,14 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               className="flex flex-col mb-4"
             >
               <h2 className="text-3xl font-bold font-sans tracking-tight text-slate-900">
-                {isSignUp 
-                  ? (isFacultyPortal ? "Create Proctor Account" : "Create Student Account") 
-                  : (isFacultyPortal ? "Proctor Portal" : "Welcome back")}
+                {isFacultyPortal 
+                  ? (isSignUp ? "Create Proctor Account" : "Proctor Portal") 
+                  : "Student Gateway"}
               </h2>
               <p className="text-[15px] text-[#64748B] mt-1.5 font-sans">
-                {isSignUp 
-                  ? (isFacultyPortal ? "Register as a faculty proctor" : "Register with your official college email") 
-                  : (isFacultyPortal ? "Access the proctor dashboard and supervise students" : "Sign in to your InterviewCoach gateway")}
+                {isFacultyPortal 
+                  ? (isSignUp ? "Register as a faculty proctor" : "Access the proctor dashboard and supervise students") 
+                  : "Sign in with your Aditya Student Portal (ECAP) credentials."}
               </p>
             </motion.div>
 
@@ -429,297 +528,273 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               </div>
             </motion.div>
 
-            {/* Sliding Switch Tabs */}
-            <motion.div
-              variants={{
-                hidden: { opacity: 0, y: 15 },
-                visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
-              }}
-              className="mb-6"
-            >
-              <div className="bg-slate-100 border border-slate-200 rounded-[10px] p-1 flex relative overflow-hidden">
-                {([false, true] as const).map((signupVal) => (
-                  <button
-                    key={signupVal ? "signup" : "login"}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => {
-                      setIsSignUp(signupVal);
-                      setError(null);
-                      setSuccessMessage(null);
-                    }}
-                    className={`flex-1 py-2 text-center text-sm font-medium font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 ${isSignUp === signupVal ? 'text-slate-800' : 'text-[#64748B]'
-                      }`}
-                    data-interactive="true"
-                  >
-                    {signupVal ? 'Create Account' : 'Sign In'}
-                    {isSignUp === signupVal && (
-                      <motion.div
-                        layoutId="activeTabIndicator"
-                        className="absolute inset-0 bg-white shadow-xs border border-slate-200 rounded-[8px] -z-10"
-                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
-                      />
-                    )}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
+            {/* Sliding Switch Tabs (Only for Proctor/Faculty Portal) */}
+            {isFacultyPortal && (
+              <motion.div
+                variants={{
+                  hidden: { opacity: 0, y: 15 },
+                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                }}
+                className="mb-6"
+              >
+                <div className="bg-slate-100 border border-slate-200 rounded-[10px] p-1 flex relative overflow-hidden">
+                  {([false, true] as const).map((signupVal) => (
+                    <button
+                      key={signupVal ? "signup" : "login"}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => {
+                        setIsSignUp(signupVal);
+                        setError(null);
+                        setSuccessMessage(null);
+                      }}
+                      className={`flex-1 py-2 text-center text-sm font-medium font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 ${isSignUp === signupVal ? 'text-slate-800' : 'text-[#64748B]'
+                        }`}
+                      data-interactive="true"
+                    >
+                      {signupVal ? 'Create Account' : 'Sign In'}
+                      {isSignUp === signupVal && (
+                        <motion.div
+                          layoutId="activeTabIndicator"
+                          className="absolute inset-0 bg-white shadow-xs border border-slate-200 rounded-[8px] -z-10"
+                          transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                        />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
             {/* Form Fields */}
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               {/* Proctor signup extra fields */}
-              {isSignUp && isFacultyPortal && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="flex flex-col gap-4 overflow-hidden"
-                >
-                  <InputField
-                    label="Full Name"
-                    type="text"
-                    placeholder="e.g. Dr. Ramesh Kumar"
-                    value={facultyName}
-                    onChange={(val) => {
-                      setFacultyName(val);
-                      setError(null);
-                    }}
-                    disabled={loading}
-                    icon={User}
-                    required
-                  />
-                  <div className="grid grid-cols-2 gap-4">
-                    <InputField
-                      label="Department"
-                      type="text"
-                      placeholder="e.g. CSE"
-                      value={department}
-                      onChange={(val) => {
-                        setDepartment(val);
-                        setError(null);
-                      }}
-                      disabled={loading}
-                      icon={GraduationCap}
-                      required
-                    />
-                    <InputField
-                      label="Class Section"
-                      type="text"
-                      placeholder="e.g. Section A"
-                      value={classSection}
-                      onChange={(val) => {
-                        setClassSection(val);
-                        setError(null);
-                      }}
-                      disabled={loading}
-                      icon={GraduationCap}
-                      required
-                    />
-                  </div>
-                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200/60 flex flex-col gap-2.5">
-                    <span className="text-xs font-semibold text-slate-700 block">Supervised Student Roll Range</span>
-                    <div className="grid grid-cols-3 gap-2">
+              {isFacultyPortal ? (
+                <>
+                  {/* Proctor signup extra fields */}
+                  {isSignUp && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex flex-col gap-4 overflow-hidden"
+                    >
                       <InputField
-                        label="Prefix"
+                        label="Full Name"
                         type="text"
-                        placeholder="e.g. 24P31A12"
-                        value={rollPrefix}
+                        placeholder="e.g. Dr. Ramesh Kumar"
+                        value={facultyName}
                         onChange={(val) => {
-                          setRollPrefix(val);
+                          setFacultyName(val);
                           setError(null);
                         }}
                         disabled={loading}
+                        icon={User}
                         required
                       />
-                      <InputField
-                        label="Start No"
-                        type="text"
-                        placeholder="1"
-                        value={rollStart}
-                        onChange={(val) => {
-                          setRollStart(val);
-                          setError(null);
-                        }}
-                        disabled={loading}
-                        required
-                      />
-                      <InputField
-                        label="End No"
-                        type="text"
-                        placeholder="30"
-                        value={rollEnd}
-                        onChange={(val) => {
-                          setRollEnd(val);
-                          setError(null);
-                        }}
-                        disabled={loading}
-                        required
-                      />
-                    </div>
-                  </div>
-                </motion.div>
-              )}
+                      <div className="grid grid-cols-2 gap-4">
+                        <InputField
+                          label="Department"
+                          type="text"
+                          placeholder="e.g. CSE"
+                          value={department}
+                          onChange={(val) => {
+                            setDepartment(val);
+                            setError(null);
+                          }}
+                          disabled={loading}
+                          icon={GraduationCap}
+                          required
+                        />
+                        <InputField
+                          label="Class Section"
+                          type="text"
+                          placeholder="e.g. Section A"
+                          value={classSection}
+                          onChange={(val) => {
+                            setClassSection(val);
+                            setError(null);
+                          }}
+                          disabled={loading}
+                          icon={GraduationCap}
+                          required
+                        />
+                      </div>
+                      <div className="bg-slate-50 p-3 rounded-lg border border-slate-200/60 flex flex-col gap-2.5">
+                        <span className="text-xs font-semibold text-slate-700 block">Supervised Student Roll Range</span>
+                        <div className="grid grid-cols-3 gap-2">
+                          <InputField
+                            label="Prefix"
+                            type="text"
+                            placeholder="e.g. 24P31A12"
+                            value={rollPrefix}
+                            onChange={(val) => {
+                              setRollPrefix(val);
+                              setError(null);
+                            }}
+                            disabled={loading}
+                            required
+                          />
+                          <InputField
+                            label="Start No"
+                            type="text"
+                            placeholder="1"
+                            value={rollStart}
+                            onChange={(val) => {
+                              setRollStart(val);
+                              setError(null);
+                            }}
+                            disabled={loading}
+                            required
+                          />
+                          <InputField
+                            label="End No"
+                            type="text"
+                            placeholder="30"
+                            value={rollEnd}
+                            onChange={(val) => {
+                              setRollEnd(val);
+                              setError(null);
+                            }}
+                            disabled={loading}
+                            required
+                          />
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
 
-              {/* Student Roll Number & Name Inputs */}
-              {isSignUp && !isFacultyPortal && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="flex flex-col gap-4 overflow-hidden"
-                >
-                  <InputField
-                    label="Full Name"
-                    type="text"
-                    placeholder="e.g. Arjun Prasad"
-                    value={studentName}
-                    onChange={(val) => {
-                      setStudentName(val);
-                      setError(null);
-                    }}
-                    disabled={loading}
-                    icon={User}
-                    required
-                  />
-                  <InputField
-                    label="Roll Number"
-                    type="text"
-                    placeholder="e.g. 24P31A1234"
-                    value={rollNo}
-                    onChange={(val) => {
-                      setRollNo(val);
-                      setError(null);
-                    }}
-                    disabled={loading}
-                    icon={Fingerprint}
-                    required
-                  />
-                  <div className="grid grid-cols-2 gap-4">
-                    <InputField
-                      label="Branch / Department"
-                      type="text"
-                      placeholder="e.g. CSE"
-                      value={studentBranch}
-                      onChange={(val) => {
-                        setStudentBranch(val);
-                        setError(null);
-                      }}
-                      disabled={loading}
-                      icon={GraduationCap}
-                      required
-                    />
-                    <InputField
-                      label="Class Section"
-                      type="text"
-                      placeholder="e.g. Section A"
-                      value={studentSection}
-                      onChange={(val) => {
-                        setStudentSection(val);
-                        setError(null);
-                      }}
-                      disabled={loading}
-                      icon={GraduationCap}
-                      required
-                    />
-                  </div>
-                </motion.div>
-              )}
-
-              {/* College Email Input */}
-              <motion.div
-                variants={{
-                  hidden: { opacity: 0, y: 15 },
-                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
-                }}
-              >
-                <InputField
-                  label="College Email Address"
-                  type="email"
-                  placeholder="student@university.edu"
-                  value={email}
-                  onChange={(val) => {
-                    setEmail(val);
-                    setError(null);
-                  }}
-                  disabled={loading}
-                  error={emailError}
-                  icon={Mail}
-                  required
-                />
-
-                {isSignUp && emailValid && (
+                  {/* College Email Input */}
                   <motion.div
-                    initial={{ opacity: 0, y: -5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex items-center space-x-1 mt-2 text-[11px] text-emerald-400 font-sans pl-1"
+                    variants={{
+                      hidden: { opacity: 0, y: 15 },
+                      visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                    }}
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>College email verified.</span>
+                    <InputField
+                      label="College Email Address"
+                      type="email"
+                      placeholder="student@university.edu"
+                      value={email}
+                      onChange={(val) => {
+                        setEmail(val);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      error={emailError}
+                      icon={Mail}
+                      required
+                    />
+
+                    {isSignUp && emailValid && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-center space-x-1 mt-2 text-[11px] text-emerald-400 font-sans pl-1"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>College email verified.</span>
+                      </motion.div>
+                    )}
                   </motion.div>
-                )}
-              </motion.div>
 
-              {/* Password Input */}
-              <motion.div
-                variants={{
-                  hidden: { opacity: 0, y: 15 },
-                  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
-                }}
-              >
-                <InputField
-                  label="Password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(val) => {
-                    setPassword(val);
-                    setError(null);
-                  }}
-                  disabled={loading}
-                  icon={Lock}
-                  required
-                />
-              </motion.div>
-
-              {/* Dynamic Confirm Password Field */}
-              <AnimatePresence initial={false}>
-                {isSignUp && (
+                  {/* Password Input */}
                   <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
+                    variants={{
+                      hidden: { opacity: 0, y: 15 },
+                      visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                    }}
                   >
                     <InputField
-                      label="Confirm Password"
+                      label="Password"
                       type="password"
                       placeholder="••••••••"
-                      value={confirmPassword}
+                      value={password}
                       onChange={(val) => {
-                        setConfirmPassword(val);
+                        setPassword(val);
                         setError(null);
                       }}
                       disabled={loading}
-                      error={confirmPasswordError}
                       icon={Lock}
                       required
                     />
                   </motion.div>
-                )}
-              </AnimatePresence>
 
-              {!isSignUp && (
-                <motion.p
-                  variants={{
-                    hidden: { opacity: 0 },
-                    visible: { opacity: 1 }
-                  }}
-                  className="text-[11px] text-gray-500 font-sans tracking-wide leading-relaxed pl-1"
-                >
-                </motion.p>
+                  {/* Dynamic Confirm Password Field */}
+                  <AnimatePresence initial={false}>
+                    {isSignUp && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <InputField
+                          label="Confirm Password"
+                          type="password"
+                          placeholder="••••••••"
+                          value={confirmPassword}
+                          onChange={(val) => {
+                            setConfirmPassword(val);
+                            setError(null);
+                          }}
+                          disabled={loading}
+                          error={confirmPasswordError}
+                          icon={Lock}
+                          required
+                        />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </>
+              ) : (
+                <>
+                  {/* Student Roll Number Input */}
+                  <motion.div
+                    variants={{
+                      hidden: { opacity: 0, y: 15 },
+                      visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                    }}
+                  >
+                    <InputField
+                      label="Student Roll Number"
+                      type="text"
+                      placeholder="e.g. 24P31A1234"
+                      value={rollNo}
+                      onChange={(val) => {
+                        setRollNo(val);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      icon={User}
+                      required
+                    />
+                  </motion.div>
+
+                  {/* Student Portal Password (ECAP) Input */}
+                  <motion.div
+                    variants={{
+                      hidden: { opacity: 0, y: 15 },
+                      visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                    }}
+                  >
+                    <InputField
+                      label="ECAP Password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(val) => {
+                        setPassword(val);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      icon={Lock}
+                      required
+                    />
+                  </motion.div>
+                </>
               )}
 
               {/* Error messages */}
@@ -765,11 +840,11 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 <Button
                   type="submit"
                   loading={loading}
-                  disabled={loading || (isSignUp && (!emailValid || confirmPassword !== password))}
+                  disabled={loading || (isFacultyPortal && isSignUp && (!emailValid || confirmPassword !== password)) || (!isFacultyPortal && (!rollNo.trim() || !password))}
                   className="w-full h-12 rounded-[10px] text-sm font-bold bg-brand-primary hover:bg-blue-600 border border-transparent text-white shadow-md badge-white-text"
                   data-interactive="true"
                 >
-                  {isSignUp ? "Register Account" : "Enter Portal"}
+                  {isFacultyPortal ? (isSignUp ? "Register Account" : "Enter Portal") : "Enter Portal"}
                 </Button>
               </motion.div>
             </form>
