@@ -68,6 +68,42 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     ? "Passwords do not match."
     : undefined;
 
+  const syncOnLogin = async (userRollNo: string, pass: string) => {
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) return;
+
+      const syncRes = await fetch("/api/college/sync-portal", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ rollNo: userRollNo, password: pass })
+      });
+      if (syncRes.ok) {
+        const syncedProfile = await syncRes.json();
+        localStorage.setItem(`studentProfile_${userRollNo}`, JSON.stringify(syncedProfile));
+        localStorage.setItem("studentProfile", JSON.stringify(syncedProfile));
+        
+        await supabase.auth.updateUser({
+          data: {
+            student_name: syncedProfile.name,
+            class_section: syncedProfile.classSection,
+            department: syncedProfile.department,
+            academic_year: syncedProfile.academicYear,
+            attendance: syncedProfile.attendance,
+            profile_image: syncedProfile.profileImage,
+            is_synced: true
+          }
+        });
+      }
+    } catch (e) {
+      console.error("Auto sync on login failed", e);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -179,11 +215,12 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
         if (data.user) {
           if (data.session) {
-            setSuccessMessage("Account created successfully! Auto-logging you in...");
+            setSuccessMessage("Account created successfully! Auto-syncing profile...");
+            const userRollNo = rollNo.trim();
+            await syncOnLogin(userRollNo, password);
             setTimeout(() => {
-              const displayName = isFacultyPortal ? facultyName.trim() : rollNo.trim();
-              onLoginSuccess(displayName, email);
-            }, 1500);
+              onLoginSuccess(userRollNo, email);
+            }, 1000);
           } else {
             setSuccessMessage("Account created! Please check your email to verify your registration, then sign in.");
             setLoading(false);
@@ -208,6 +245,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             onLoginSuccess(displayName, data.user.email);
           } else {
             const userRollNo = data.user.user_metadata?.roll_number || email.split("@")[0].toUpperCase();
+            setSuccessMessage("Logging in and syncing student details from portal...");
+            await syncOnLogin(userRollNo, password);
             onLoginSuccess(userRollNo, data.user.email);
           }
         }

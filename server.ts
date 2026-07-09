@@ -1,6 +1,8 @@
 import express from "express";
 import path from "path";
 import http from "http";
+import https from "https";
+import crypto from "crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import Groq from "groq-sdk";
 import pdf from "pdf-parse/lib/pdf-parse.js";
@@ -269,6 +271,278 @@ app.get("/api/college/student/:rollNo", requireAuth, async (req: any, res) => {
     }
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Portal sync helper: Encrypt password matching Aditya Portal AES 128-bit CBC
+function encryptPortalPassword(plaintext: string): string {
+  const key = Buffer.from("8701661282118308", "utf8");
+  const iv = Buffer.from("8701661282118308", "utf8");
+  const cipher = crypto.createCipheriv("aes-128-cbc", key, iv);
+  let encrypted = cipher.update(plaintext, "utf8", "base64");
+  encrypted += cipher.final("base64");
+  return encrypted;
+}
+
+// Raw HTTP client to interact with portal
+async function makePortalRawRequest(urlStr: string, method = "GET", headers: Record<string, string> = {}, body: string | null = null): Promise<{ statusCode: number | undefined; headers: any; body: string }> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlStr);
+    const options: any = {
+      hostname: url.hostname,
+      port: url.port || (url.protocol === "https:" ? 443 : 80),
+      path: url.pathname + url.search,
+      method: method,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ...headers
+      }
+    };
+
+    if (body) {
+      options.headers["Content-Length"] = Buffer.byteLength(body);
+    }
+
+    const lib = url.protocol === "https:" ? https : http;
+    const req = lib.request(options, (res) => {
+      const chunks: any[] = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        resolve({
+          statusCode: res.statusCode,
+          headers: res.headers,
+          body: Buffer.concat(chunks).toString()
+        });
+      });
+    });
+
+    req.on("error", (err) => reject(err));
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+// Client wrapper to maintain sessions across requests
+async function fetchPortalWithCookies(urlStr: string, method = "GET", headers: Record<string, string> = {}, body: string | null = null, cookieJar: Record<string, string> = {}): Promise<{ statusCode: number | undefined; headers: any; body: string; cookies: Record<string, string> }> {
+  let currentUrl = urlStr;
+  let currentMethod = method;
+  let currentBody = body;
+
+  while (true) {
+    const cookieHeaderValue = Object.entries(cookieJar)
+      .map(([k, v]) => `${k}=${v}`)
+      .join("; ");
+
+    const requestHeaders = { ...headers };
+    if (cookieHeaderValue) {
+      requestHeaders["Cookie"] = cookieHeaderValue;
+    }
+    if (currentBody && currentMethod === "POST") {
+      requestHeaders["Content-Type"] = "application/x-www-form-urlencoded";
+    }
+
+    const res = await makePortalRawRequest(currentUrl, currentMethod, requestHeaders, currentBody);
+
+    // Settle cookies
+    const setCookies = res.headers["set-cookie"];
+    if (setCookies) {
+      for (const sc of setCookies) {
+        const cookiePair = sc.split(";")[0];
+        const eqIdx = cookiePair.indexOf("=");
+        if (eqIdx !== -1) {
+          const k = cookiePair.substring(0, eqIdx).trim();
+          const v = cookiePair.substring(eqIdx + 1).trim();
+          cookieJar[k] = v;
+        }
+      }
+    }
+
+    // Handle redirects
+    if (res.statusCode === 302 || res.statusCode === 301 || res.statusCode === 307 || res.statusCode === 308) {
+      const redirectLoc = res.headers["location"];
+      if (!redirectLoc) {
+        return { ...res, cookies: cookieJar };
+      }
+      currentUrl = new URL(redirectLoc, currentUrl).toString();
+      currentMethod = "GET";
+      currentBody = null;
+      delete requestHeaders["Content-Type"];
+      delete requestHeaders["Content-Length"];
+      continue;
+    }
+
+    return {
+      ...res,
+      cookies: cookieJar
+    };
+  }
+}
+
+// Extract inputs dynamically from login HTML page
+function extractPortalFormFields(html: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  const inputRegex = /<input\s+([^>]*?)>/gi;
+  let match;
+  while ((match = inputRegex.exec(html)) !== null) {
+    const attrs = match[1];
+    const nameMatch = attrs.match(/name="([^"]*?)"/i) || attrs.match(/name='([^']*?)'/i);
+    if (!nameMatch) continue;
+    const name = nameMatch[1];
+    const valMatch = attrs.match(/value="([^"]*?)"/i) || attrs.match(/value='([^']*?)'/i);
+    const value = valMatch ? valMatch[1] : "";
+    fields[name] = value;
+  }
+  return fields;
+}
+
+// Parse university BIO-DATA html response
+function parsePortalProfileHtml(rawHtml: string, studentId: string) {
+  let html = rawHtml;
+  if (html.startsWith('"') || html.startsWith("'")) {
+    html = html.substring(1, html.length - 1)
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"')
+      .replace(/\\r/g, "\r")
+      .replace(/\\n/g, "\n");
+  }
+
+  // 1. Name
+  const nameMatch = html.match(/Name<\/td>\s*<td>:<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
+  const name = nameMatch ? nameMatch[1].trim() : "";
+
+  // 2. Course
+  const courseMatch = html.match(/Course<\/td>\s*<td>:<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
+  const course = courseMatch ? courseMatch[1].trim() : "";
+
+  // 3. Branch / Department
+  const branchMatch = html.match(/Branch<\/td>\s*<td>:<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
+  const branch = branchMatch ? branchMatch[1].trim() : "";
+
+  // 4. Semester / Year
+  const semMatch = html.match(/Semester<\/td>\s*<td>:<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
+  let semesterText = "";
+  if (semMatch) {
+    const spanMatch = semMatch[1].match(/<span[^>]*>(.*?)<\/span>/i);
+    semesterText = spanMatch ? spanMatch[1].trim() : semMatch[1].trim();
+  }
+
+  // 5. Photo
+  const photoMatch = html.match(/<img[^>]*src=['"]([^'"]*?StudentPhotos\/.*?)['"]/i);
+  const photoUrl = photoMatch ? photoMatch[1].trim() : `http://info.aec.edu.in/acet/StudentPhotos/${studentId}.jpg`;
+
+  // 6. Attendance
+  const totalMatch = html.match(/TOTAL<\/td>\s*<td[^>]*>\d+<\/td>\s*<td[^>]*>\d+<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
+  let attendance = 75;
+  if (totalMatch) {
+    const val = parseFloat(totalMatch[1]);
+    if (!isNaN(val)) {
+      attendance = Math.round(val);
+    }
+  }
+
+  // Map fields
+  const department = branch || "Information Technology";
+  let yearStr = "III B.Tech";
+  const yearMatch = semesterText.match(/(\d)\/\d/);
+  if (yearMatch) {
+    const yearNum = parseInt(yearMatch[1], 10);
+    const romans = ["I", "II", "III", "IV"];
+    if (yearNum >= 1 && yearNum <= 4) {
+      yearStr = `${romans[yearNum - 1]} B.Tech`;
+    }
+  }
+
+  const branchShort = department.toLowerCase().includes("information technology") ? "IT" : "CSE";
+  const classSection = `${yearStr} ${branchShort} - Section A`;
+
+  let academicYear = "2024-2028";
+  const rollYearPrefix = studentId.substring(0, 2);
+  if (/^\d+$/.test(rollYearPrefix)) {
+    const joinYear = 2000 + parseInt(rollYearPrefix, 10);
+    academicYear = `${joinYear}-${joinYear + 4}`;
+  }
+
+  return {
+    studentId,
+    name,
+    department,
+    classSection,
+    academicYear,
+    attendance,
+    profileImage: photoUrl,
+    isSynced: true
+  };
+}
+
+// 1d-v2. API Endpoint: Synchronize details directly from college portal via real-time login scraper
+app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
+  const { rollNo, password } = req.body;
+  const cleanRollNo = String(rollNo || "").trim().toUpperCase();
+
+  if (!cleanRollNo || !password) {
+    res.status(400).json({ error: "Roll number and password are required." });
+    return;
+  }
+
+  console.log(`[Sync Scraper] Commencing sync-portal routine for: ${cleanRollNo}`);
+  const loginUrl = "https://info.aec.edu.in/acet/default.aspx";
+  const cookieJar: Record<string, string> = {};
+
+  try {
+    // 1. Get initial ASP.NET cookies & fields
+    const initRes = await fetchPortalWithCookies(loginUrl, "GET", {}, null, cookieJar);
+    const formFields = extractPortalFormFields(initRes.body);
+
+    // 2. Encrypt password
+    const encryptedPwd = encryptPortalPassword(password);
+
+    // 3. Prepare login POST payload
+    formFields["txtId2"] = cleanRollNo;
+    formFields["txtPwd2"] = encryptedPwd;
+    formFields["hdnpwd2"] = encryptedPwd;
+    formFields["imgBtn2.x"] = "30";
+    formFields["imgBtn2.y"] = "20";
+
+    // Delete other button clicks
+    delete formFields["imgBtn1"];
+    delete formFields["imgBtn3"];
+
+    const postData = Object.entries(formFields)
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+      .join("&");
+
+    // 4. Perform Login POST request
+    const postRes = await fetchPortalWithCookies(loginUrl, "POST", { "Referer": loginUrl }, postData, cookieJar);
+
+    // Verify if we actually reached the logged-in StudentMaster page
+    const dashboardHtml = postRes.body;
+    if (!dashboardHtml.includes("lnkLogOut") && !dashboardHtml.includes("StudentMaster")) {
+      res.status(401).json({ error: "Authentication failed. Invalid Roll Number or Portal Password." });
+      return;
+    }
+
+    // 5. Query the AjaxPro method to fetch BIO-DATA HTML
+    const ajaxUrl = "https://info.aec.edu.in/acet/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw";
+    const ajaxBody = `RollNo=${encodeURIComponent(cleanRollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
+    
+    const ajaxRes = await fetchPortalWithCookies(ajaxUrl, "POST", {
+      "X-AjaxPro-Method": "ShowStudentProfileNew",
+      "Content-Type": "text/plain; charset=utf-8",
+      "Referer": "https://info.aec.edu.in/acet/Academics/StudentProfile.aspx?scrid=17"
+    }, ajaxBody, cookieJar);
+
+    if (ajaxRes.statusCode !== 200 || !ajaxRes.body) {
+      res.status(500).json({ error: "Failed to query profile details from the college database." });
+      return;
+    }
+
+    // 6. Parse details
+    const profile = parsePortalProfileHtml(ajaxRes.body, cleanRollNo);
+    console.log(`[Sync Scraper] Profile sync successful for ${cleanRollNo}: Name="${profile.name}"`);
+    res.json(profile);
+  } catch (err: any) {
+    console.error(`[Sync Scraper] Error scraping details for ${cleanRollNo}:`, err.message);
+    res.status(520).json({ error: `Connection to University Portal failed: ${err.message}` });
   }
 });
 
