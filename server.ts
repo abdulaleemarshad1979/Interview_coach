@@ -1993,13 +1993,13 @@ wss.on("connection", async (ws: WebSocket) => {
             model: "models/gemini-2.0-flash-exp",
             generationConfig: {
               responseModalities: ["AUDIO", "TEXT"],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: {
-                    voiceName: "Puck"
-                  }
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: "Aoede"
                 }
               }
+            }
             },
             systemInstruction: {
               parts: [
