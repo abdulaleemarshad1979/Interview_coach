@@ -28,6 +28,16 @@ interface ProfilePageProps {
   onNavigate: (view: string) => void;
 }
 
+const normalizeBranch = (dept: string) => {
+  if (!dept) return "Information Technology";
+  const lower = dept.toLowerCase();
+  if (lower.includes("information technology") || lower === "it") return "Information Technology";
+  if (lower.includes("computer science") || lower.includes("cse")) return "Computer Science Engineering";
+  if (lower.includes("artificial intelligence") || lower.includes("ai") || lower.includes("data science")) return "Artificial Intelligence & Data Science";
+  if (lower.includes("electronics") || lower.includes("ece") || lower.includes("communication")) return "Electronics & Communication Engineering";
+  return dept;
+};
+
 export default function ProfilePage({ 
   studentProfile, 
   scorecard,
@@ -38,7 +48,9 @@ export default function ProfilePage({
   
   // Local state for profile form fields
   const [name, setName] = useState(studentProfile.name || (studentProfile.studentId === "24P31A1234" ? "MOHAMMAD ABDUL ALEEM ARSHAD" : "Offline Student User"));
-  const [department, setDepartment] = useState(studentProfile.department || (studentProfile.studentId === "24P31A1234" ? "Information Technology" : "Computer Science"));
+  const [department, setDepartment] = useState(
+    normalizeBranch(studentProfile.department || (studentProfile.studentId === "24P31A1234" ? "Information Technology" : "Computer Science Engineering"))
+  );
   const [classSection, setClassSection] = useState(studentProfile.classSection || (studentProfile.studentId === "24P31A1234" ? "II B.Tech IT - Section A" : "Aditya College of Engineering & Technology"));
   const [academicYear, setAcademicYear] = useState(studentProfile.academicYear || (studentProfile.studentId === "24P31A1234" ? "2024-2028" : "2023-2027"));
   const [githubUsername, setGithubUsername] = useState(studentProfile.githubUsername || "");
@@ -61,7 +73,9 @@ export default function ProfilePage({
   // Synchronize form states when studentProfile updates from college API sync
   React.useEffect(() => {
     setName(studentProfile.name || (studentProfile.studentId === "24P31A1234" ? "MOHAMMAD ABDUL ALEEM ARSHAD" : "Offline Student User"));
-    setDepartment(studentProfile.department || (studentProfile.studentId === "24P31A1234" ? "Information Technology" : "Computer Science"));
+    setDepartment(
+      normalizeBranch(studentProfile.department || (studentProfile.studentId === "24P31A1234" ? "Information Technology" : "Computer Science Engineering"))
+    );
     setClassSection(studentProfile.classSection || (studentProfile.studentId === "24P31A1234" ? "II B.Tech IT - Section A" : "Aditya College of Engineering & Technology"));
     setAcademicYear(studentProfile.academicYear || (studentProfile.studentId === "24P31A1234" ? "2024-2028" : "2023-2027"));
     setGithubUsername(studentProfile.githubUsername || "");
