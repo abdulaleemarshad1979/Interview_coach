@@ -42,7 +42,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [studentName, setStudentName] = useState("");
   const [studentBranch, setStudentBranch] = useState("");
   const [studentSection, setStudentSection] = useState("Section A");
-  const [selectedPortal, setSelectedPortal] = useState<"aus" | "aec" | "acet">("aus");
+  const [selectedPortal, setSelectedPortal] = useState<"aus" | "acet">("aus");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -780,7 +780,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                       Select Student Portal
                     </label>
                     <div className="bg-slate-100 border border-slate-200 rounded-[10px] p-1 flex relative overflow-hidden">
-                      {(["aus", "aec", "acet"] as const).map((pType) => (
+                      {(["aus", "acet"] as const).map((pType) => (
                         <button
                           key={pType}
                           type="button"

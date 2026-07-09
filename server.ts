@@ -565,7 +565,7 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
   }
 
   console.log(`[Sync Scraper] Commencing sync-portal routine for: ${cleanRollNo}`);
-  const selectedPortal = (portal === "aus" || portal === "aec" || portal === "acet") ? portal : null;
+  const selectedPortal = (portal === "aus" || portal === "acet") ? portal : null;
   const { primary, secondary } = getPreferredPortalForRollNo(cleanRollNo);
   const portalToUse = selectedPortal || primary;
 
@@ -598,7 +598,7 @@ app.post("/api/college/auth-sync", async (req: any, res) => {
   }
 
   console.log(`[Auth Scraper] Commencing auth-sync routine for: ${cleanRollNo}`);
-  const selectedPortal = (portal === "aus" || portal === "aec" || portal === "acet") ? portal : null;
+  const selectedPortal = (portal === "aus" || portal === "acet") ? portal : null;
   const { primary, secondary } = getPreferredPortalForRollNo(cleanRollNo);
   const portalToUse = selectedPortal || primary;
 
