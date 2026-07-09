@@ -41,7 +41,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [rollNo, setRollNo] = useState("");
   const [studentName, setStudentName] = useState("");
   const [studentBranch, setStudentBranch] = useState("");
-  const [studentSection, setStudentSection] = useState("");
+  const [studentSection, setStudentSection] = useState("Section A");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -193,13 +193,15 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
         // If signIn failed (e.g. user does not exist), try signing up!
         setSuccessMessage("Creating new student account on the gateway...");
+        const resolvedSection = studentSection || syncedProfile.classSection;
         const metaData = {
           is_faculty: false,
           roll_number: cleanRollNo,
           student_name: syncedProfile.name,
           branch: syncedProfile.department,
           department: syncedProfile.department,
-          class_section: syncedProfile.classSection,
+          class_section: resolvedSection,
+          section: resolvedSection,
           academic_year: syncedProfile.academicYear,
           attendance: syncedProfile.attendance,
           profile_image: syncedProfile.profileImage,
@@ -227,8 +229,12 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         if (signUpData.user) {
           if (signUpData.session) {
             setSuccessMessage("Account created successfully! Syncing details...");
-            localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(syncedProfile));
-            localStorage.setItem("studentProfile", JSON.stringify(syncedProfile));
+            const profileToStore = {
+              ...syncedProfile,
+              classSection: resolvedSection
+            };
+            localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(profileToStore));
+            localStorage.setItem("studentProfile", JSON.stringify(profileToStore));
             localStorage.setItem("portal_pwd", password);
             setTimeout(() => {
               onLoginSuccess(cleanRollNo, mappedEmail);
@@ -801,6 +807,28 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                       }}
                       disabled={loading}
                       icon={Lock}
+                      required
+                    />
+                  </motion.div>
+
+                  {/* Student Class Section Editable Input */}
+                  <motion.div
+                    variants={{
+                      hidden: { opacity: 0, y: 15 },
+                      visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                    }}
+                  >
+                    <InputField
+                      label="Class Section"
+                      type="text"
+                      placeholder="e.g. Section A"
+                      value={studentSection}
+                      onChange={(val) => {
+                        setStudentSection(val);
+                        setError(null);
+                      }}
+                      disabled={loading}
+                      icon={GraduationCap}
                       required
                     />
                   </motion.div>

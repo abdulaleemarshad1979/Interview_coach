@@ -215,17 +215,7 @@ export default function ProfilePage({
                 </select>
               </div>
 
-              {/* Class Section */}
-              <div>
-                <label className="block text-xs font-mono text-gray-500 uppercase mb-1.5">Class & Section</label>
-                <input 
-                  type="text" 
-                  value={classSection}
-                  onChange={(e) => setClassSection(e.target.value)}
-                  className="w-full bg-brand-bg border border-white/10 rounded-xl px-4 py-3 text-white text-xs focus:outline-hidden focus:border-brand-primary font-sans"
-                  required
-                />
-              </div>
+
 
               {/* Academic Year */}
               <div>
@@ -255,17 +245,7 @@ export default function ProfilePage({
                 </div>
               </div>
 
-              {/* Profile Image URL */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-mono text-gray-500 uppercase mb-1.5">Avatar Image URL</label>
-                <input 
-                  type="url" 
-                  value={profileImage}
-                  onChange={(e) => setProfileImage(e.target.value)}
-                  placeholder="https://images.unsplash.com/... or leave blank for default"
-                  className="w-full bg-brand-bg border border-white/10 rounded-xl px-4 py-3 text-white text-xs focus:outline-hidden focus:border-brand-primary font-sans"
-                />
-              </div>
+
 
               {/* Attendance */}
               <div className="md:col-span-2">
