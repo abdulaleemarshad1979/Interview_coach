@@ -396,16 +396,17 @@ function extractPortalFormFields(html: string): Record<string, string> {
 }
 
 // Parse university BIO-DATA html response
-function getPortalPathForRollNo(rollNo: string): { subpath: string; isNewPortal: boolean } {
+function getPreferredPortalForRollNo(rollNo: string): { primary: string; secondary: string } {
   const clean = String(rollNo || "").trim().toUpperCase();
-  const code = clean.substring(2, 4);
-  if (code.startsWith("P") || code === "P3") {
-    return { subpath: "aus", isNewPortal: true };
+  // Regex for JNTU roll number format (e.g. 24P31A1234 or 22A95A0501)
+  const isJNTU = /^\d{2}[A-Z0-9]{2}[15]A\d{2}[A-Z0-9]{2}$/.test(clean);
+  if (isJNTU) {
+    return { primary: "acet", secondary: "aus" };
   }
-  return { subpath: "acet", isNewPortal: false };
+  return { primary: "aus", secondary: "acet" };
 }
 
-function parsePortalProfileHtml(rawHtml: string, studentId: string) {
+function parsePortalProfileHtml(rawHtml: string, studentId: string, portal: string) {
   let html = rawHtml;
   if (html.startsWith('"') || html.startsWith("'")) {
     html = html.substring(1, html.length - 1)
@@ -437,8 +438,7 @@ function parsePortalProfileHtml(rawHtml: string, studentId: string) {
 
   // 5. Photo
   const photoMatch = html.match(/<img[^>]*src=['"]([^'"]*?StudentPhotos\/.*?)['"]/i);
-  const { subpath } = getPortalPathForRollNo(studentId);
-  const photoUrl = photoMatch ? photoMatch[1].trim() : `http://info.aec.edu.in/${subpath}/StudentPhotos/${studentId}.jpg`;
+  const photoUrl = photoMatch ? photoMatch[1].trim() : `http://info.aec.edu.in/${portal}/StudentPhotos/${studentId}.jpg`;
 
   // 6. Attendance
   const totalMatch = html.match(/TOTAL<\/td>\s*<td[^>]*>\d+<\/td>\s*<td[^>]*>\d+<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
@@ -484,6 +484,76 @@ function parsePortalProfileHtml(rawHtml: string, studentId: string) {
   };
 }
 
+async function scrapeStudentProfileFromPortal(rollNo: string, password: string, portal: string) {
+  const isNewPortal = (portal === "aus");
+  const loginUrl = `https://info.aec.edu.in/${portal}/default.aspx`;
+  const cookieJar: Record<string, string> = {};
+
+  // 1. Get initial ASP.NET cookies & fields
+  const initRes = await fetchPortalWithCookies(loginUrl, "GET", {}, null, cookieJar);
+  const formFields = extractPortalFormFields(initRes.body);
+
+  // 2. Encrypt password
+  const encryptedPwd = encryptPortalPassword(password);
+
+  // 3. Prepare login POST payload
+  if (isNewPortal) {
+    formFields["userType"] = "rbtStudent";
+    formFields["txtUserId"] = rollNo;
+    formFields["txtPassword"] = encryptedPwd;
+    formFields["hdnpwd"] = encryptedPwd;
+    formFields["btnLogin"] = "LOGIN";
+
+    // Delete older fields if present
+    delete formFields["txtId2"];
+    delete formFields["txtPwd2"];
+    delete formFields["hdnpwd2"];
+    delete formFields["imgBtn1"];
+    delete formFields["imgBtn2"];
+    delete formFields["imgBtn3"];
+  } else {
+    formFields["txtId2"] = rollNo;
+    formFields["txtPwd2"] = encryptedPwd;
+    formFields["hdnpwd2"] = encryptedPwd;
+    formFields["imgBtn2.x"] = "30";
+    formFields["imgBtn2.y"] = "20";
+
+    // Delete other button clicks
+    delete formFields["imgBtn1"];
+    delete formFields["imgBtn3"];
+  }
+
+  const postData = Object.entries(formFields)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join("&");
+
+  // 4. Perform Login POST request
+  const postRes = await fetchPortalWithCookies(loginUrl, "POST", { "Referer": loginUrl }, postData, cookieJar);
+
+  // Verify if we actually reached the logged-in StudentMaster page
+  const dashboardHtml = postRes.body;
+  if (!dashboardHtml.includes("lnkLogOut") && !dashboardHtml.includes("StudentMaster")) {
+    throw new Error("Authentication failed");
+  }
+
+  // 5. Query the AjaxPro method to fetch BIO-DATA HTML
+  const ajaxUrl = `https://info.aec.edu.in/${portal}/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw`;
+  const ajaxBody = `RollNo=${encodeURIComponent(rollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
+
+  const ajaxRes = await fetchPortalWithCookies(ajaxUrl, "POST", {
+    "X-AjaxPro-Method": "ShowStudentProfileNew",
+    "Content-Type": "text/plain; charset=utf-8",
+    "Referer": `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx?scrid=17`
+  }, ajaxBody, cookieJar);
+
+  if (ajaxRes.statusCode !== 200 || !ajaxRes.body) {
+    throw new Error("Failed to query profile details from the college database.");
+  }
+
+  // 6. Parse details
+  return parsePortalProfileHtml(ajaxRes.body, rollNo, portal);
+}
+
 // 1d-v2. API Endpoint: Synchronize details directly from college portal via real-time login scraper
 app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
   const { rollNo, password } = req.body;
@@ -495,81 +565,22 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
   }
 
   console.log(`[Sync Scraper] Commencing sync-portal routine for: ${cleanRollNo}`);
-  const { subpath, isNewPortal } = getPortalPathForRollNo(cleanRollNo);
-  const loginUrl = `https://info.aec.edu.in/${subpath}/default.aspx`;
-  const cookieJar: Record<string, string> = {};
+  const { primary, secondary } = getPreferredPortalForRollNo(cleanRollNo);
 
   try {
-    // 1. Get initial ASP.NET cookies & fields
-    const initRes = await fetchPortalWithCookies(loginUrl, "GET", {}, null, cookieJar);
-    const formFields = extractPortalFormFields(initRes.body);
-
-    // 2. Encrypt password
-    const encryptedPwd = encryptPortalPassword(password);
-
-    // 3. Prepare login POST payload
-    if (isNewPortal) {
-      formFields["userType"] = "rbtStudent";
-      formFields["txtUserId"] = cleanRollNo;
-      formFields["txtPassword"] = encryptedPwd;
-      formFields["hdnpwd"] = encryptedPwd;
-      formFields["btnLogin"] = "LOGIN";
-
-      // Delete older fields if present
-      delete formFields["txtId2"];
-      delete formFields["txtPwd2"];
-      delete formFields["hdnpwd2"];
-      delete formFields["imgBtn1"];
-      delete formFields["imgBtn2"];
-      delete formFields["imgBtn3"];
-    } else {
-      formFields["txtId2"] = cleanRollNo;
-      formFields["txtPwd2"] = encryptedPwd;
-      formFields["hdnpwd2"] = encryptedPwd;
-      formFields["imgBtn2.x"] = "30";
-      formFields["imgBtn2.y"] = "20";
-
-      // Delete other button clicks
-      delete formFields["imgBtn1"];
-      delete formFields["imgBtn3"];
+    let profile;
+    try {
+      console.log(`[Sync Scraper] Trying primary portal: ${primary} for ${cleanRollNo}`);
+      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, primary);
+    } catch (primaryErr: any) {
+      console.warn(`[Sync Scraper] Primary portal ${primary} failed, trying secondary: ${secondary} for ${cleanRollNo}`);
+      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, secondary);
     }
-
-    const postData = Object.entries(formFields)
-      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-      .join("&");
-
-    // 4. Perform Login POST request
-    const postRes = await fetchPortalWithCookies(loginUrl, "POST", { "Referer": loginUrl }, postData, cookieJar);
-
-    // Verify if we actually reached the logged-in StudentMaster page
-    const dashboardHtml = postRes.body;
-    if (!dashboardHtml.includes("lnkLogOut") && !dashboardHtml.includes("StudentMaster")) {
-      res.status(401).json({ error: "Authentication failed. Invalid Roll Number or Portal Password." });
-      return;
-    }
-
-    // 5. Query the AjaxPro method to fetch BIO-DATA HTML
-    const ajaxUrl = `https://info.aec.edu.in/${subpath}/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw`;
-    const ajaxBody = `RollNo=${encodeURIComponent(cleanRollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
-
-    const ajaxRes = await fetchPortalWithCookies(ajaxUrl, "POST", {
-      "X-AjaxPro-Method": "ShowStudentProfileNew",
-      "Content-Type": "text/plain; charset=utf-8",
-      "Referer": `https://info.aec.edu.in/${subpath}/Academics/StudentProfile.aspx?scrid=17`
-    }, ajaxBody, cookieJar);
-
-    if (ajaxRes.statusCode !== 200 || !ajaxRes.body) {
-      res.status(500).json({ error: "Failed to query profile details from the college database." });
-      return;
-    }
-
-    // 6. Parse details
-    const profile = parsePortalProfileHtml(ajaxRes.body, cleanRollNo);
     console.log(`[Sync Scraper] Profile sync successful for ${cleanRollNo}: Name="${profile.name}"`);
     res.json(profile);
   } catch (err: any) {
     console.error(`[Sync Scraper] Error scraping details for ${cleanRollNo}:`, err.message);
-    res.status(520).json({ error: `Connection to University Portal failed: ${err.message}` });
+    res.status(401).json({ error: "Authentication failed. Invalid Roll Number or Portal Password." });
   }
 });
 
@@ -584,81 +595,22 @@ app.post("/api/college/auth-sync", async (req: any, res) => {
   }
 
   console.log(`[Auth Scraper] Commencing auth-sync routine for: ${cleanRollNo}`);
-  const { subpath, isNewPortal } = getPortalPathForRollNo(cleanRollNo);
-  const loginUrl = `https://info.aec.edu.in/${subpath}/default.aspx`;
-  const cookieJar: Record<string, string> = {};
+  const { primary, secondary } = getPreferredPortalForRollNo(cleanRollNo);
 
   try {
-    // 1. Get initial ASP.NET cookies & fields
-    const initRes = await fetchPortalWithCookies(loginUrl, "GET", {}, null, cookieJar);
-    const formFields = extractPortalFormFields(initRes.body);
-
-    // 2. Encrypt password
-    const encryptedPwd = encryptPortalPassword(password);
-
-    // 3. Prepare login POST payload
-    if (isNewPortal) {
-      formFields["userType"] = "rbtStudent";
-      formFields["txtUserId"] = cleanRollNo;
-      formFields["txtPassword"] = encryptedPwd;
-      formFields["hdnpwd"] = encryptedPwd;
-      formFields["btnLogin"] = "LOGIN";
-
-      // Delete older fields if present
-      delete formFields["txtId2"];
-      delete formFields["txtPwd2"];
-      delete formFields["hdnpwd2"];
-      delete formFields["imgBtn1"];
-      delete formFields["imgBtn2"];
-      delete formFields["imgBtn3"];
-    } else {
-      formFields["txtId2"] = cleanRollNo;
-      formFields["txtPwd2"] = encryptedPwd;
-      formFields["hdnpwd2"] = encryptedPwd;
-      formFields["imgBtn2.x"] = "30";
-      formFields["imgBtn2.y"] = "20";
-
-      // Delete other button clicks
-      delete formFields["imgBtn1"];
-      delete formFields["imgBtn3"];
+    let profile;
+    try {
+      console.log(`[Auth Scraper] Trying primary portal: ${primary} for ${cleanRollNo}`);
+      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, primary);
+    } catch (primaryErr: any) {
+      console.warn(`[Auth Scraper] Primary portal ${primary} failed, trying secondary: ${secondary} for ${cleanRollNo}`);
+      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, secondary);
     }
-
-    const postData = Object.entries(formFields)
-      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-      .join("&");
-
-    // 4. Perform Login POST request
-    const postRes = await fetchPortalWithCookies(loginUrl, "POST", { "Referer": loginUrl }, postData, cookieJar);
-
-    // Verify if we actually reached the logged-in StudentMaster page
-    const dashboardHtml = postRes.body;
-    if (!dashboardHtml.includes("lnkLogOut") && !dashboardHtml.includes("StudentMaster")) {
-      res.status(401).json({ error: "Authentication failed. Invalid Roll Number or Portal Password." });
-      return;
-    }
-
-    // 5. Query the AjaxPro method to fetch BIO-DATA HTML
-    const ajaxUrl = `https://info.aec.edu.in/${subpath}/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw`;
-    const ajaxBody = `RollNo=${encodeURIComponent(cleanRollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
-
-    const ajaxRes = await fetchPortalWithCookies(ajaxUrl, "POST", {
-      "X-AjaxPro-Method": "ShowStudentProfileNew",
-      "Content-Type": "text/plain; charset=utf-8",
-      "Referer": `https://info.aec.edu.in/${subpath}/Academics/StudentProfile.aspx?scrid=17`
-    }, ajaxBody, cookieJar);
-
-    if (ajaxRes.statusCode !== 200 || !ajaxRes.body) {
-      res.status(500).json({ error: "Failed to query profile details from the college database." });
-      return;
-    }
-
-    // 6. Parse details
-    const profile = parsePortalProfileHtml(ajaxRes.body, cleanRollNo);
     console.log(`[Auth Scraper] Profile auth-sync successful for ${cleanRollNo}: Name="${profile.name}"`);
     res.json(profile);
   } catch (err: any) {
     console.error(`[Auth Scraper] Error scraping details for ${cleanRollNo}:`, err.message);
-    res.status(520).json({ error: `Connection to University Portal failed: ${err.message}` });
+    res.status(401).json({ error: "Authentication failed. Invalid Roll Number or Portal Password." });
   }
 });
 
