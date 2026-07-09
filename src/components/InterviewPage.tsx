@@ -58,6 +58,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   // Voice output (TTS) states
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
   const [isAISpeaking, setIsAISpeaking] = useState(false);
+  const [voiceMode, setVoiceMode] = useState<"direct" | "proxy" | "fallback" | "connecting">("connecting");
 
   // Smoothing queues for face tracking
   const gazeHistoryRef = useRef<number[]>([]);
@@ -204,6 +205,8 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       audioPlayerRef.current = null;
     }
 
+    setVoiceMode("connecting");
+
     const isSecure = window.location.protocol === "https:";
     const wsProtocol = isSecure ? "wss" : "ws";
     const host = window.location.host;
@@ -214,6 +217,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     if ((host.includes("vercel.app") || host.includes("localhost:5173") || host.includes("127.0.0.1")) && directKey) {
       console.log("Connecting directly to Google Gemini Live API from browser...");
       socketUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${directKey}`;
+      setVoiceMode("direct");
     }
 
     try {
@@ -256,21 +260,24 @@ Converse naturally and speak in a human-like tone.`
       ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
+          
+          if (payload.type === "ready") {
+            if (payload.status === "Live Voice-to-Voice Active") {
+              setVoiceMode("proxy");
+            } else {
+              setVoiceMode("fallback");
+            }
+          }
+
           if (payload.serverContent?.modelTurn?.parts) {
             payload.serverContent.modelTurn.parts.forEach((part: any) => {
               if (part.inlineData && part.inlineData.mimeType.startsWith("audio/pcm")) {
                 playAudioChunk(part.inlineData.data);
               }
-              if (part.text) {
-                setTranscript((prev) => (prev ? prev + " " + part.text : part.text));
-              }
             });
           }
           if (payload.type === "audio_chunk") {
             playAudioChunk(payload.data);
-          }
-          if (payload.type === "text_chunk") {
-            setTranscript((prev) => (prev ? prev + " " + payload.text : payload.text));
           }
         } catch (e) {
           console.error("Error reading socket stream chunk:", e);
@@ -1641,7 +1648,10 @@ Converse naturally and speak in a human-like tone.`
                 <span className="text-xs font-mono font-bold text-white tracking-wider uppercase">Voice Connection Hub</span>
               </div>
               <span className="text-[10px] font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded">
-                {(import.meta as any).env?.VITE_GEMINI_API_KEY ? "Gemini Live Mode" : "Convincing Simulated Mode"}
+                {voiceMode === "direct" && "Gemini Live (Direct)"}
+                {voiceMode === "proxy" && "Gemini Live (Proxy)"}
+                {voiceMode === "fallback" && "Convincing Simulated Mode"}
+                {voiceMode === "connecting" && "Connecting Voice..."}
               </span>
             </div>
 
@@ -1698,7 +1708,9 @@ Converse naturally and speak in a human-like tone.`
             <div className="grid grid-cols-2 gap-3 text-[10px] font-mono">
               <div className="p-2.5 bg-brand-bg/40 border border-white/5 rounded-lg space-y-0.5">
                 <span className="text-gray-500 block uppercase">Stream protocol</span>
-                <span className="text-white block font-medium">Websocket WSS (Direct)</span>
+                <span className="text-white block font-medium">
+                  {voiceMode === "direct" ? "Websocket WSS (Direct)" : voiceMode === "proxy" ? "Websocket WSS (Proxy)" : "Edge TTS / local link"}
+                </span>
               </div>
               <div className="p-2.5 bg-brand-bg/40 border border-white/5 rounded-lg space-y-0.5">
                 <span className="text-gray-500 block uppercase">Modality type</span>
@@ -1706,7 +1718,9 @@ Converse naturally and speak in a human-like tone.`
               </div>
               <div className="p-2.5 bg-brand-bg/40 border border-white/5 rounded-lg space-y-0.5">
                 <span className="text-gray-500 block uppercase">Voice model</span>
-                <span className="text-emerald-400 block font-medium">Gemini 2.0 Flash Live (Aoede)</span>
+                <span className="text-emerald-400 block font-medium">
+                  {voiceMode === "fallback" ? "Local TTS Voice Engine" : "Gemini 2.0 Flash Live (Aoede)"}
+                </span>
               </div>
               <div className="p-2.5 bg-brand-bg/40 border border-white/5 rounded-lg space-y-0.5">
                 <span className="text-gray-500 block uppercase">Connection latency</span>
