@@ -26,8 +26,13 @@ export default function App() {
   const [scorecardHistory, setScorecardHistory] = useState<Scorecard[]>([]);
 
   // Sync basic student details from college portal API using Roll Number
-  const syncCollegeProfile = async (rollNo: string, currentProfile: StudentProfile | null) => {
+  const syncCollegeProfile = async (rollNo: string, currentProfile: StudentProfile | null, force: boolean = false) => {
     try {
+      if (!force && currentProfile?.isSynced && currentProfile?.name) {
+        console.log(`[Sync bypass] Profile is already synced for Roll No: ${rollNo}`);
+        return;
+      }
+
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       
@@ -606,7 +611,7 @@ export default function App() {
             onSyncPortalDetails={async (password: string) => {
               localStorage.setItem("portal_pwd", password);
               try {
-                await syncCollegeProfile(studentProfile.studentId, studentProfile);
+                await syncCollegeProfile(studentProfile.studentId, studentProfile, true);
                 const activeProfileStr = localStorage.getItem(`studentProfile_${studentProfile.studentId}`);
                 if (activeProfileStr) {
                   const activeProfile = JSON.parse(activeProfileStr);
