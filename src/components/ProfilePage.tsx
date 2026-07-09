@@ -200,20 +200,7 @@ export default function ProfilePage({
                 />
               </div>
 
-              {/* Department */}
-              <div>
-                <label className="block text-xs font-mono text-gray-500 uppercase mb-1.5">Department / Branch</label>
-                <select 
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  className="w-full bg-brand-bg border border-white/10 rounded-xl px-4 py-3 text-white text-xs focus:outline-hidden focus:border-brand-primary cursor-pointer font-sans"
-                >
-                  <option value="Information Technology">Information Technology</option>
-                  <option value="Computer Science Engineering">Computer Science Engineering</option>
-                  <option value="Artificial Intelligence & Data Science">Artificial Intelligence & Data Science</option>
-                  <option value="Electronics & Communication Engineering">Electronics & Communication Engineering</option>
-                </select>
-              </div>
+
 
 
 
