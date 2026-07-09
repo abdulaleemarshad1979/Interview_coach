@@ -160,16 +160,24 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           // User exists, signed in successfully!
           setSuccessMessage("Successfully logged in! Fetching portal details...");
           
+          const existingSection = signInData.user.user_metadata?.class_section;
+          const resolvedSection = existingSection || syncedProfile.classSection;
+
+          const profileToStore = {
+            ...syncedProfile,
+            classSection: resolvedSection
+          };
+
           // Save synced details to localStorage
-          localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(syncedProfile));
-          localStorage.setItem("studentProfile", JSON.stringify(syncedProfile));
+          localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(profileToStore));
+          localStorage.setItem("studentProfile", JSON.stringify(profileToStore));
           localStorage.setItem("portal_pwd", password);
 
           // Update user metadata in Supabase
           await supabase.auth.updateUser({
             data: {
               student_name: syncedProfile.name,
-              class_section: syncedProfile.classSection,
+              class_section: resolvedSection,
               department: syncedProfile.department,
               branch: syncedProfile.department,
               academic_year: syncedProfile.academicYear,
