@@ -305,7 +305,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         localStream.getTracks().forEach(track => track.stop());
         setLocalStream(null);
       }
-      Object.values(peerConnectionsRef.current).forEach(pc => pc.close());
+      Object.keys(peerConnectionsRef.current).forEach(peerId => peerConnectionsRef.current[peerId]?.close());
       peerConnectionsRef.current = {};
       setRemoteStreams({});
     }
