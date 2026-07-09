@@ -66,6 +66,7 @@ export default function App() {
           const mergedProfile: StudentProfile = {
             ...currentProfile,
             ...collegeData,
+            classSection: currentProfile?.classSection || collegeData.classSection,
             githubUsername: currentProfile?.githubUsername || collegeData.githubUsername,
             resumeFileName: currentProfile?.resumeFileName || collegeData.resumeFileName,
             profileImage: currentProfile?.profileImage || collegeData.profileImage,
