@@ -42,6 +42,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [studentName, setStudentName] = useState("");
   const [studentBranch, setStudentBranch] = useState("");
   const [studentSection, setStudentSection] = useState("Section A");
+  const [selectedPortal, setSelectedPortal] = useState<"aus" | "aec" | "acet">("aus");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -80,7 +81,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({ rollNo: userRollNo, password: pass })
+        body: JSON.stringify({ rollNo: userRollNo, password: pass, portal: selectedPortal })
       });
       if (syncRes.ok) {
         const syncedProfile = await syncRes.json();
@@ -134,7 +135,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ rollNo: cleanRollNo, password })
+          body: JSON.stringify({ rollNo: cleanRollNo, password, portal: selectedPortal })
         });
 
         if (!syncRes.ok) {
@@ -767,6 +768,44 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 </>
               ) : (
                 <>
+                  {/* Student Portal Selector (AUS, AEC, ACET) */}
+                  <motion.div
+                    variants={{
+                      hidden: { opacity: 0, y: 15 },
+                      visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } }
+                    }}
+                    className="mb-4"
+                  >
+                    <label className="block text-[10px] font-mono font-bold text-slate-500 uppercase tracking-wider mb-2">
+                      Select Student Portal
+                    </label>
+                    <div className="bg-slate-100 border border-slate-200 rounded-[10px] p-1 flex relative overflow-hidden">
+                      {(["aus", "aec", "acet"] as const).map((pType) => (
+                        <button
+                          key={pType}
+                          type="button"
+                          disabled={loading}
+                          onClick={() => {
+                            setSelectedPortal(pType);
+                            setError(null);
+                          }}
+                          className={`flex-1 py-1.5 text-center text-xs font-bold font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 uppercase ${
+                            selectedPortal === pType ? 'text-slate-800' : 'text-[#64748B]'
+                          }`}
+                        >
+                          {pType}
+                          {selectedPortal === pType && (
+                            <motion.div
+                              layoutId="activeStudentPortalIndicator"
+                              className="absolute inset-0 bg-white shadow-xs border border-slate-200 rounded-[8px] -z-10"
+                              transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                            />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+
                   {/* Student Roll Number Input */}
                   <motion.div
                     variants={{
