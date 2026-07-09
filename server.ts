@@ -428,7 +428,7 @@ function parsePortalProfileHtml(rawHtml: string, studentId: string) {
 
   // 5. Photo
   const photoMatch = html.match(/<img[^>]*src=['"]([^'"]*?StudentPhotos\/.*?)['"]/i);
-  const photoUrl = photoMatch ? photoMatch[1].trim() : `http://info.aec.edu.in/acet/StudentPhotos/${studentId}.jpg`;
+  const photoUrl = photoMatch ? photoMatch[1].trim() : `http://info.aec.edu.in/aus/StudentPhotos/${studentId}.jpg`;
 
   // 6. Attendance
   const totalMatch = html.match(/TOTAL<\/td>\s*<td[^>]*>\d+<\/td>\s*<td[^>]*>\d+<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
@@ -485,7 +485,7 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
   }
 
   console.log(`[Sync Scraper] Commencing sync-portal routine for: ${cleanRollNo}`);
-  const loginUrl = "https://info.aec.edu.in/acet/default.aspx";
+  const loginUrl = "https://info.aec.edu.in/aus/default.aspx";
   const cookieJar: Record<string, string> = {};
 
   try {
@@ -497,14 +497,18 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
     const encryptedPwd = encryptPortalPassword(password);
 
     // 3. Prepare login POST payload
-    formFields["txtId2"] = cleanRollNo;
-    formFields["txtPwd2"] = encryptedPwd;
-    formFields["hdnpwd2"] = encryptedPwd;
-    formFields["imgBtn2.x"] = "30";
-    formFields["imgBtn2.y"] = "20";
+    formFields["userType"] = "rbtStudent";
+    formFields["txtUserId"] = cleanRollNo;
+    formFields["txtPassword"] = encryptedPwd;
+    formFields["hdnpwd"] = encryptedPwd;
+    formFields["btnLogin"] = "LOGIN";
 
-    // Delete other button clicks
+    // Delete older fields if present
+    delete formFields["txtId2"];
+    delete formFields["txtPwd2"];
+    delete formFields["hdnpwd2"];
     delete formFields["imgBtn1"];
+    delete formFields["imgBtn2"];
     delete formFields["imgBtn3"];
 
     const postData = Object.entries(formFields)
@@ -522,13 +526,13 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
     }
 
     // 5. Query the AjaxPro method to fetch BIO-DATA HTML
-    const ajaxUrl = "https://info.aec.edu.in/acet/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw";
+    const ajaxUrl = "https://info.aec.edu.in/aus/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw";
     const ajaxBody = `RollNo=${encodeURIComponent(cleanRollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
 
     const ajaxRes = await fetchPortalWithCookies(ajaxUrl, "POST", {
       "X-AjaxPro-Method": "ShowStudentProfileNew",
       "Content-Type": "text/plain; charset=utf-8",
-      "Referer": "https://info.aec.edu.in/acet/Academics/StudentProfile.aspx?scrid=17"
+      "Referer": "https://info.aec.edu.in/aus/Academics/StudentProfile.aspx?scrid=17"
     }, ajaxBody, cookieJar);
 
     if (ajaxRes.statusCode !== 200 || !ajaxRes.body) {
@@ -557,7 +561,7 @@ app.post("/api/college/auth-sync", async (req: any, res) => {
   }
 
   console.log(`[Auth Scraper] Commencing auth-sync routine for: ${cleanRollNo}`);
-  const loginUrl = "https://info.aec.edu.in/acet/default.aspx";
+  const loginUrl = "https://info.aec.edu.in/aus/default.aspx";
   const cookieJar: Record<string, string> = {};
 
   try {
@@ -569,14 +573,18 @@ app.post("/api/college/auth-sync", async (req: any, res) => {
     const encryptedPwd = encryptPortalPassword(password);
 
     // 3. Prepare login POST payload
-    formFields["txtId2"] = cleanRollNo;
-    formFields["txtPwd2"] = encryptedPwd;
-    formFields["hdnpwd2"] = encryptedPwd;
-    formFields["imgBtn2.x"] = "30";
-    formFields["imgBtn2.y"] = "20";
+    formFields["userType"] = "rbtStudent";
+    formFields["txtUserId"] = cleanRollNo;
+    formFields["txtPassword"] = encryptedPwd;
+    formFields["hdnpwd"] = encryptedPwd;
+    formFields["btnLogin"] = "LOGIN";
 
-    // Delete other button clicks
+    // Delete older fields if present
+    delete formFields["txtId2"];
+    delete formFields["txtPwd2"];
+    delete formFields["hdnpwd2"];
     delete formFields["imgBtn1"];
+    delete formFields["imgBtn2"];
     delete formFields["imgBtn3"];
 
     const postData = Object.entries(formFields)
@@ -594,13 +602,13 @@ app.post("/api/college/auth-sync", async (req: any, res) => {
     }
 
     // 5. Query the AjaxPro method to fetch BIO-DATA HTML
-    const ajaxUrl = "https://info.aec.edu.in/acet/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw";
+    const ajaxUrl = "https://info.aec.edu.in/aus/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw";
     const ajaxBody = `RollNo=${encodeURIComponent(cleanRollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
 
     const ajaxRes = await fetchPortalWithCookies(ajaxUrl, "POST", {
       "X-AjaxPro-Method": "ShowStudentProfileNew",
       "Content-Type": "text/plain; charset=utf-8",
-      "Referer": "https://info.aec.edu.in/acet/Academics/StudentProfile.aspx?scrid=17"
+      "Referer": "https://info.aec.edu.in/aus/Academics/StudentProfile.aspx?scrid=17"
     }, ajaxBody, cookieJar);
 
     if (ajaxRes.statusCode !== 200 || !ajaxRes.body) {
