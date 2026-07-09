@@ -556,7 +556,7 @@ async function scrapeStudentProfileFromPortal(rollNo: string, password: string, 
 
 // 1d-v2. API Endpoint: Synchronize details directly from college portal via real-time login scraper
 app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
-  const { rollNo, password } = req.body;
+  const { rollNo, password, portal } = req.body;
   const cleanRollNo = String(rollNo || "").trim().toUpperCase();
 
   if (!cleanRollNo || !password) {
@@ -565,16 +565,19 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
   }
 
   console.log(`[Sync Scraper] Commencing sync-portal routine for: ${cleanRollNo}`);
+  const selectedPortal = (portal === "aus" || portal === "aec" || portal === "acet") ? portal : null;
   const { primary, secondary } = getPreferredPortalForRollNo(cleanRollNo);
+  const portalToUse = selectedPortal || primary;
 
   try {
     let profile;
     try {
-      console.log(`[Sync Scraper] Trying primary portal: ${primary} for ${cleanRollNo}`);
-      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, primary);
+      console.log(`[Sync Scraper] Trying portal: ${portalToUse} for ${cleanRollNo}`);
+      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, portalToUse);
     } catch (primaryErr: any) {
-      console.warn(`[Sync Scraper] Primary portal ${primary} failed, trying secondary: ${secondary} for ${cleanRollNo}`);
-      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, secondary);
+      const fallback = portalToUse === primary ? secondary : primary;
+      console.warn(`[Sync Scraper] Portal ${portalToUse} failed, trying fallback: ${fallback} for ${cleanRollNo}`);
+      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, fallback);
     }
     console.log(`[Sync Scraper] Profile sync successful for ${cleanRollNo}: Name="${profile.name}"`);
     res.json(profile);
@@ -586,7 +589,7 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
 
 // 1d-v3. Public API Endpoint: Synchronize details directly from college portal via real-time login scraper during login
 app.post("/api/college/auth-sync", async (req: any, res) => {
-  const { rollNo, password } = req.body;
+  const { rollNo, password, portal } = req.body;
   const cleanRollNo = String(rollNo || "").trim().toUpperCase();
 
   if (!cleanRollNo || !password) {
@@ -595,16 +598,19 @@ app.post("/api/college/auth-sync", async (req: any, res) => {
   }
 
   console.log(`[Auth Scraper] Commencing auth-sync routine for: ${cleanRollNo}`);
+  const selectedPortal = (portal === "aus" || portal === "aec" || portal === "acet") ? portal : null;
   const { primary, secondary } = getPreferredPortalForRollNo(cleanRollNo);
+  const portalToUse = selectedPortal || primary;
 
   try {
     let profile;
     try {
-      console.log(`[Auth Scraper] Trying primary portal: ${primary} for ${cleanRollNo}`);
-      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, primary);
+      console.log(`[Auth Scraper] Trying portal: ${portalToUse} for ${cleanRollNo}`);
+      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, portalToUse);
     } catch (primaryErr: any) {
-      console.warn(`[Auth Scraper] Primary portal ${primary} failed, trying secondary: ${secondary} for ${cleanRollNo}`);
-      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, secondary);
+      const fallback = portalToUse === primary ? secondary : primary;
+      console.warn(`[Auth Scraper] Portal ${portalToUse} failed, trying fallback: ${fallback} for ${cleanRollNo}`);
+      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, fallback);
     }
     console.log(`[Auth Scraper] Profile auth-sync successful for ${cleanRollNo}: Name="${profile.name}"`);
     res.json(profile);
@@ -1669,6 +1675,23 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
 
       if (message.type === "request_room_state") {
         ws.send(JSON.stringify(createRoomStatePayload(room)));
+        return;
+      }
+
+      if (message.type === "signal") {
+        const targetId = message.targetId;
+        const senderId = participantId;
+        if (targetId && senderId) {
+          const localRoom = gdRooms.get(currentRoomCode);
+          const targetSocket = localRoom?.participants.find((p) => p.id === targetId)?.socket;
+          if (targetSocket && targetSocket.readyState === WebSocket.OPEN) {
+            targetSocket.send(JSON.stringify({
+              type: "signal",
+              senderId,
+              signal: message.signal
+            }));
+          }
+        }
         return;
       }
     } catch (e: any) {

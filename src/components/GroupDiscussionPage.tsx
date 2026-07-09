@@ -142,6 +142,36 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   // Webcam media handles
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<{[peerId: string]: MediaStream}>({});
+  const peerConnectionsRef = useRef<{[peerId: string]: RTCPeerConnection}>({});
+
+  // Dynamically calculate grid layout classes based on the number of participants
+  const totalFeeds = 1 + participants.filter((p) => p.id !== myParticipantId).length;
+
+  let gridLayoutClass = "grid-cols-3 sm:grid-cols-4 lg:grid-cols-5";
+  let cardHeightClass = "aspect-video";
+
+  if (totalFeeds === 1) {
+    gridLayoutClass = "grid-cols-1 max-w-[450px] mx-auto";
+    cardHeightClass = "h-[320px] aspect-video";
+  } else if (totalFeeds === 2) {
+    gridLayoutClass = "grid-cols-1 md:grid-cols-2 max-w-[850px] mx-auto";
+    cardHeightClass = "h-[300px] aspect-video";
+  } else if (totalFeeds === 3) {
+    gridLayoutClass = "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 max-w-[950px] mx-auto";
+    cardHeightClass = "h-[250px] aspect-video";
+  } else if (totalFeeds === 4) {
+    gridLayoutClass = "grid-cols-2 max-w-[850px] mx-auto";
+    cardHeightClass = "h-[220px] aspect-video";
+  } else if (totalFeeds <= 6) {
+    gridLayoutClass = "grid-cols-2 md:grid-cols-3 max-w-[1000px] mx-auto";
+    cardHeightClass = "aspect-video";
+  } else {
+    gridLayoutClass = "grid-cols-3 sm:grid-cols-4 lg:grid-cols-5";
+    cardHeightClass = "aspect-video";
+  }
+
+
 
   const socketRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -169,26 +199,143 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     }
   }, [studentProfile]);
 
-  // Request Webcam stream when camera toggle or step transitions to discussion
+  // Helper to create RTCPeerConnection for a peer
+  const createPeerConnection = (peerId: string, stream: MediaStream) => {
+    if (peerConnectionsRef.current[peerId]) {
+      return peerConnectionsRef.current[peerId];
+    }
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" }
+      ]
+    });
+
+    peerConnectionsRef.current[peerId] = pc;
+
+    // Add local tracks to peer connection
+    stream.getTracks().forEach(track => {
+      pc.addTrack(track, stream);
+    });
+
+    // Send ICE candidates to peer
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendSocketMessage({
+          type: "signal",
+          targetId: peerId,
+          signal: { candidate: event.candidate }
+        });
+      }
+    };
+
+    // When remote track arrives, save the stream
+    pc.ontrack = (event) => {
+      const [remoteStream] = event.streams;
+      setRemoteStreams(prev => ({
+        ...prev,
+        [peerId]: remoteStream
+      }));
+    };
+
+    return pc;
+  };
+
+  // Triggers peer connections to all existing participants
+  const initializeWebRTC = (stream: MediaStream) => {
+    if (!myParticipantId) return;
+    participants.forEach(p => {
+      if (p.id !== myParticipantId && !peerConnectionsRef.current[p.id]) {
+        const pc = createPeerConnection(p.id, stream);
+        pc.createOffer()
+          .then(offer => pc.setLocalDescription(offer))
+          .then(() => {
+            sendSocketMessage({
+              type: "signal",
+              targetId: p.id,
+              signal: { sdp: pc.localDescription }
+            });
+          })
+          .catch(e => console.error("Error creating WebRTC offer:", e));
+      }
+    });
+  };
+
+  // Cleanup peer connections for participants who left
   useEffect(() => {
-    if (step === "discussion" && cameraEnabled) {
-      navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    const activeIds = new Set(participants.map(p => p.id));
+    Object.keys(peerConnectionsRef.current).forEach(peerId => {
+      if (!activeIds.has(peerId)) {
+        peerConnectionsRef.current[peerId]?.close();
+        delete peerConnectionsRef.current[peerId];
+        setRemoteStreams(prev => {
+          const updated = { ...prev };
+          delete updated[peerId];
+          return updated;
+        });
+      }
+    });
+  }, [participants]);
+
+  // Request Webcam & Mic streams and initialize WebRTC
+  useEffect(() => {
+    if (step === "discussion") {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
         .then(stream => {
           setLocalStream(stream);
+          mediaStreamRef.current = stream;
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
           }
+          // Set initial track states
+          stream.getAudioTracks().forEach(t => t.enabled = !micMuted);
+          stream.getVideoTracks().forEach(t => t.enabled = cameraEnabled);
+
+          // Connect WebRTC peers
+          initializeWebRTC(stream);
         })
         .catch(err => {
-          console.warn("Camera stream acquisition failed:", err);
+          console.error("Camera/Mic acquisition failed:", err);
+          setError("Failed to access camera/microphone. Please verify browser permissions.");
         });
     } else {
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
         setLocalStream(null);
       }
+      Object.values(peerConnectionsRef.current).forEach(pc => pc.close());
+      peerConnectionsRef.current = {};
+      setRemoteStreams({});
     }
-  }, [step, cameraEnabled]);
+  }, [step]);
+
+  // Dynamically update audio track enablement based on micMuted state
+  useEffect(() => {
+    if (localStream) {
+      localStream.getAudioTracks().forEach(track => {
+        track.enabled = !micMuted;
+      });
+    }
+  }, [micMuted, localStream]);
+
+  // Dynamically update video track enablement based on cameraEnabled state
+  useEffect(() => {
+    if (localStream) {
+      localStream.getVideoTracks().forEach(track => {
+        track.enabled = cameraEnabled;
+      });
+    }
+  }, [cameraEnabled, localStream]);
+
+  // Triggers WebRTC connections when participants list changes
+  useEffect(() => {
+    const stream = mediaStreamRef.current;
+    if (stream && step === "discussion" && myParticipantId) {
+      initializeWebRTC(stream);
+    }
+  }, [participants, myParticipantId, step]);
 
   // Active speaker detection: highlight the peer who submitted the last dialogue turn
   useEffect(() => {
@@ -388,6 +535,42 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
             if (message.type === "error") {
               setError(message.message || "An error occurred.");
+            }
+
+            if (message.type === "signal") {
+              const senderId = message.senderId;
+              const signal = message.signal;
+
+              if (senderId && signal) {
+                const stream = mediaStreamRef.current;
+                if (stream) {
+                  let pc = peerConnectionsRef.current[senderId];
+                  if (!pc) {
+                    pc = createPeerConnection(senderId, stream);
+                  }
+
+                  if (signal.sdp) {
+                    pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
+                      .then(() => {
+                        if (signal.sdp.type === "offer") {
+                          return pc.createAnswer()
+                            .then(answer => pc.setLocalDescription(answer))
+                            .then(() => {
+                              sendSocketMessage({
+                                type: "signal",
+                                targetId: senderId,
+                                signal: { sdp: pc.localDescription }
+                              });
+                            });
+                        }
+                      })
+                      .catch(e => console.error("Error setting SDP:", e));
+                  } else if (signal.candidate) {
+                    pc.addIceCandidate(new RTCIceCandidate(signal.candidate))
+                      .catch(e => console.error("Error adding ICE candidate:", e));
+                  }
+                }
+              }
             }
           } catch (e) {
             console.error("Invalid socket message:", e, event.data);
@@ -1045,10 +1228,10 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
           {/* 2. DISCORD CENTER STAGE (15-MEMBER VIDEO CALL GRID) */}
           <div className="lg:col-span-6 bg-white flex flex-col p-4 justify-between min-h-[580px]">
             {/* Live Camera Grid */}
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3 flex-1 items-center justify-center py-2">
+            <div className={`grid gap-4 flex-1 items-center justify-center py-2 w-full ${gridLayoutClass}`}>
               {/* Local User Card (Slot 1) */}
               <div 
-                className={`relative bg-slate-100 aspect-video rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-lg ${
+                className={`relative bg-slate-100 rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-lg w-full ${cardHeightClass} ${
                   isRecording && micLevel > 5
                     ? "border-emerald-500 ring-2 ring-emerald-500/20 scale-[1.01]" 
                     : micMuted
@@ -1072,11 +1255,11 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                 )}
                 
                 {/* Labels and Mute badging */}
-                <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-700 flex items-center gap-1.5">
+                <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-700 flex items-center gap-1.5 z-20">
                   <span className="font-bold truncate max-w-[70px]">{participantName.split(" ")[0]} (You)</span>
                 </div>
                 {micMuted && (
-                  <div className="absolute top-2 right-2 bg-red-500/80 p-1.5 rounded-full text-white">
+                  <div className="absolute top-2 right-2 bg-red-500/80 p-1.5 rounded-full text-white z-20">
                     <MicOff className="w-2.5 h-2.5" />
                   </div>
                 )}
@@ -1091,19 +1274,32 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   return (
                     <div 
                       key={peer.id}
-                      className={`relative bg-slate-50 aspect-video rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-md ${
+                      className={`relative bg-slate-50 rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-md w-full ${cardHeightClass} ${
                         isSpeaking 
                           ? "border-emerald-500 ring-2 ring-emerald-500/20 scale-[1.01]" 
                           : "border-slate-200"
                       }`}
                     >
-                      {/* Peer Avatar overlay */}
-                      <div className={`w-8 h-8 rounded-full ${avatarColor} flex items-center justify-center font-bold font-mono text-[10px] text-white z-10 border border-white/5`}>
-                        {peer.roll.slice(-2) || "??"}
-                      </div>
+                      {/* Remote Peer Video or Avatar */}
+                      {remoteStreams[peer.id] ? (
+                        <video
+                          ref={el => {
+                            if (el && el.srcObject !== remoteStreams[peer.id]) {
+                              el.srcObject = remoteStreams[peer.id];
+                            }
+                          }}
+                          autoPlay
+                          playsInline
+                          className="absolute inset-0 w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className={`w-8 h-8 rounded-full ${avatarColor} flex items-center justify-center font-bold font-mono text-[10px] text-white z-10 border border-white/5`}>
+                          {peer.roll.slice(-2) || "??"}
+                        </div>
+                      )}
 
                       {/* Bottom Label and badges */}
-                      <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-700 flex items-center gap-1.5">
+                      <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-700 flex items-center gap-1.5 z-20">
                         <span className="font-bold truncate max-w-[70px]">{peer.name.split(" ")[0]}</span>
                         {peer.isHost && (
                           <span className="text-[7px] bg-brand-primary/20 text-brand-primary px-1 rounded font-sans uppercase">
