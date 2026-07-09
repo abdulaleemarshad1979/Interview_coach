@@ -38,10 +38,22 @@ export default function App() {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      console.log(`Syncing profile details from college API for Roll No: ${rollNo}`);
-      const res = await fetch(`/api/college/student/${rollNo}`, {
-        headers
-      });
+      const portalPwd = localStorage.getItem("portal_pwd");
+      let res;
+
+      if (portalPwd) {
+        console.log(`[Background Sync] Syncing profile details from college portal API for Roll No: ${rollNo}`);
+        res = await fetch("/api/college/sync-portal", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ rollNo, password: portalPwd })
+        });
+      } else {
+        console.log(`[Fallback Sync] Syncing profile from college API (no password cached) for Roll No: ${rollNo}`);
+        res = await fetch(`/api/college/student/${rollNo}`, {
+          headers
+        });
+      }
 
       if (res.ok) {
         const collegeData = await res.json();
@@ -89,10 +101,15 @@ export default function App() {
               is_synced: mergedProfile.isSynced,
               github_username: mergedProfile.githubUsername,
               resume_file_name: mergedProfile.resumeFileName,
-              updated_at: new Date().toISOString()
+              updated_at: new Date().toISOString(),
+              profile_image: mergedProfile.profileImage,
+              avatar_url: mergedProfile.profileImage
             });
           }
         }
+      } else if (res.status === 401) {
+        // Clear expired/invalid cached portal credentials
+        localStorage.removeItem("portal_pwd");
       }
     } catch (e) {
       console.error("Failed to sync profile from college database", e);
@@ -101,8 +118,8 @@ export default function App() {
 
   const checkAndClearStudentCache = (userId: string) => {
     const cachedUserId = localStorage.getItem("current_user_id");
-    if (cachedUserId && cachedUserId !== userId) {
-      console.log("New user ID detected. Clearing student cache...");
+    if (cachedUserId !== userId) {
+      console.log("New user ID detected or cache reset. Clearing student cache...");
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
@@ -112,7 +129,8 @@ export default function App() {
           key.startsWith("interviewQuestions") ||
           key.startsWith("scorecard") ||
           key.startsWith("assignedInterview") ||
-          key.startsWith("assignedGD")
+          key.startsWith("assignedGD") ||
+          key.startsWith("portal_pwd")
         )) {
           keysToRemove.push(key);
         }
@@ -405,13 +423,24 @@ export default function App() {
     setScorecard(null);
     setScorecardHistory([]);
 
-
-    // Clear generic cache only
-    localStorage.removeItem("studentProfile");
-    localStorage.removeItem("facultyProfile");
-    localStorage.removeItem("analysisResult");
-    localStorage.removeItem("interviewQuestions");
-    localStorage.removeItem("scorecard");
+    // Clear ALL student cache keys from localStorage
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (
+        key.startsWith("studentProfile") ||
+        key.startsWith("analysisResult") ||
+        key.startsWith("interviewQuestions") ||
+        key.startsWith("scorecard") ||
+        key.startsWith("assignedInterview") ||
+        key.startsWith("assignedGD") ||
+        key.startsWith("portal_pwd")
+      )) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    localStorage.removeItem("current_user_id");
 
     setCurrentView("landing");
   };
@@ -574,7 +603,22 @@ export default function App() {
             studentProfile={studentProfile}
             scorecard={scorecard}
             scorecardHistory={scorecardHistory}
-            onSyncPortalDetails={() => syncCollegeProfile(studentProfile.studentId, studentProfile)}
+            onSyncPortalDetails={async (password: string) => {
+              localStorage.setItem("portal_pwd", password);
+              try {
+                await syncCollegeProfile(studentProfile.studentId, studentProfile);
+                const activeProfileStr = localStorage.getItem(`studentProfile_${studentProfile.studentId}`);
+                if (activeProfileStr) {
+                  const activeProfile = JSON.parse(activeProfileStr);
+                  if (activeProfile.isSynced) {
+                    return true;
+                  }
+                }
+                return false;
+              } catch (err) {
+                return false;
+              }
+            }}
             onProfileUpdate={(updatedProfile) => {
               setStudentProfile(updatedProfile);
               localStorage.setItem("studentProfile", JSON.stringify(updatedProfile));

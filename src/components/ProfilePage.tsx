@@ -23,7 +23,7 @@ interface ProfilePageProps {
   studentProfile: StudentProfile;
   scorecard: Scorecard | null;
   scorecardHistory: Scorecard[];
-  onSyncPortalDetails: () => Promise<void>;
+  onSyncPortalDetails: (password: string) => Promise<boolean>;
   onProfileUpdate: (updatedProfile: StudentProfile) => void;
   onNavigate: (view: string) => void;
 }
@@ -47,6 +47,11 @@ export default function ProfilePage({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState(false);
+  
+  // Sync modal states
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [portalPassword, setPortalPassword] = useState("");
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Active historical scorecard selector
   const [activeReportId, setActiveReportId] = useState<string | null>(
@@ -71,15 +76,28 @@ export default function ProfilePage({
     }
   }, [scorecardHistory]);
 
-  const handleManualSync = async () => {
+  const handleManualSync = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!portalPassword) {
+      setSyncError("Please enter your password.");
+      return;
+    }
     setSyncing(true);
     setSyncSuccess(false);
+    setSyncError(null);
     try {
-      await onSyncPortalDetails();
-      setSyncSuccess(true);
-      setTimeout(() => setSyncSuccess(false), 3000);
-    } catch (e) {
-      console.error(e);
+      const success = await onSyncPortalDetails(portalPassword);
+      if (success) {
+        setSyncSuccess(true);
+        setIsSyncModalOpen(false);
+        setPortalPassword("");
+        setTimeout(() => setSyncSuccess(false), 4000);
+      } else {
+        setSyncError("Sync failed. Check Roll Number or Password.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setSyncError(err.message || "Failed to sync. Please try again.");
     } finally {
       setSyncing(false);
     }
@@ -262,7 +280,31 @@ export default function ProfilePage({
               <div className="flex items-center space-x-3 w-full sm:w-auto">
                 <button
                   type="button"
-                  onClick={handleManualSync}
+                  onClick={async () => {
+                    const cachedPwd = localStorage.getItem("portal_pwd");
+                    if (cachedPwd) {
+                      setSyncing(true);
+                      setSyncSuccess(false);
+                      setSyncError(null);
+                      try {
+                        const success = await onSyncPortalDetails(cachedPwd);
+                        if (success) {
+                          setSyncSuccess(true);
+                          setTimeout(() => setSyncSuccess(false), 4000);
+                        } else {
+                          setSyncError("Auto-sync failed. Please enter password manually.");
+                          setIsSyncModalOpen(true);
+                        }
+                      } catch (err: any) {
+                        setSyncError(err.message || "Auto-sync failed.");
+                        setIsSyncModalOpen(true);
+                      } finally {
+                        setSyncing(false);
+                      }
+                    } else {
+                      setIsSyncModalOpen(true);
+                    }
+                  }}
                   disabled={syncing}
                   className="flex-1 sm:flex-none flex items-center justify-center space-x-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 font-bold px-4 py-3 rounded-xl text-xs hover:scale-[1.01] transition-all duration-200 cursor-pointer disabled:opacity-50"
                 >
@@ -539,6 +581,77 @@ export default function ProfilePage({
         </div>
 
       </div>
+
+      {/* Aditya Student Portal Sync Modal */}
+      {isSyncModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-brand-card/95 border border-white/10 rounded-2xl p-6 w-full max-w-sm relative text-left shadow-2xl">
+            <h3 className="text-lg font-display font-semibold text-white mb-2">Sync with Aditya Student Portal</h3>
+            <p className="text-xs text-gray-400 mb-4">
+              Enter your password for the Aditya automation portal (<span className="text-brand-primary font-mono text-[10px]">info.aec.edu.in</span>) to synchronize your name, photo, attendance, and branch.
+            </p>
+            
+            <form onSubmit={handleManualSync} className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-mono text-gray-500 uppercase mb-1">Student Roll Number</label>
+                <div className="w-full bg-brand-bg/50 border border-white/5 px-4 py-2.5 rounded-xl text-xs text-gray-400 font-mono">
+                  {studentProfile.studentId}
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-[10px] font-mono text-gray-500 uppercase mb-1">Portal Password</label>
+                <input 
+                  type="password"
+                  value={portalPassword}
+                  onChange={(e) => {
+                    setPortalPassword(e.target.value);
+                    setSyncError(null);
+                  }}
+                  placeholder="••••••••"
+                  className="w-full bg-brand-bg border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs focus:outline-hidden focus:border-brand-primary"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              {syncError && (
+                <div className="p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-[11px] leading-snug">
+                  {syncError}
+                </div>
+              )}
+
+              <div className="flex space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSyncModalOpen(false);
+                    setPortalPassword("");
+                    setSyncError(null);
+                  }}
+                  className="flex-1 px-4 py-2.5 border border-white/10 hover:bg-white/5 text-gray-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={syncing || !portalPassword}
+                  className="flex-1 px-4 py-2.5 bg-brand-primary hover:bg-blue-600 text-white font-bold rounded-xl text-xs transition-colors disabled:opacity-50 cursor-pointer flex items-center justify-center space-x-1"
+                >
+                  {syncing ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1 text-white" />
+                      <span>Syncing...</span>
+                    </>
+                  ) : (
+                    <span>Synchronize</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
