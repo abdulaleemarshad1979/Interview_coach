@@ -38,16 +38,16 @@ export default function ProfileModal({
   const displayBranch = studentProfile.department || (studentProfile.studentId === "24P31A1234" ? "Information Technology" : "");
 
   // Use active scorecard, or fall back to realistic dashboard screenshot values (40/100 overall)
-  const score = scorecard?.overallScore ?? 40;
-  const level = scorecard?.candidateLevel ?? "Beginner";
-  const date = scorecard?.date ?? "July 8, 2026";
+  const score = scorecard?.overallScore ?? 0;
+  const level = scorecard?.candidateLevel ?? "No Data";
+  const date = scorecard?.date ?? "N/A";
   
-  const communicationScore = scorecard?.categoryScores?.communicationClarity ?? 45;
-  const technicalScore = scorecard?.categoryScores?.technicalDepth ?? 35;
-  const problemSolvingScore = scorecard?.categoryScores?.problemSolving ?? 30;
+  const communicationScore = scorecard?.categoryScores?.communicationClarity ?? 0;
+  const technicalScore = scorecard?.categoryScores?.technicalDepth ?? 0;
+  const problemSolvingScore = scorecard?.categoryScores?.problemSolving ?? 0;
   
   const verdict = scorecard?.finalVerdict ?? 
-    "While the candidate shows potential with a strong resume and GitHub profile, there is a significant need for improvement in technical depth and communication clarity. Focus on mock interview practice to build confidence.";
+    "No mock assessment history found. Complete a live mock interview to generate diagnostics.";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
