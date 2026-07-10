@@ -284,6 +284,239 @@ function encryptPortalPassword(plaintext: string): string {
   return encrypted;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PUPPETEER-BASED PORTAL SCRAPER (Primary — bypasses Cloudflare)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Detect local Chrome or Edge executable for Puppeteer */
+function findChromiumExecutable(): string | null {
+  if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
+    return process.env.CHROME_PATH;
+  }
+  const candidates: string[] = [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    (process.env.LOCALAPPDATA || "") + "\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  ];
+  for (const c of candidates) {
+    try { if (c && fs.existsSync(c)) return c; } catch {}
+  }
+  return null;
+}
+
+/** Scrape the Aditya portal using a real headless Chrome — bypasses Cloudflare */
+async function scrapeWithPuppeteer(rollNo: string, password: string, portal: string): Promise<any> {
+  // Dynamic import so the server still starts even if puppeteer-core is missing
+  let puppeteer: any;
+  try {
+    puppeteer = await import("puppeteer-core");
+  } catch {
+    throw new Error("puppeteer-core not available.");
+  }
+
+  const executablePath = findChromiumExecutable();
+  if (!executablePath) {
+    throw new Error("No local Chrome/Edge found. Cannot use browser scraper.");
+  }
+
+  console.log(`[Puppeteer] Launching Chrome: ${executablePath}`);
+  const browser = await puppeteer.launch({
+    executablePath,
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--window-size=1280,800",
+      "--disable-blink-features=AutomationControlled",
+    ],
+    ignoreHTTPSErrors: true,
+  });
+
+  const page = await browser.newPage();
+  try {
+    // Spoof automation detection so Cloudflare passes us through
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    );
+    await page.setExtraHTTPHeaders({ "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7" });
+    await page.evaluateOnNewDocument(() => {
+      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    });
+
+    const loginUrl = `https://info.aec.edu.in/${portal}/default.aspx`;
+    console.log(`[Puppeteer] Navigating to: ${loginUrl}`);
+    await page.goto(loginUrl, { waitUntil: "networkidle2", timeout: 30000 });
+
+    // Give Cloudflare JS challenge time to resolve (usually 3-5 seconds)
+    await new Promise(r => setTimeout(r, 4000));
+
+    const pageTitle = await page.title();
+    console.log(`[Puppeteer] Page title: "${pageTitle}"`);
+    if (pageTitle.toLowerCase().includes("just a moment") || pageTitle.toLowerCase().includes("attention required")) {
+      throw new Error("Cloudflare challenge active — portal is blocking headless access.");
+    }
+
+    const encryptedPwd = encryptPortalPassword(password);
+
+    if (portal === "aus") {
+      // ── AUS / Campus Connect login ──
+      console.log(`[Puppeteer] AUS portal: selecting Student radio...`);
+      await page.waitForSelector('input[type="radio"]', { timeout: 10000 }).catch(() => {});
+
+      const radioClicked = await page.evaluate(() => {
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]')) as HTMLInputElement[];
+        const studentRadio = radios.find(r =>
+          r.value?.toLowerCase().includes("student") ||
+          r.id?.toLowerCase().includes("student") ||
+          r.name?.toLowerCase().includes("student")
+        );
+        if (studentRadio) { studentRadio.click(); return true; }
+        if (radios.length >= 2) { radios[1].click(); return true; }
+        return false;
+      });
+      console.log(`[Puppeteer] Student radio clicked: ${radioClicked}`);
+      await new Promise(r => setTimeout(r, 500));
+
+      // Fill roll number
+      const userIdFilled = await page.evaluate((val: string) => {
+        const candidates = [
+          document.querySelector<HTMLInputElement>("#txtUserId"),
+          document.querySelector<HTMLInputElement>('input[name="txtUserId"]'),
+          document.querySelector<HTMLInputElement>('input[placeholder*="Roll"]'),
+          document.querySelector<HTMLInputElement>('input[placeholder*="User"]'),
+          document.querySelector<HTMLInputElement>('input[type="text"]'),
+        ];
+        const f = candidates.find(x => x !== null) as HTMLInputElement | null;
+        if (f) { f.value = val; f.dispatchEvent(new Event("input", { bubbles: true })); f.dispatchEvent(new Event("change", { bubbles: true })); return true; }
+        return false;
+      }, rollNo);
+      console.log(`[Puppeteer] Roll number filled: ${userIdFilled}`);
+
+      // Fill visible password with plaintext (portal JS will encrypt it on submit via hdnpwd)
+      await page.evaluate((pwd: string) => {
+        const candidates = [
+          document.querySelector<HTMLInputElement>("#txtPassword"),
+          document.querySelector<HTMLInputElement>('input[name="txtPassword"]'),
+          document.querySelector<HTMLInputElement>('input[type="password"]'),
+        ];
+        const f = candidates.find(x => x !== null) as HTMLInputElement | null;
+        if (f) { f.value = pwd; f.dispatchEvent(new Event("input", { bubbles: true })); f.dispatchEvent(new Event("change", { bubbles: true })); }
+      }, password);
+
+      // Pre-set hidden encrypted password field so the server-side validation passes
+      await page.evaluate((enc: string) => {
+        const f = document.querySelector<HTMLInputElement>('input[name="hdnpwd"], #hdnpwd');
+        if (f) f.value = enc;
+      }, encryptedPwd);
+
+      // Click login button
+      const loginClicked = await page.evaluate(() => {
+        const candidates = [
+          document.querySelector<HTMLElement>("#btnLogin"),
+          document.querySelector<HTMLElement>('input[name="btnLogin"]'),
+          document.querySelector<HTMLElement>('button[id*="Login"]'),
+          document.querySelector<HTMLElement>('input[value="LOGIN"]'),
+          document.querySelector<HTMLElement>('input[type="submit"]'),
+        ];
+        const btn = candidates.find(x => x !== null) as HTMLElement | null;
+        if (btn) { btn.click(); return true; }
+        return false;
+      });
+      console.log(`[Puppeteer] Login button clicked: ${loginClicked}`);
+
+    } else {
+      // ── ACET portal login ──
+      console.log(`[Puppeteer] ACET portal: filling student login fields...`);
+      await page.evaluate((roll: string, pwd: string, enc: string) => {
+        const id = document.querySelector<HTMLInputElement>('#txtId2, input[name="txtId2"]');
+        const pw = document.querySelector<HTMLInputElement>('#txtPwd2, input[name="txtPwd2"]');
+        const hp = document.querySelector<HTMLInputElement>('#hdnpwd2, input[name="hdnpwd2"]');
+        if (id) id.value = roll;
+        if (pw) { pw.value = pwd; pw.dispatchEvent(new Event("input", { bubbles: true })); }
+        if (hp) hp.value = enc;
+      }, rollNo, password, encryptedPwd);
+      await page.evaluate(() => {
+        const btn = (document.querySelector<HTMLElement>('#imgBtn2, input[name="imgBtn2"]') ||
+                     document.querySelector<HTMLElement>('input[type="image"]'));
+        if (btn) btn.click();
+      });
+    }
+
+    // Wait for portal to navigate to dashboard
+    console.log(`[Puppeteer] Waiting for post-login navigation...`);
+    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
+    await new Promise(r => setTimeout(r, 2000));
+
+    const postLoginUrl = page.url();
+    const postLoginHtml = await page.content();
+    const lower = postLoginHtml.toLowerCase();
+    console.log(`[Puppeteer] Post-login URL: ${postLoginUrl}, hasLogout: ${lower.includes("lnklogout")}`);
+
+    if (!lower.includes("lnklogout") && !lower.includes("studentmaster") && !postLoginUrl.includes("StudentMaster")) {
+      const errorText = await page.evaluate(() => {
+        const el = document.querySelector(".alert, .error, span[style*='color:red'], span[style*='Color:Red']");
+        return el ? el.textContent?.trim() : null;
+      });
+      throw new Error(errorText
+        ? `Portal rejected login: ${errorText}`
+        : "Authentication failed — dashboard not loaded after login"
+      );
+    }
+
+    // Fetch student profile via AjaxPro using the authenticated browser session
+    console.log(`[Puppeteer] Login successful. Fetching profile via AJAX...`);
+    const ajaxUrl = `https://info.aec.edu.in/${portal}/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw`;
+    const ajaxBody = `RollNo=${encodeURIComponent(rollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
+
+    const profileHtml: string = await page.evaluate(async (url: string, body: string, referer: string) => {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "X-AjaxPro-Method": "ShowStudentProfileNew",
+          "Content-Type": "text/plain; charset=utf-8",
+          "Referer": referer,
+        },
+        body,
+        credentials: "include",
+      });
+      return r.text();
+    }, ajaxUrl, ajaxBody, `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx?scrid=17`);
+
+    console.log(`[Puppeteer] Profile AJAX length: ${profileHtml?.length}`);
+    if (!profileHtml || profileHtml.length < 50) {
+      throw new Error("Portal returned empty profile data after login.");
+    }
+
+    return parsePortalProfileHtml(profileHtml, rollNo, portal);
+
+  } finally {
+    await browser.close();
+    console.log(`[Puppeteer] Browser closed.`);
+  }
+}
+
+/**
+ * Master scraper orchestrator.
+ * 1st try: Puppeteer (real Chrome headless) — bypasses Cloudflare
+ * 2nd try: Raw HTTP — works if Cloudflare not active
+ */
+async function scrapePortalWithFallback(rollNo: string, password: string, portal: string): Promise<any> {
+  try {
+    console.log(`[Portal] Attempting Puppeteer scrape for ${rollNo} on ${portal}...`);
+    return await scrapeWithPuppeteer(rollNo, password, portal);
+  } catch (err: any) {
+    console.warn(`[Portal] Puppeteer failed (${err.message}), trying raw HTTP...`);
+    return await scrapeStudentProfileFromPortal(rollNo, password, portal);
+  }
+}
+
 // Raw HTTP client to interact with portal
 async function makePortalRawRequest(urlStr: string, method = "GET", headers: Record<string, string> = {}, body: string | null = null): Promise<{ statusCode: number | undefined; headers: any; body: string }> {
   return new Promise((resolve, reject) => {
@@ -293,8 +526,22 @@ async function makePortalRawRequest(urlStr: string, method = "GET", headers: Rec
       port: url.port || (url.protocol === "https:" ? 443 : 80),
       path: url.pathname + url.search,
       method: method,
+      // Full browser-like headers to bypass Cloudflare bot detection
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "document",
+        "sec-fetch-mode": "navigate",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-user": "?1",
+        "Cache-Control": "max-age=0",
         ...headers
       }
     };
@@ -327,6 +574,8 @@ async function fetchPortalWithCookies(urlStr: string, method = "GET", headers: R
   let currentUrl = urlStr;
   let currentMethod = method;
   let currentBody = body;
+  let redirectCount = 0;
+  const MAX_REDIRECTS = 15;
 
   while (true) {
     const cookieHeaderValue = Object.entries(cookieJar)
@@ -357,8 +606,12 @@ async function fetchPortalWithCookies(urlStr: string, method = "GET", headers: R
       }
     }
 
-    // Handle redirects
+    // Handle redirects with a limit to prevent infinite loops (e.g. Cloudflare challenges)
     if (res.statusCode === 302 || res.statusCode === 301 || res.statusCode === 307 || res.statusCode === 308) {
+      redirectCount++;
+      if (redirectCount > MAX_REDIRECTS) {
+        throw new Error(`Too many redirects (${redirectCount}) — the portal may be blocking automated access (Cloudflare).`);
+      }
       const redirectLoc = res.headers["location"];
       if (!redirectLoc) {
         return { ...res, cookies: cookieJar };
@@ -490,21 +743,42 @@ async function scrapeStudentProfileFromPortal(rollNo: string, password: string, 
   const cookieJar: Record<string, string> = {};
 
   // 1. Get initial ASP.NET cookies & fields
+  console.log(`[Scraper] Fetching login page: ${loginUrl}`);
   const initRes = await fetchPortalWithCookies(loginUrl, "GET", {}, null, cookieJar);
+
+  // Detect Cloudflare block — if we get a CF challenge page, scraping won't work
+  const initBodyLower = initRes.body.toLowerCase();
+  if (initBodyLower.includes("just a moment") || initBodyLower.includes("cf-browser-verification") || initBodyLower.includes("enable javascript and cookies") || initBodyLower.includes("ray id") && initBodyLower.includes("cloudflare")) {
+    throw new Error("Portal is behind Cloudflare bot protection. Automated scraping is currently blocked. Please use mock mode.");
+  }
+
   const formFields = extractPortalFormFields(initRes.body);
+  console.log(`[Scraper] Parsed ${Object.keys(formFields).length} form fields from login page. StatusCode: ${initRes.statusCode}`);
+
+  if (Object.keys(formFields).length < 2) {
+    // Likely got a Cloudflare or error page instead of the real form
+    const snippet = initRes.body.substring(0, 300).replace(/\s+/g, " ");
+    throw new Error(`Portal returned an unexpected page (status ${initRes.statusCode}). Snippet: ${snippet}`);
+  }
 
   // 2. Encrypt password
   const encryptedPwd = encryptPortalPassword(password);
 
   // 3. Prepare login POST payload
   if (isNewPortal) {
+    // AUS portal — new Campus Connect interface
+    // The Student radio button value is "rbtStudent" — set it as selected
     formFields["userType"] = "rbtStudent";
+    // Also try alternate field names used by some AUS portal versions
     formFields["txtUserId"] = rollNo;
     formFields["txtPassword"] = encryptedPwd;
     formFields["hdnpwd"] = encryptedPwd;
-    formFields["btnLogin"] = "LOGIN";
+    // Try both button name variants
+    if (!formFields["btnLogin"]) {
+      formFields["btnLogin"] = "LOGIN";
+    }
 
-    // Delete older fields if present
+    // Delete older/ACET-style fields
     delete formFields["txtId2"];
     delete formFields["txtPwd2"];
     delete formFields["hdnpwd2"];
@@ -512,13 +786,13 @@ async function scrapeStudentProfileFromPortal(rollNo: string, password: string, 
     delete formFields["imgBtn2"];
     delete formFields["imgBtn3"];
   } else {
+    // ACET portal — older interface
     formFields["txtId2"] = rollNo;
     formFields["txtPwd2"] = encryptedPwd;
     formFields["hdnpwd2"] = encryptedPwd;
     formFields["imgBtn2.x"] = "30";
     formFields["imgBtn2.y"] = "20";
 
-    // Delete other button clicks
     delete formFields["imgBtn1"];
     delete formFields["imgBtn3"];
   }
@@ -527,13 +801,27 @@ async function scrapeStudentProfileFromPortal(rollNo: string, password: string, 
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join("&");
 
+  console.log(`[Scraper] Posting login for ${rollNo} on ${portal} portal...`);
+
   // 4. Perform Login POST request
-  const postRes = await fetchPortalWithCookies(loginUrl, "POST", { "Referer": loginUrl }, postData, cookieJar);
+  const postRes = await fetchPortalWithCookies(loginUrl, "POST", {
+    "Referer": loginUrl,
+    "Origin": `https://info.aec.edu.in`,
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-dest": "document",
+  }, postData, cookieJar);
 
   // Verify if we actually reached the logged-in StudentMaster page
   const dashboardHtml = postRes.body;
-  if (!dashboardHtml.includes("lnkLogOut") && !dashboardHtml.includes("StudentMaster")) {
-    throw new Error("Authentication failed");
+  const dashboardLower = dashboardHtml.toLowerCase();
+  console.log(`[Scraper] Login POST response: status=${postRes.statusCode}, bodyLength=${dashboardHtml.length}, hasLogout=${dashboardLower.includes("lnklogout")}, hasStudentMaster=${dashboardLower.includes("studentmaster")}`);
+
+  if (!dashboardLower.includes("lnklogout") && !dashboardLower.includes("studentmaster")) {
+    // Log a snippet to help diagnose what the portal returned
+    const snippet = dashboardHtml.substring(0, 500).replace(/\s+/g, " ");
+    console.error(`[Scraper] Login failed. Portal response snippet: ${snippet}`);
+    throw new Error("Authentication failed — portal did not redirect to student dashboard");
   }
 
   // 5. Query the AjaxPro method to fetch BIO-DATA HTML
@@ -545,6 +833,8 @@ async function scrapeStudentProfileFromPortal(rollNo: string, password: string, 
     "Content-Type": "text/plain; charset=utf-8",
     "Referer": `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx?scrid=17`
   }, ajaxBody, cookieJar);
+
+  console.log(`[Scraper] Profile AJAX response: status=${ajaxRes.statusCode}, bodyLength=${ajaxRes.body?.length}`);
 
   if (ajaxRes.statusCode !== 200 || !ajaxRes.body) {
     throw new Error("Failed to query profile details from the college database.");
@@ -573,11 +863,11 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
     let profile;
     try {
       console.log(`[Sync Scraper] Trying portal: ${portalToUse} for ${cleanRollNo}`);
-      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, portalToUse);
+      profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
     } catch (primaryErr: any) {
       const fallback = portalToUse === primary ? secondary : primary;
-      console.warn(`[Sync Scraper] Portal ${portalToUse} failed, trying fallback: ${fallback} for ${cleanRollNo}`);
-      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, fallback);
+      console.warn(`[Sync Scraper] Portal ${portalToUse} failed, trying fallback portal: ${fallback} for ${cleanRollNo}`);
+      profile = await scrapePortalWithFallback(cleanRollNo, password, fallback);
     }
     console.log(`[Sync Scraper] Profile sync successful for ${cleanRollNo}: Name="${profile.name}"`);
     res.json(profile);
@@ -606,11 +896,11 @@ app.post("/api/college/auth-sync", async (req: any, res) => {
     let profile;
     try {
       console.log(`[Auth Scraper] Trying portal: ${portalToUse} for ${cleanRollNo}`);
-      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, portalToUse);
+      profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
     } catch (primaryErr: any) {
       const fallback = portalToUse === primary ? secondary : primary;
-      console.warn(`[Auth Scraper] Portal ${portalToUse} failed, trying fallback: ${fallback} for ${cleanRollNo}`);
-      profile = await scrapeStudentProfileFromPortal(cleanRollNo, password, fallback);
+      console.warn(`[Auth Scraper] Portal ${portalToUse} failed, trying fallback portal: ${fallback} for ${cleanRollNo}`);
+      profile = await scrapePortalWithFallback(cleanRollNo, password, fallback);
     }
     console.log(`[Auth Scraper] Profile auth-sync successful for ${cleanRollNo}: Name="${profile.name}"`);
     res.json(profile);
@@ -1993,13 +2283,13 @@ wss.on("connection", async (ws: WebSocket) => {
             model: "models/gemini-2.0-flash-exp",
             generationConfig: {
               responseModalities: ["AUDIO", "TEXT"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: "Aoede"
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: {
+                    voiceName: "Aoede"
+                  }
                 }
               }
-            }
             },
             systemInstruction: {
               parts: [
