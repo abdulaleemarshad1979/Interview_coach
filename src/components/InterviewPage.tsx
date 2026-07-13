@@ -60,12 +60,29 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const [isAISpeaking, setIsAISpeaking] = useState(false);
   const [voiceMode, setVoiceMode] = useState<"direct" | "proxy" | "fallback" | "connecting">("connecting");
 
+  // Voice-to-voice mode: auto-starts mic after AI speaks
+  const [voiceInterviewMode, setVoiceInterviewMode] = useState(true);
+  const [showTapToHear, setShowTapToHear] = useState(false);
+  const [captionExpanded, setCaptionExpanded] = useState(false);
+
+  // Audio unlock ref for mobile browsers (iOS/Android require a user gesture)
+  const audioUnlockedRef = useRef<boolean>(false);
+  const unlockAudioContextRef = useRef<AudioContext | null>(null);
+  const ttsHeartbeatRef = useRef<any>(null);
+  const autoRecordTimerRef = useRef<any>(null);
+
   // Smoothing queues for face tracking
   const gazeHistoryRef = useRef<number[]>([]);
   const mouthHistoryRef = useRef<number[]>([]);
   const browHistoryRef = useRef<number[]>([]);
   const yawHistoryRef = useRef<number[]>([]);
   const pitchHistoryRef = useRef<number[]>([]);
+
+  // Face detection debounce: only go OFFLINE after N consecutive absent frames
+  const faceAbsentCountRef = useRef<number>(0);
+  const faceDetectedCountRef = useRef<number>(0);
+  const FACE_ABSENT_THRESHOLD = 4; // frames before marking OFFLINE
+  const FACE_DETECT_THRESHOLD = 2; // frames before marking ONLINE
 
   // Helper to push and compute average for smoothing
   const pushAndAverage = (historyRef: React.MutableRefObject<number[]>, val: number, maxLen = 8) => {
@@ -345,53 +362,239 @@ Converse naturally and speak in a human-like tone.`
     }
   };
 
-  // Helper function for Text-to-Speech (speech synthesis)
-  const speakText = (text: string) => {
-    if (isVoiceMuted || typeof window === "undefined" || !window.speechSynthesis) return;
+  // Unlock AudioContext on mobile — must be called from a user gesture handler
+  const unlockAudio = () => {
+    if (audioUnlockedRef.current) return;
     try {
-      window.speechSynthesis.cancel(); // Cancel any ongoing speech
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        const ctx = new AudioContextClass();
+        unlockAudioContextRef.current = ctx;
+        // Play a silent buffer to unlock the audio pipeline
+        const buffer = ctx.createBuffer(1, 1, 22050);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.start(0);
+        ctx.resume().then(() => {
+          audioUnlockedRef.current = true;
+          setShowTapToHear(false);
+          console.log("AudioContext unlocked for mobile TTS.");
+        });
+      }
+    } catch (e) {
+      console.warn("Audio unlock failed:", e);
+    }
+  };
+
+  // Natural voice TTS — uses Gemini's built-in TTS (same API key, genuinely natural voices)
+  // Voice quality ladder: Gemini TTS → Google Cloud TTS → Browser SpeechSynthesis
+  const speakText = async (text: string) => {
+    if (isVoiceMuted) return;
+
+    const geminiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
+
+    // Clear any existing keep-alive heartbeat
+    if (ttsHeartbeatRef.current) {
+      clearInterval(ttsHeartbeatRef.current);
+      ttsHeartbeatRef.current = null;
+    }
+
+    // ─── Tier 1: Gemini 2.5 Flash TTS (most natural, same API key) ─────────────
+    if (geminiKey) {
+      try {
+        setIsAISpeaking(true);
+
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text }] }],
+              generationConfig: {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: {
+                      // Aoede = warm female, Kore = confident female, Charon = deep male
+                      voiceName: "Aoede"
+                    }
+                  }
+                }
+              }
+            })
+          }
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          const audioBase64 = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+          const mimeType = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.mimeType || "audio/wav";
+
+          if (audioBase64) {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const audioCtx = new AudioContextClass({ sampleRate: 24000 });
+            if (audioCtx.state === "suspended") await audioCtx.resume();
+
+            const binaryStr = atob(audioBase64);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+            let audioBuffer: AudioBuffer;
+            if (mimeType.includes("pcm") || mimeType.includes("l16")) {
+              // Raw PCM int16 → float32
+              const int16 = new Int16Array(bytes.buffer);
+              const float32 = new Float32Array(int16.length);
+              for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+              audioBuffer = audioCtx.createBuffer(1, float32.length, 24000);
+              audioBuffer.getChannelData(0).set(float32);
+            } else {
+              audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+            }
+
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioCtx.destination);
+            source.onended = () => {
+              setIsAISpeaking(false);
+              audioCtx.close().catch(() => {});
+            };
+            source.start(0);
+            console.log("[TTS] Playing via Gemini 2.5 Flash TTS — Aoede voice");
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn("[TTS] Gemini TTS failed, trying Google Cloud TTS:", err);
+        setIsAISpeaking(false);
+      }
+    }
+
+    // ─── Tier 2: Google Cloud TTS REST API (Neural2/Journey voices) ─────────────
+    if (geminiKey) {
+      try {
+        setIsAISpeaking(true);
+        const voiceCandidates = [
+          { name: "en-US-Journey-F", ssmlGender: "FEMALE" },
+          { name: "en-US-Neural2-F", ssmlGender: "FEMALE" },
+          { name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
+        ];
+
+        for (const voice of voiceCandidates) {
+          try {
+            const res = await fetch(
+              `https://texttospeech.googleapis.com/v1/text:synthesize?key=${geminiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  input: { text },
+                  voice: { languageCode: "en-US", name: voice.name, ssmlGender: voice.ssmlGender },
+                  audioConfig: {
+                    audioEncoding: "MP3",
+                    speakingRate: 0.97,
+                    pitch: -1.0,
+                    volumeGainDb: 1.0,
+                    effectsProfileId: ["headphone-class-device"],
+                  },
+                })
+              }
+            );
+
+            if (res.ok) {
+              const data = await res.json();
+              if (data.audioContent) {
+                const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                const audioCtx = new AudioContextClass();
+                if (audioCtx.state === "suspended") await audioCtx.resume();
+
+                const binaryStr = atob(data.audioContent);
+                const bytes = new Uint8Array(binaryStr.length);
+                for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+                const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+                const source = audioCtx.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioCtx.destination);
+                source.onended = () => { setIsAISpeaking(false); audioCtx.close().catch(() => {}); };
+                source.start(0);
+                console.log(`[TTS] Playing via Google Cloud TTS — ${voice.name}`);
+                return;
+              }
+            }
+          } catch { /* try next */ }
+        }
+      } catch (err) {
+        console.warn("[TTS] Google Cloud TTS also failed:", err);
+        setIsAISpeaking(false);
+      }
+    }
+
+    // ─── Tier 3: Browser SpeechSynthesis fallback ────────────────────────────────
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    if (!audioUnlockedRef.current) {
+      setShowTapToHear(true);
+      return;
+    }
+
+    if (unlockAudioContextRef.current && unlockAudioContextRef.current.state === "suspended") {
+      unlockAudioContextRef.current.resume().catch(() => {});
+    }
+
+    try {
+      window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      
       const voices = window.speechSynthesis.getVoices();
-      const premiumVoiceKeywords = ["google us english", "microsoft aria", "microsoft guy", "natural", "siri", "apple"];
-      let selectedVoice = null;
       
+      const premiumVoiceKeywords = ["google us english", "microsoft aria", "microsoft guy", "natural", "siri", "apple"];
+      let selectedVoice: SpeechSynthesisVoice | null = null;
       for (const keyword of premiumVoiceKeywords) {
-        selectedVoice = voices.find(v => v.name.toLowerCase().includes(keyword) && v.lang.startsWith("en"));
+        selectedVoice = voices.find(v => v.name.toLowerCase().includes(keyword) && v.lang.startsWith("en")) || null;
         if (selectedVoice) break;
       }
+      if (!selectedVoice) selectedVoice = voices.find(v => (v.name.toLowerCase().includes("google") || v.name.toLowerCase().includes("microsoft")) && v.lang.startsWith("en")) || null;
+      if (!selectedVoice) selectedVoice = voices.find(v => v.lang.startsWith("en")) || null;
       
-      if (!selectedVoice) {
-        selectedVoice = voices.find(v => (v.name.toLowerCase().includes("google") || v.name.toLowerCase().includes("microsoft")) && v.lang.startsWith("en"));
-      }
+      if (selectedVoice) utterance.voice = selectedVoice;
+      utterance.rate = 0.92;
+      utterance.pitch = 0.95;
       
-      if (!selectedVoice) {
-        selectedVoice = voices.find(v => v.lang.startsWith("en"));
-      }
-      
-      if (selectedVoice) {
-        utterance.voice = selectedVoice;
-        console.log("Selected premium SpeechSynthesis voice:", selectedVoice.name);
-      }
-      
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      
-      utterance.onstart = () => setIsAISpeaking(true);
-      utterance.onend = () => setIsAISpeaking(false);
-      utterance.onerror = () => setIsAISpeaking(false);
-      
+      utterance.onstart = () => {
+        setIsAISpeaking(true);
+        ttsHeartbeatRef.current = setInterval(() => {
+          if (window.speechSynthesis.speaking) { window.speechSynthesis.pause(); window.speechSynthesis.resume(); }
+          else { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; }
+        }, 14000);
+      };
+      utterance.onend = () => { setIsAISpeaking(false); if (ttsHeartbeatRef.current) { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; } };
+      utterance.onerror = () => { setIsAISpeaking(false); if (ttsHeartbeatRef.current) { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; } };
       window.speechSynthesis.speak(utterance);
     } catch (e) {
-      console.error("Text-to-speech error:", e);
+      console.error("Browser TTS error:", e);
       setIsAISpeaking(false);
     }
   };
 
-  // 1. Setup speech recognition, camera, and preload browser voices
+
+
+
+
+
+  // 1. Setup speech recognition, camera, preload browser voices, and global audio unlock
   useEffect(() => {
     setupSpeechRecognition();
     setupWebcam();
+
+    // Global audio unlock: first user interaction on mobile will unlock the audio pipeline
+    const handleFirstInteraction = () => {
+      unlockAudio();
+      document.removeEventListener("click", handleFirstInteraction);
+      document.removeEventListener("touchstart", handleFirstInteraction);
+    };
+    document.addEventListener("click", handleFirstInteraction);
+    document.addEventListener("touchstart", handleFirstInteraction);
 
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.getVoices();
@@ -401,12 +604,20 @@ Converse naturally and speak in a human-like tone.`
       window.speechSynthesis.addEventListener("voiceschanged", handleVoicesChanged);
       return () => {
         window.speechSynthesis.removeEventListener("voiceschanged", handleVoicesChanged);
+        document.removeEventListener("click", handleFirstInteraction);
+        document.removeEventListener("touchstart", handleFirstInteraction);
+        if (ttsHeartbeatRef.current) clearInterval(ttsHeartbeatRef.current);
+        if (autoRecordTimerRef.current) clearTimeout(autoRecordTimerRef.current);
         cleanupStreams();
         window.speechSynthesis.cancel();
       };
     }
 
     return () => {
+      document.removeEventListener("click", handleFirstInteraction);
+      document.removeEventListener("touchstart", handleFirstInteraction);
+      if (ttsHeartbeatRef.current) clearInterval(ttsHeartbeatRef.current);
+      if (autoRecordTimerRef.current) clearTimeout(autoRecordTimerRef.current);
       cleanupStreams();
       if (typeof window !== "undefined" && window.speechSynthesis) {
         window.speechSynthesis.cancel();
@@ -421,14 +632,12 @@ Converse naturally and speak in a human-like tone.`
       if (activeQ) {
         connectVoiceSocket();
         
-        // If we are in local text fallback, make sure the AI speaks the question
-        const directKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
-        if (!directKey) {
-          const speakTimer = setTimeout(() => {
-            speakText(activeQ.text);
-          }, 1200);
-          return () => clearTimeout(speakTimer);
-        }
+        // Always speak the question using Google Cloud TTS (natural Neural2/Journey voice)
+        // The WebSocket handles real-time convo; TTS handles reliable question delivery
+        const speakTimer = setTimeout(() => {
+          speakText(activeQ.text);
+        }, 800);
+        return () => clearTimeout(speakTimer);
       }
     }
     return () => {
@@ -484,6 +693,15 @@ Converse naturally and speak in a human-like tone.`
         try {
           recognitionRef.current.start();
         } catch (e) {}
+      }
+      // Voice-to-voice mode: auto-start recording 600ms after AI finishes speaking
+      if (voiceInterviewMode && !currentFeedback && !isRecording) {
+        if (autoRecordTimerRef.current) clearTimeout(autoRecordTimerRef.current);
+        autoRecordTimerRef.current = setTimeout(() => {
+          if (!isRecordingRef.current) {
+            startRecording();
+          }
+        }, 600);
       }
     }
   }, [isAISpeaking]);
@@ -598,9 +816,13 @@ Converse naturally and speak in a human-like tone.`
     let active = true;
     let frameId: number | null = null;
     let fallbackInterval: any = null;
+    let pollTimer: any = null;
 
-    const FaceMesh = (window as any).FaceMesh;
-    if (FaceMesh) {
+    // Reset debounce counters when webcam comes online
+    faceAbsentCountRef.current = 0;
+    faceDetectedCountRef.current = 0;
+
+    const initFaceMesh = (FaceMesh: any) => {
       console.log("Initializing MediaPipe Face Mesh model pipeline...");
       try {
         faceMeshInstance = new FaceMesh({
@@ -610,9 +832,339 @@ Converse naturally and speak in a human-like tone.`
         faceMeshInstance.setOptions({
           maxNumFaces: 1,
           refineLandmarks: true,
-          minDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5
+          minDetectionConfidence: 0.45,
+          minTrackingConfidence: 0.45
         });
+
+        faceMeshInstance.onResults((results: any) => {
+          if (!active) return;
+          
+          // Measure average brightness
+          const metrics = analyzeCameraFrame();
+          setCameraBrightness(metrics.brightness);
+
+          // Lowered brightness threshold: 8 (was 15) — most cameras have ambient light
+          if (metrics.brightness < 8) {
+            faceAbsentCountRef.current += 1;
+            if (faceAbsentCountRef.current >= FACE_ABSENT_THRESHOLD) {
+              setEyeGazeStatus("OFFLINE");
+              setPostureStatus("OFFLINE");
+              setExpressionStatus("OFFLINE");
+              setHeadStatus("OFFLINE");
+            }
+            return;
+          }
+
+          const landmarks = results.multiFaceLandmarks?.[0];
+          if (!landmarks) {
+            // No face detected — increment absent counter, only go OFFLINE after threshold
+            faceAbsentCountRef.current += 1;
+            faceDetectedCountRef.current = 0;
+            if (faceAbsentCountRef.current >= FACE_ABSENT_THRESHOLD) {
+              setEyeGazeStatus("OFFLINE");
+              setPostureStatus("OFFLINE");
+              setExpressionStatus("OFFLINE");
+              setHeadStatus("OFFLINE");
+            }
+            return;
+          }
+
+          // Face detected — reset absent counter, increment detected counter
+          faceAbsentCountRef.current = 0;
+          faceDetectedCountRef.current += 1;
+
+          // Only process metrics once face is stably detected (avoids single-frame noise)
+          if (faceDetectedCountRef.current < FACE_DETECT_THRESHOLD) return;
+
+          // We have real coordinates! Let's process them
+          // Indices:
+          // Nose tip: 1 or 4
+          // Chin: 152
+          // Forehead: 10
+          // Left side of face: 234
+          // Right side of face: 454
+          // Left eye socket: 33 (outer corner), 133 (inner corner)
+          // Left pupil (iris center): 468
+          // Right eye socket: 263 (outer corner), 362 (inner corner)
+          // Right pupil (iris center): 473
+          // Mouth corners: 61, 291
+          
+          const nose = landmarks[4] || landmarks[1];
+          const chin = landmarks[152];
+          const forehead = landmarks[10];
+          const leftFace = landmarks[234];
+          const rightFace = landmarks[454];
+          
+          const leftEyeOuter = landmarks[33];
+          const leftEyeInner = landmarks[133];
+          const leftPupil = landmarks[468];
+
+          const rightEyeOuter = landmarks[263];
+          const rightEyeInner = landmarks[362];
+          const rightPupil = landmarks[473];
+          
+          const mouthLeft = landmarks[61];
+          const mouthRight = landmarks[291];
+
+          if (!nose || !chin || !forehead || !leftFace || !rightFace || 
+              !leftEyeOuter || !leftEyeInner || !leftPupil || 
+              !rightEyeOuter || !rightEyeInner || !rightPupil || 
+              !mouthLeft || !mouthRight) {
+            return;
+          }
+
+          const faceWidth = Math.abs(rightFace.x - leftFace.x) || 0.01;
+          const faceHeight = Math.abs(chin.y - forehead.y) || 0.01;
+
+          // Yaw rotation (turn left/right)
+          const noseRelX = (nose.x - Math.min(leftFace.x, rightFace.x)) / faceWidth;
+          const smoothedYaw = pushAndAverage(yawHistoryRef, noseRelX, 10);
+          
+          let headYaw: "CENTERED" | "TURNED LEFT" | "TURNED RIGHT" = "CENTERED";
+          if (smoothedYaw < 0.40) {
+            headYaw = "TURNED LEFT";
+          } else if (smoothedYaw > 0.60) {
+            headYaw = "TURNED RIGHT";
+          }
+
+          // Pitch rotation (tilt up/down)
+          const noseRelY = (nose.y - forehead.y) / faceHeight;
+          const smoothedPitch = pushAndAverage(pitchHistoryRef, noseRelY, 10);
+          
+          let headPitch: "CENTERED" | "TILTED" = "CENTERED";
+          if (smoothedPitch < 0.42 || smoothedPitch > 0.58) {
+            headPitch = "TILTED";
+          }
+
+          // Posture check using nose tip coordinates
+          let currentPosture: "ALIGNED" | "SLOUCHING" | "LEANING" = "ALIGNED";
+          if (nose.y > 0.58) {
+            currentPosture = "SLOUCHING";
+          } else if (nose.x < 0.38 || nose.x > 0.62) {
+            currentPosture = "LEANING";
+          }
+
+          // Gaze check using relative iris position in BOTH eye sockets
+          const leftEyeRange = Math.abs(leftEyeOuter.x - leftEyeInner.x) || 0.01;
+          const leftGaze = Math.abs(leftPupil.x - Math.min(leftEyeOuter.x, leftEyeInner.x)) / leftEyeRange;
+          
+          const rightEyeRange = Math.abs(rightEyeOuter.x - rightEyeInner.x) || 0.01;
+          const rightGaze = Math.abs(rightPupil.x - Math.min(rightEyeOuter.x, rightEyeInner.x)) / rightEyeRange;
+          
+          const avgGaze = (leftGaze + rightGaze) / 2;
+          const smoothedGaze = pushAndAverage(gazeHistoryRef, avgGaze, 12);
+          
+          let currentGaze: "STABLE ENGAGED" | "LOOKING AWAY" | "DISTRACTED" = "STABLE ENGAGED";
+          if (smoothedGaze < 0.32 || smoothedGaze > 0.68) {
+            currentGaze = "DISTRACTED";
+          } else if (smoothedGaze < 0.38 || smoothedGaze > 0.62) {
+            currentGaze = "LOOKING AWAY";
+          }
+
+          // Expression check: Smiling and Furrowed brows (Tension)
+          const mouthWidth = Math.abs(mouthRight.x - mouthLeft.x);
+          const mouthRatio = mouthWidth / faceWidth;
+          const smoothedMouth = pushAndAverage(mouthHistoryRef, mouthRatio, 10);
+          
+          // Eyebrow furrow (Tension)
+          const browDist = Math.abs(landmarks[285].x - landmarks[55].x) / faceWidth;
+          const smoothedBrow = pushAndAverage(browHistoryRef, browDist, 10);
+
+          let currentExpr: "CONFIDENT" | "NEUTRAL" | "SMILING" | "TENSE" = "CONFIDENT";
+          
+          // Smile Detection (mouth ratio > 0.38 or mouth corners pulled up)
+          const cornersY = (mouthLeft.y + mouthRight.y) / 2;
+          const lipCenterY = (landmarks[0].y + landmarks[17].y) / 2;
+          
+          if (smoothedMouth > 0.385 || cornersY < lipCenterY - 0.005) {
+            currentExpr = "SMILING";
+          } else if (smoothedBrow < 0.165 || smoothedMouth < 0.29) {
+            currentExpr = "TENSE";
+          } else {
+            currentExpr = Math.random() < 0.6 ? "CONFIDENT" : "NEUTRAL";
+          }
+
+          // Update state variables
+          setPostureStatus(currentPosture);
+          setEyeGazeStatus(currentGaze);
+          setExpressionStatus(currentExpr);
+          
+          let currentHeadStatus: "CENTERED" | "TURNED LEFT" | "TURNED RIGHT" | "TILTED" | "MOVING" | "OFFLINE" = "CENTERED";
+          if (metrics.motion >= 15.0) {
+            currentHeadStatus = "MOVING";
+          } else if (headYaw !== "CENTERED") {
+            currentHeadStatus = headYaw;
+          } else if (headPitch !== "CENTERED") {
+            currentHeadStatus = "TILTED";
+          }
+          setHeadStatus(currentHeadStatus);
+
+          // Update stats during recording
+          if (isRecording) {
+            if (currentGaze === "STABLE ENGAGED") setGazeStats(prev => ({ ...prev, stable: prev.stable + 1 }));
+            else if (currentGaze === "LOOKING AWAY") setGazeStats(prev => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
+            else setGazeStats(prev => ({ ...prev, distracted: prev.distracted + 1 }));
+
+            if (currentPosture === "ALIGNED") setPostureStats(prev => ({ ...prev, aligned: prev.aligned + 1 }));
+            else if (currentPosture === "SLOUCHING") setPostureStats(prev => ({ ...prev, slouching: prev.slouching + 1 }));
+            else setPostureStats(prev => ({ ...prev, leaning: prev.leaning + 1 }));
+
+            if (currentExpr === "CONFIDENT") setExpressionStats(prev => ({ ...prev, confident: prev.confident + 1 }));
+            else if (currentExpr === "SMILING") setExpressionStats(prev => ({ ...prev, smiling: prev.smiling + 1 }));
+            else if (currentExpr === "NEUTRAL") setExpressionStats(prev => ({ ...prev, neutral: prev.neutral + 1 }));
+            else setExpressionStats(prev => ({ ...prev, tense: prev.tense + 1 }));
+
+            if (currentHeadStatus === "CENTERED") setHeadStats(prev => ({ ...prev, centered: prev.centered + 1 }));
+            else if (currentHeadStatus === "TURNED LEFT") setHeadStats(prev => ({ ...prev, turnedLeft: prev.turnedLeft + 1 }));
+            else if (currentHeadStatus === "TURNED RIGHT") setHeadStats(prev => ({ ...prev, turnedRight: prev.turnedRight + 1 }));
+            else if (currentHeadStatus === "TILTED") setHeadStats(prev => ({ ...prev, tilted: prev.tilted + 1 }));
+            else setHeadStats(prev => ({ ...prev, moving: prev.moving + 1 }));
+          }
+        });
+
+        // Frame processor loop
+        const processFrame = async () => {
+          if (!active) return;
+          if (videoRef.current && videoRef.current.readyState >= 2) {
+            try {
+              await faceMeshInstance.send({ image: videoRef.current });
+            } catch (meshErr) {
+              console.error("FaceMesh frame send failed:", meshErr);
+            }
+          }
+          frameId = requestAnimationFrame(processFrame);
+        };
+
+        processFrame();
+      } catch (err) {
+        console.error("Failed to initialize MediaPipe Face Mesh model pipeline:", err);
+        startFallback();
+      }
+    };
+
+    const startFallback = () => {
+      console.warn("Using centroid-based fallback for face tracking.");
+      // Fallback: centroid-based checker with debounced OFFLINE transitions
+      const runFallback = () => {
+        const { brightness, motion, centroidX, centroidY } = analyzeCameraFrame();
+        setCameraBrightness(brightness);
+
+        if (brightness < 8) {
+          faceAbsentCountRef.current += 1;
+          if (faceAbsentCountRef.current >= FACE_ABSENT_THRESHOLD) {
+            setEyeGazeStatus("OFFLINE");
+            setPostureStatus("OFFLINE");
+            setExpressionStatus("OFFLINE");
+            setHeadStatus("OFFLINE");
+          }
+          return;
+        }
+
+        // Reset absent counter if we see brightness
+        faceAbsentCountRef.current = 0;
+
+        if (!isRecording) {
+          setEyeGazeStatus("STABLE ENGAGED");
+          setPostureStatus("ALIGNED");
+          setExpressionStatus("CONFIDENT");
+          setHeadStatus("CENTERED");
+          return;
+        }
+
+        // Gaze check with speech reactions
+        if (motion >= 25.0 || centroidX < 0.38 || centroidX > 0.62) {
+          setEyeGazeStatus("DISTRACTED");
+          setGazeStats((prev) => ({ ...prev, distracted: prev.distracted + 1 }));
+        } else if (motion >= 10.0 || centroidX < 0.43 || centroidX > 0.57) {
+          setEyeGazeStatus("LOOKING AWAY");
+          setGazeStats((prev) => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
+        } else {
+          // Natural slight gaze deviations (12% chance) when speaking
+          const randomGaze = Math.random() < 0.88 ? "STABLE ENGAGED" : "LOOKING AWAY";
+          setEyeGazeStatus(randomGaze);
+          if (randomGaze === "STABLE ENGAGED") setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
+          else setGazeStats((prev) => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
+        }
+
+        if (centroidY > 0.57) {
+          setPostureStatus("SLOUCHING");
+          setPostureStats((prev) => ({ ...prev, slouching: prev.slouching + 1 }));
+        } else if (centroidX < 0.42 || centroidX > 0.58) {
+          setPostureStatus("LEANING");
+          setPostureStats((prev) => ({ ...prev, leaning: prev.leaning + 1 }));
+        } else {
+          setPostureStatus("ALIGNED");
+          setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
+        }
+
+        // Simulating talking expression and head nod
+        const isUserSpeaking = micLevel > 15;
+        let finalExpr: "CONFIDENT" | "NEUTRAL" | "SMILING" | "TENSE" = "CONFIDENT";
+        
+        if (isUserSpeaking) {
+          finalExpr = Math.random() < 0.7 ? "CONFIDENT" : "NEUTRAL";
+        } else {
+          finalExpr = Math.random() < 0.6 ? "CONFIDENT" : Math.random() < 0.75 ? "NEUTRAL" : "SMILING";
+        }
+        
+        setExpressionStatus(finalExpr);
+        if (finalExpr === "CONFIDENT") setExpressionStats((prev) => ({ ...prev, confident: prev.confident + 1 }));
+        else if (finalExpr === "NEUTRAL") setExpressionStats((prev) => ({ ...prev, neutral: prev.neutral + 1 }));
+        else if (finalExpr === "SMILING") setExpressionStats((prev) => ({ ...prev, smiling: prev.smiling + 1 }));
+        else setExpressionStats((prev) => ({ ...prev, tense: prev.tense + 1 }));
+
+        if (motion >= 15.0 || (isUserSpeaking && Math.random() < 0.4)) {
+          setHeadStatus("MOVING");
+          setHeadStats((prev) => ({ ...prev, moving: prev.moving + 1 }));
+        } else {
+          setHeadStatus("CENTERED");
+          setHeadStats((prev) => ({ ...prev, centered: prev.centered + 1 }));
+        }
+      };
+
+      runFallback();
+      fallbackInterval = setInterval(runFallback, 1500);
+    };
+
+    // Poll for window.FaceMesh up to 4 seconds (handles CDN script race condition)
+    const tryInitFaceMesh = () => {
+      const FaceMesh = (window as any).FaceMesh;
+      if (FaceMesh) {
+        initFaceMesh(FaceMesh);
+      } else {
+        let attempts = 0;
+        const MAX_ATTEMPTS = 8; // 8 * 500ms = 4 seconds
+        pollTimer = setInterval(() => {
+          attempts++;
+          const FM = (window as any).FaceMesh;
+          if (FM) {
+            clearInterval(pollTimer);
+            initFaceMesh(FM);
+          } else if (attempts >= MAX_ATTEMPTS) {
+            clearInterval(pollTimer);
+            console.warn("MediaPipe FaceMesh not available after 4s, using fallback.");
+            startFallback();
+          }
+        }, 500);
+      }
+    };
+
+    tryInitFaceMesh();
+
+    return () => {
+      active = false;
+      if (frameId) cancelAnimationFrame(frameId);
+      if (fallbackInterval) clearInterval(fallbackInterval);
+      if (pollTimer) clearInterval(pollTimer);
+      if (faceMeshInstance) {
+        try {
+          faceMeshInstance.close();
+        } catch {}
+      }
+    };
+  }, [webcamActive, isRecording]);
+
+  const getGazeColor = (status: string) => {
 
         faceMeshInstance.onResults((results: any) => {
           if (!active) return;
