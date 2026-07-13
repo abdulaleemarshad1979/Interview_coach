@@ -304,7 +304,7 @@ function findChromiumExecutable(): string | null {
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   ];
   for (const c of candidates) {
-    try { if (c && fs.existsSync(c)) return c; } catch {}
+    try { if (c && fs.existsSync(c)) return c; } catch { }
   }
   return null;
 }
@@ -368,7 +368,7 @@ async function scrapeWithPuppeteer(rollNo: string, password: string, portal: str
     if (portal === "aus") {
       // ── AUS / Campus Connect login ──
       console.log(`[Puppeteer] AUS portal: selecting Student radio...`);
-      await page.waitForSelector('input[type="radio"]', { timeout: 10000 }).catch(() => {});
+      await page.waitForSelector('input[type="radio"]', { timeout: 10000 }).catch(() => { });
 
       const radioClicked = await page.evaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]')) as HTMLInputElement[];
@@ -444,14 +444,14 @@ async function scrapeWithPuppeteer(rollNo: string, password: string, portal: str
       }, rollNo, password, encryptedPwd);
       await page.evaluate(() => {
         const btn = (document.querySelector<HTMLElement>('#imgBtn2, input[name="imgBtn2"]') ||
-                     document.querySelector<HTMLElement>('input[type="image"]'));
+          document.querySelector<HTMLElement>('input[type="image"]'));
         if (btn) btn.click();
       });
     }
 
     // Wait for portal to navigate to dashboard
     console.log(`[Puppeteer] Waiting for post-login navigation...`);
-    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
+    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => { });
     await new Promise(r => setTimeout(r, 2000));
 
     const postLoginUrl = page.url();
@@ -2372,7 +2372,7 @@ app.get("/api/health", async (req, res) => {
         dbStatus = `Error: ${dbErr.message}`;
       }
     }
-    
+
     const stats = {
       status: "healthy",
       uptime: process.uptime(),
@@ -2464,7 +2464,7 @@ Do not include any Markdown wrapper like \`\`\`json. Return pure JSON string onl
 
     const result = await response.json();
     const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    
+
     let parsedResult;
     try {
       parsedResult = JSON.parse(rawText.trim());
