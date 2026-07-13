@@ -2031,117 +2031,7 @@ Converse naturally and speak in a human-like tone.`
             </div>
           </div>
 
-          {/* Voice-to-Voice Live Connection Hub & SVG Waveform */}
-          <div className="bg-brand-card/25 border border-white/5 p-5 rounded-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-xs font-mono font-bold text-white tracking-wider uppercase">Voice Connection Hub</span>
-              </div>
-              <span className="text-[10px] font-mono text-gray-500 bg-white/5 px-2 py-0.5 rounded">
-                {voiceMode === "direct" && "Gemini Live (Direct)"}
-                {voiceMode === "proxy" && "Gemini Live (Proxy)"}
-                {voiceMode === "fallback" && "Convincing Simulated Mode"}
-                {voiceMode === "connecting" && "Connecting Voice..."}
-              </span>
-            </div>
 
-            {/* Speech-to-Speech Toggle */}
-            <div className="flex items-center justify-between p-3.5 bg-brand-bg/50 border border-white/5 rounded-xl shadow-inner">
-              <div className="space-y-0.5 text-left">
-                <span className="text-xs font-semibold text-white block">Hands-Free Speech-to-Speech</span>
-                <span className="text-[10px] text-gray-400 block leading-tight">Conversation & auto-advances automatically</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setVoiceInterviewMode(!voiceInterviewMode)}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                  voiceInterviewMode ? "bg-brand-primary" : "bg-white/10"
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-brand-bg shadow-sm ring-0 transition duration-200 ease-in-out ${
-                    voiceInterviewMode ? "translate-x-5 bg-white" : "translate-x-0"
-                  }`}
-                />
-              </button>
-            </div>
-
-            {/* Dynamic SVG Sound Wave Visualizer */}
-            <div className="bg-black/40 border border-white/5 h-20 rounded-xl flex items-center justify-center relative overflow-hidden">
-              <svg className="w-full h-full absolute inset-0 pointer-events-none" viewBox="0 0 300 80">
-                <path
-                  d={
-                    isAISpeaking
-                      ? `M 0 40 Q 50 ${40 - (15 + Math.sin(Date.now() / 150) * 10)} 100 40 T 200 40 T 300 40`
-                      : isRecording && micLevel > 5
-                      ? `M 0 40 Q 50 ${40 - (5 + (micLevel / 100) * 25)} 100 40 T 200 40 T 300 40`
-                      : "M 0 40 L 300 40"
-                  }
-                  fill="none"
-                  stroke={isAISpeaking ? "#10b981" : "#38bdf8"}
-                  strokeWidth="2.5"
-                  className={isAISpeaking || isRecording ? "animate-[dash_2s_linear_infinite]" : ""}
-                  style={{
-                    strokeDasharray: isAISpeaking || isRecording ? "10, 5" : "none",
-                    transition: "all 0.15s ease-in-out"
-                  }}
-                />
-                <path
-                  d={
-                    isAISpeaking
-                      ? `M 0 40 Q 50 ${40 + (10 + Math.cos(Date.now() / 200) * 8)} 100 40 T 200 40 T 300 40`
-                      : isRecording && micLevel > 5
-                      ? `M 0 40 Q 50 ${40 + (3 + (micLevel / 100) * 18)} 100 40 T 200 40 T 300 40`
-                      : "M 0 40 L 300 40"
-                  }
-                  fill="none"
-                  stroke={isAISpeaking ? "#34d399" : "#0284c7"}
-                  strokeWidth="1.5"
-                  opacity="0.5"
-                  style={{
-                    transition: "all 0.15s ease-in-out"
-                  }}
-                />
-              </svg>
-
-              <div className="absolute text-[10px] font-mono text-gray-400 bg-brand-bg/80 border border-white/5 px-2.5 py-1 rounded-full backdrop-blur-xs select-none">
-                {isAISpeaking ? (
-                  <span className="text-emerald-400 uppercase tracking-widest font-bold animate-pulse">AI Coach Speaking...</span>
-                ) : isRecording ? (
-                  <span className="text-sky-400 uppercase tracking-widest font-bold">Candidate Listening/Speaking</span>
-                ) : (
-                  <span className="text-gray-500 uppercase tracking-wider">Voice link idle</span>
-                )}
-              </div>
-            </div>
-
-            {/* Technical Stream details to convince everyone */}
-            <div className="grid grid-cols-2 gap-3 text-[10px] font-mono">
-              <div className="p-2.5 bg-brand-bg/40 border border-white/5 rounded-lg space-y-0.5">
-                <span className="text-gray-500 block uppercase">Stream protocol</span>
-                <span className="text-white block font-medium">
-                  {voiceMode === "direct" ? "Websocket WSS (Direct)" : voiceMode === "proxy" ? "Websocket WSS (Proxy)" : "Edge TTS / local link"}
-                </span>
-              </div>
-              <div className="p-2.5 bg-brand-bg/40 border border-white/5 rounded-lg space-y-0.5">
-                <span className="text-gray-500 block uppercase">Modality type</span>
-                <span className="text-white block font-medium">Bidirectional Audio (24kHz)</span>
-              </div>
-              <div className="p-2.5 bg-brand-bg/40 border border-white/5 rounded-lg space-y-0.5">
-                <span className="text-gray-500 block uppercase">Voice model</span>
-                <span className="text-emerald-400 block font-medium">
-                  {voiceMode === "fallback" ? "Local TTS Voice Engine" : "Gemini 2.0 Flash Live (Aoede)"}
-                </span>
-              </div>
-              <div className="p-2.5 bg-brand-bg/40 border border-white/5 rounded-lg space-y-0.5">
-                <span className="text-gray-500 block uppercase">Connection latency</span>
-                <span className="text-white block font-medium">
-                  {isRecording || isAISpeaking ? `${115 + Math.round(Math.random() * 15)}ms` : "120ms"}
-                </span>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Right Column: Dynamic Q&A interface and feedbacks */}
@@ -2253,31 +2143,7 @@ Converse naturally and speak in a human-like tone.`
                   </h3>
                 </div>
 
-                {/* Chat History for Speech-to-Speech */}
-                {voiceInterviewMode && conversationHistory.length > 0 && (
-                  <div className="bg-brand-card/10 border border-white/5 p-4 rounded-2xl space-y-3 max-h-60 overflow-y-auto">
-                    <span className="text-[10px] font-mono text-gray-500 uppercase block tracking-wider text-left">Live Conversation Log</span>
-                    <div className="space-y-3">
-                      {conversationHistory.map((msg, index) => (
-                        <div
-                          key={index}
-                          className={`flex flex-col ${msg.sender === "candidate" ? "items-end" : "items-start"}`}
-                        >
-                          <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed text-left ${
-                            msg.sender === "candidate"
-                              ? "bg-brand-accent/10 border border-brand-accent/25 text-gray-200"
-                              : "bg-brand-primary/10 border border-brand-primary/25 text-emerald-400 font-medium"
-                          }`}>
-                            <p className="font-semibold text-[9px] uppercase tracking-wider mb-1 opacity-70">
-                              {msg.sender === "candidate" ? studentProfile.name : "AI Coach"}
-                            </p>
-                            <p>{msg.text}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+
 
                 {/* Recorder and text fallback widget */}
                 <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-5">
