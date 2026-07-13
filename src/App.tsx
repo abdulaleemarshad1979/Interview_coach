@@ -11,7 +11,8 @@ import ReportPage from "./components/ReportPage";
 import CustomCursor from "./components/effects/CustomCursor";
 import GroupDiscussionPage from "./components/GroupDiscussionPage";
 import FacultyDashboardPage from "./components/FacultyDashboardPage";
-import { StudentProfile, FacultyProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
+import AdminDashboardPage from "./components/AdminDashboardPage";
+import { StudentProfile, FacultyProfile, AdminProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
 import { supabase } from "./lib/supabaseClient";
 import ProfilePage from "./components/ProfilePage";
 
@@ -20,6 +21,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<string>("landing");
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
   const [facultyProfile, setFacultyProfile] = useState<FacultyProfile | null>(null);
+  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
   const [analysisResult, setAnalysisResult] = useState<FullAnalysisResult | null>(null);
   const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
   const [scorecard, setScorecard] = useState<Scorecard | null>(null);
@@ -178,11 +180,23 @@ export default function App() {
     // Check current Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session && session.user) {
+        const isAdminUser = session.user.user_metadata?.is_admin || false;
         const isFacultyUser = session.user.user_metadata?.is_faculty || false;
 
-        if (isFacultyUser) {
+        if (isAdminUser) {
+          const admProfile: AdminProfile = {
+            adminId: session.user.id,
+            name: session.user.user_metadata?.faculty_name || "Administrator",
+            email: session.user.email || "",
+            isAdmin: true,
+          };
+          setAdminProfile(admProfile);
+          setFacultyProfile(null);
+          setStudentProfile(null);
+          setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+        } else if (isFacultyUser) {
           const facProfile: FacultyProfile = {
-            facultyId: session.user.user_metadata?.faculty_name || "PROCTOR",
+            facultyId: session.user.id,
             name: session.user.user_metadata?.faculty_name || "Proctor",
             email: session.user.email || "",
             department: session.user.user_metadata?.department || "CSE",
@@ -193,6 +207,7 @@ export default function App() {
             isFaculty: true,
           };
           setFacultyProfile(facProfile);
+          setAdminProfile(null);
           setStudentProfile(null);
           setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
         } else {
@@ -241,6 +256,7 @@ export default function App() {
 
           setStudentProfile(profile);
           setFacultyProfile(null);
+          setAdminProfile(null);
           setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
           restoreStudentDataFromMetadata(session.user, userRollNo);
           syncCollegeProfile(userRollNo, profile);
@@ -251,11 +267,23 @@ export default function App() {
     // Listen to changes in authentication state
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session && session.user) {
+        const isAdminUser = session.user.user_metadata?.is_admin || false;
         const isFacultyUser = session.user.user_metadata?.is_faculty || false;
 
-        if (isFacultyUser) {
+        if (isAdminUser) {
+          const admProfile: AdminProfile = {
+            adminId: session.user.id,
+            name: session.user.user_metadata?.faculty_name || "Administrator",
+            email: session.user.email || "",
+            isAdmin: true,
+          };
+          setAdminProfile(admProfile);
+          setFacultyProfile(null);
+          setStudentProfile(null);
+          setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
+        } else if (isFacultyUser) {
           const facProfile: FacultyProfile = {
-            facultyId: session.user.user_metadata?.faculty_name || "PROCTOR",
+            facultyId: session.user.id,
             name: session.user.user_metadata?.faculty_name || "Proctor",
             email: session.user.email || "",
             department: session.user.user_metadata?.department || "CSE",
@@ -266,6 +294,7 @@ export default function App() {
             isFaculty: true,
           };
           setFacultyProfile(facProfile);
+          setAdminProfile(null);
           setStudentProfile(null);
           setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
         } else {
@@ -314,6 +343,7 @@ export default function App() {
 
           setStudentProfile(profile);
           setFacultyProfile(null);
+          setAdminProfile(null);
           setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
           restoreStudentDataFromMetadata(session.user, userRollNo);
           syncCollegeProfile(userRollNo, profile);
@@ -321,6 +351,7 @@ export default function App() {
       } else {
         setStudentProfile(null);
         setFacultyProfile(null);
+        setAdminProfile(null);
         setCurrentView((prev) => (prev === "landing" ? "landing" : "landing"));
       }
     });
@@ -387,10 +418,23 @@ export default function App() {
   const handleLoginSuccess = (displayName: string, email?: string) => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
+        const isAdminUser = user.user_metadata?.is_admin || false;
         const isFacultyUser = user.user_metadata?.is_faculty || false;
-        if (isFacultyUser) {
+
+        if (isAdminUser) {
+          const admProfile: AdminProfile = {
+            adminId: user.id,
+            name: user.user_metadata?.faculty_name || displayName,
+            email: user.email || email || "",
+            isAdmin: true,
+          };
+          setAdminProfile(admProfile);
+          setFacultyProfile(null);
+          setStudentProfile(null);
+          localStorage.setItem("adminProfile", JSON.stringify(admProfile));
+        } else if (isFacultyUser) {
           const facProfile: FacultyProfile = {
-            facultyId: user.user_metadata?.faculty_name || displayName,
+            facultyId: user.id,
             name: user.user_metadata?.faculty_name || displayName,
             email: user.email || email || "",
             department: user.user_metadata?.department || "CSE",
@@ -401,6 +445,7 @@ export default function App() {
             isFaculty: true,
           };
           setFacultyProfile(facProfile);
+          setAdminProfile(null);
           setStudentProfile(null);
           localStorage.setItem("facultyProfile", JSON.stringify(facProfile));
         } else {
@@ -438,6 +483,7 @@ export default function App() {
 
           setStudentProfile(profile);
           setFacultyProfile(null);
+          setAdminProfile(null);
           localStorage.setItem("studentProfile", JSON.stringify(profile));
           localStorage.setItem(`studentProfile_${userRollNo}`, JSON.stringify(profile));
           syncCollegeProfile(userRollNo, profile);
@@ -453,6 +499,7 @@ export default function App() {
     await supabase.auth.signOut();
     setStudentProfile(null);
     setFacultyProfile(null);
+    setAdminProfile(null);
     setAnalysisResult(null);
     setInterviewQuestions([]);
     setScorecard(null);
@@ -469,7 +516,9 @@ export default function App() {
         key.startsWith("scorecard") ||
         key.startsWith("assignedInterview") ||
         key.startsWith("assignedGD") ||
-        key.startsWith("portal_pwd")
+        key.startsWith("portal_pwd") ||
+        key.startsWith("adminProfile") ||
+        key.startsWith("facultyProfile")
       )) {
         keysToRemove.push(key);
       }
@@ -569,7 +618,7 @@ export default function App() {
         return (
           <LandingPage
             onNavigate={setCurrentView}
-            isLoggedIn={!!studentProfile || !!facultyProfile}
+            isLoggedIn={!!studentProfile || !!facultyProfile || !!adminProfile}
           />
         );
       case "login":
@@ -579,6 +628,14 @@ export default function App() {
           />
         );
       case "dashboard":
+        if (adminProfile) {
+          return (
+            <AdminDashboardPage
+              adminProfile={adminProfile}
+              onNavigate={setCurrentView}
+            />
+          );
+        }
         if (facultyProfile) {
           return (
             <FacultyDashboardPage
@@ -720,7 +777,7 @@ export default function App() {
         return (
           <LandingPage
             onNavigate={setCurrentView}
-            isLoggedIn={!!studentProfile || !!facultyProfile}
+            isLoggedIn={!!studentProfile || !!facultyProfile || !!adminProfile}
           />
         );
     }
@@ -740,6 +797,7 @@ export default function App() {
       <Navbar
         studentProfile={studentProfile}
         facultyProfile={facultyProfile}
+        adminProfile={adminProfile}
         currentView={currentView}
         onNavigate={setCurrentView}
         onLogout={handleLogout}

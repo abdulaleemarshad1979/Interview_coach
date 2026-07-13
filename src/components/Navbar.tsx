@@ -1,16 +1,17 @@
 import React from "react";
 import { GraduationCap, LogOut, Code, User, Settings, Award } from "lucide-react";
-import { StudentProfile, FacultyProfile } from "../types";
+import { StudentProfile, FacultyProfile, AdminProfile } from "../types";
 
 interface NavbarProps {
   studentProfile: StudentProfile | null;
   facultyProfile?: FacultyProfile | null;
+  adminProfile?: AdminProfile | null;
   currentView: string;
   onNavigate: (view: string) => void;
   onLogout: () => void;
 }
 
-export default function Navbar({ studentProfile, facultyProfile, currentView, onNavigate, onLogout }: NavbarProps) {
+export default function Navbar({ studentProfile, facultyProfile, adminProfile, currentView, onNavigate, onLogout }: NavbarProps) {
   return (
     <header id="app-navbar" className="glass-nav sticky top-0 z-50 w-full px-6 py-4 transition-all duration-300">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -128,13 +129,25 @@ export default function Navbar({ studentProfile, facultyProfile, currentView, on
             >
               Group Discussion
             </button>
-
+          </nav>
+        ) : adminProfile ? (
+          <nav id="nav-menu" className="hidden lg:flex items-center space-x-1">
+            <button
+              onClick={() => onNavigate("dashboard")}
+              className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
+                currentView === "dashboard"
+                  ? "text-brand-primary bg-slate-100 font-semibold"
+                  : "text-slate-600 hover:text-brand-primary hover:bg-slate-50"
+              }`}
+            >
+              Admin Panel
+            </button>
           </nav>
         ) : null}
 
         {/* Action Button Group */}
         <div className="flex items-center space-x-4">
-          {(studentProfile || facultyProfile) ? (
+          {(studentProfile || facultyProfile || adminProfile) ? (
             <div className="flex items-center space-x-3">
               {/* User Identification badge */}
               {studentProfile ? (
@@ -160,7 +173,7 @@ export default function Navbar({ studentProfile, facultyProfile, currentView, on
                     {studentProfile.name ? studentProfile.name.split(" ")[0] : studentProfile.studentId}
                   </span>
                 </button>
-              ) : (
+              ) : facultyProfile ? (
                 <div
                   className="flex items-center space-x-2 bg-brand-primary/10 border border-brand-primary/20 rounded-full px-3 py-1 text-xs font-mono text-brand-primary"
                   title={`Proctor: ${facultyProfile?.name} (${facultyProfile?.classSection})`}
@@ -170,7 +183,17 @@ export default function Navbar({ studentProfile, facultyProfile, currentView, on
                     Proctor {facultyProfile?.name.split(" ")[0]}
                   </span>
                 </div>
-              )}
+              ) : adminProfile ? (
+                <div
+                  className="flex items-center space-x-2 bg-amber-500/10 border border-amber-500/20 rounded-full px-3 py-1 text-xs font-mono text-amber-600"
+                  title={`Admin: ${adminProfile?.name}`}
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span className="font-mono font-bold text-[11px]">
+                    Admin {adminProfile?.name.split(" ")[0]}
+                  </span>
+                </div>
+              ) : null}
               <button
                 onClick={onLogout}
                 className="flex items-center space-x-1.5 bg-red-950/30 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 cursor-pointer"

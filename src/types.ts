@@ -26,6 +26,8 @@ export interface StudentProfile {
   assignedGDTopic?: string;
   assignedGDRoomCode?: string;
   assignedByProctorName?: string;
+  assignedProctorId?: string;
+  assignedProctorName?: string;
 }
 
 
@@ -162,5 +164,12 @@ export interface FacultyProfile {
     assignedAt: string;
     completed: boolean;
   }>;
+}
+
+export interface AdminProfile {
+  adminId: string;
+  name: string;
+  email: string;
+  isAdmin: boolean;
 }
 

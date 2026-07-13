@@ -23,16 +23,34 @@ interface DashboardPageProps {
 }
 
 export default function DashboardPage({ studentProfile, scorecard, analysisResult, onNavigate }: DashboardPageProps) {
+  // Resolve assigned proctor
+  const resolvedProctorName = (() => {
+    const cached = localStorage.getItem(`assigned_proctor_${studentProfile.studentId}`);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        return parsed.proctorName;
+      } catch {}
+    }
+    return studentProfile.assignedProctorName || studentProfile.assignedByProctorName;
+  })();
+
   return (
     <div id="dashboard-page" className="max-w-7xl mx-auto px-6 py-10 space-y-10">
       {/* Welcome Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-white/5 pb-8">
         <div>
-          <h1 className="font-display font-bold text-3xl sm:text-4xl text-white tracking-tight">
+          <h1 className="font-display font-bold text-3xl sm:text-4xl text-slate-900 tracking-tight">
             Preparation Command
           </h1>
-          <p className="text-gray-400 mt-1">
-            Student Account: <span className="text-brand-primary font-mono">{studentProfile.studentId}</span>
+          <p className="text-slate-500 mt-1.5 flex items-center gap-3 flex-wrap text-sm">
+            <span>Student Account: <span className="text-brand-primary font-mono font-bold">{studentProfile.studentId}</span></span>
+            {resolvedProctorName && (
+              <span className="flex items-center gap-1.5 bg-brand-primary/10 border border-brand-primary/20 rounded-lg px-2.5 py-0.5 text-xs text-brand-primary font-sans font-medium">
+                <User className="w-3 h-3 text-brand-primary" />
+                Supervised by: <span className="font-semibold text-slate-800">{resolvedProctorName}</span>
+              </span>
+            )}
           </p>
         </div>
 
