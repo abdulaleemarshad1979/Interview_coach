@@ -172,8 +172,16 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         private activeTimers: any[] = [];
 
         constructor(onSpeakingChange: (speaking: boolean) => void) {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          this.audioCtx = new AudioContextClass({ sampleRate: 24000 });
+          let ctx = unlockAudioContextRef.current;
+          if (!ctx) {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            ctx = new AudioContextClass({ sampleRate: 24000 });
+            unlockAudioContextRef.current = ctx;
+          }
+          if (ctx.state === "suspended") {
+            ctx.resume().catch(() => {});
+          }
+          this.audioCtx = ctx;
           this.onSpeakingChange = onSpeakingChange;
         }
 
@@ -229,10 +237,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
         public stop() {
           this.activeTimers.forEach(t => clearTimeout(t));
           this.activeTimers = [];
-          if (this.audioCtx) {
-            this.audioCtx.close();
-            this.audioCtx = null;
-          }
+          this.audioCtx = null;
           this.onSpeakingChange?.(false);
         }
       };
@@ -420,10 +425,10 @@ Converse naturally and speak in a human-like tone.`
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioContextClass) {
-        const ctx = new AudioContextClass();
+        const ctx = new AudioContextClass({ sampleRate: 24000 });
         unlockAudioContextRef.current = ctx;
         // Play a silent buffer to unlock the audio pipeline
-        const buffer = ctx.createBuffer(1, 1, 22050);
+        const buffer = ctx.createBuffer(1, 1, 24000);
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         source.connect(ctx.destination);
@@ -485,8 +490,12 @@ Converse naturally and speak in a human-like tone.`
           const mimeType = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.mimeType || "audio/wav";
 
           if (audioBase64) {
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            const audioCtx = new AudioContextClass({ sampleRate: 24000 });
+            let audioCtx = unlockAudioContextRef.current;
+            if (!audioCtx) {
+              const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+              audioCtx = new AudioContextClass({ sampleRate: 24000 });
+              unlockAudioContextRef.current = audioCtx;
+            }
             if (audioCtx.state === "suspended") await audioCtx.resume();
 
             const binaryStr = atob(audioBase64);
@@ -510,7 +519,6 @@ Converse naturally and speak in a human-like tone.`
             source.connect(audioCtx.destination);
             source.onended = () => {
               setIsAISpeaking(false);
-              audioCtx.close().catch(() => {});
             };
             source.start(0);
             console.log("[TTS] Playing via Gemini 2.5 Flash TTS — Aoede voice");
@@ -557,8 +565,12 @@ Converse naturally and speak in a human-like tone.`
             if (res.ok) {
               const data = await res.json();
               if (data.audioContent) {
-                const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-                const audioCtx = new AudioContextClass();
+                let audioCtx = unlockAudioContextRef.current;
+                if (!audioCtx) {
+                  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                  audioCtx = new AudioContextClass();
+                  unlockAudioContextRef.current = audioCtx;
+                }
                 if (audioCtx.state === "suspended") await audioCtx.resume();
 
                 const binaryStr = atob(data.audioContent);
@@ -569,7 +581,7 @@ Converse naturally and speak in a human-like tone.`
                 const source = audioCtx.createBufferSource();
                 source.buffer = audioBuffer;
                 source.connect(audioCtx.destination);
-                source.onended = () => { setIsAISpeaking(false); audioCtx.close().catch(() => {}); };
+                source.onended = () => { setIsAISpeaking(false); };
                 source.start(0);
                 console.log(`[TTS] Playing via Google Cloud TTS — ${voice.name}`);
                 return;
@@ -1354,13 +1366,16 @@ Converse naturally and speak in a human-like tone.`
         }
 
         if (e.error === "not-allowed") {
-          setError("Microphone permission was denied. Try enabling microphone in settings, or use manual keyboard mode.");
+          setError("Microphone permission was denied. Switched to keyboard typing mode.");
+          setIsManualEdit(true);
         } else if (e.error === "network") {
-          setError("Speech recognition network error. Try switching to manual keyboard mode.");
+          setError("Speech recognition network error. Switched to keyboard typing mode.");
+          setIsManualEdit(true);
         } else if (e.error === "no-speech") {
           setError("No speech was detected. Please try speaking closer to the microphone.");
         } else {
-          setError(`Speech recognition issue (${e.error}). You can switch to manual keyboard mode.`);
+          setError(`Speech recognition issue (${e.error}). Switched to keyboard typing mode.`);
+          setIsManualEdit(true);
         }
       };
 
@@ -1544,8 +1559,10 @@ Converse naturally and speak in a human-like tone.`
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
-      } catch (e) {
+      } catch (e: any) {
         console.error("Speech recognition startup error:", e);
+        setError("Could not start speech recognition. Switched to keyboard typing mode.");
+        setIsManualEdit(true);
       }
     }
 
