@@ -1085,7 +1085,7 @@ Respond with STRICT JSON matching this schema:
 // 3. API Endpoint: Generate 6 Adaptive Interview Questions
 app.post("/api/interview/generate-questions", requireAuth, async (req: any, res) => {
   try {
-    const { analysisResult } = req.body;
+    const { analysisResult, interviewType } = req.body;
 
     if (!analysisResult) {
       res.status(400).json({ error: "Analysis result is required to generate tailored questions." });
@@ -1102,7 +1102,65 @@ app.post("/api/interview/generate-questions", requireAuth, async (req: any, res)
       }
     }
 
-    const prompt = `You are a world-class technical interviewer compiling a personalized, adaptive interview plan.
+    let prompt = "";
+    if (interviewType === "soft-skills") {
+      prompt = `You are a world-class behavioral interviewer compiling a personalized, adaptive behavioral and soft-skills interview plan.
+Based on the candidate's profile:
+- Parsed Resume: ${JSON.stringify(analysisResult.parsedResume)}
+- GitHub Repos: ${JSON.stringify(analysisResult.githubAnalysis)}
+
+Generate exactly 6 behavioral and soft skills questions that escalate in difficulty, using projects and stack details from their resume to make the questions highly contextual and realistic.
+Assess the following soft skills:
+1. Communication Clarity (Beginner difficulty) — warm-up. Ask the candidate to explain one of the projects or roles from their resume, focusing on clear and structured explanation of their background/interests.
+2. Teamwork & Collaboration (Developing difficulty) — ask about a group project experience, a conflict with a teammate, how they handled disagreements, or shared responsibility.
+3. Problem-Solving & Adaptability (Intermediate difficulty) — test how they react when requirements change, when they get a new constraint, or when their first solution fails.
+4. Ownership & Accountability (Intermediate difficulty) — look for whether they take responsibility for their work, mention what they did vs what the team did, and reflect on mistakes and improvements.
+5. Emotional Intelligence & Learning (Advanced difficulty) — focus on response to criticism/feedback, empathy toward teammates/users, maturity, and how they pick up new tools.
+6. Decision-Making Under Pressure (Expert difficulty) — frame a realistic high-pressure situational question customized to their technology stack or projects (e.g. "What would you do if your teammate disappears before demo day?" or "How would you handle a client changing requirements at the last minute?").
+
+Respond with STRICT JSON matching this schema:
+{
+  "questions": [
+    {
+      "id": "question_1",
+      "text": "The custom behavioral question tailored to their profile.",
+      "category": "Communication Clarity",
+      "difficulty": "Beginner"
+    },
+    {
+      "id": "question_2",
+      "text": "The custom behavioral question tailored to their profile.",
+      "category": "Teamwork & Collaboration",
+      "difficulty": "Developing"
+    },
+    {
+      "id": "question_3",
+      "text": "The custom behavioral question tailored to their profile.",
+      "category": "Problem-Solving & Adaptability",
+      "difficulty": "Intermediate"
+    },
+    {
+      "id": "question_4",
+      "text": "The custom behavioral question tailored to their profile.",
+      "category": "Ownership & Accountability",
+      "difficulty": "Intermediate"
+    },
+    {
+      "id": "question_5",
+      "text": "The custom behavioral question tailored to their profile.",
+      "category": "Emotional Intelligence & Learning",
+      "difficulty": "Advanced"
+    },
+    {
+      "id": "question_6",
+      "text": "The custom behavioral question tailored to their profile.",
+      "category": "Decision-Making Under Pressure",
+      "difficulty": "Expert"
+    }
+  ]
+}`;
+    } else {
+      prompt = `You are a world-class technical interviewer compiling a personalized, adaptive interview plan.
 Based on the candidate's profile:
 - Parsed Resume: ${JSON.stringify(analysisResult.parsedResume)}
 - GitHub Repos: ${JSON.stringify(analysisResult.githubAnalysis)}
@@ -1157,6 +1215,7 @@ Respond with STRICT JSON matching this schema:
     }
   ]
 }`;
+    }
 
     const entropySeed = Math.random().toString(36).substring(2, 10);
     const completionText = await getLLMCompletion({
@@ -1232,7 +1291,48 @@ Constructively evaluate the student's pacing and vocal confidence. If the pace i
 `;
     }
 
-    const prompt = `You are an elite communication coach and technical grader. Grade this candidate's spoken response transcript.
+    const softSkillsCategories = [
+      "Communication Clarity",
+      "Teamwork & Collaboration",
+      "Problem-Solving & Adaptability",
+      "Ownership & Accountability",
+      "Emotional Intelligence & Learning",
+      "Decision-Making Under Pressure"
+    ];
+    const isSoftSkill = softSkillsCategories.includes(category);
+
+    let prompt = "";
+    if (isSoftSkill) {
+      prompt = `You are an elite behavioral coach and soft skills assessor. Grade this candidate's spoken response transcript.
+Question Category (Soft Skill assessed): ${category}
+Question asked: "${questionText}"
+Spoken Answer Transcript: "${transcript}"
+${visualMetricsPrompt}
+${audioMetricsPrompt}
+
+Evaluate the candidate's response specifically based on these soft skills parameters:
+1. Communication Clarity: Check for clear, structured answers vs vague, rambling or confusing ones.
+2. Confidence without Arrogance: Check if they speak with certainty, can honestly say "I don't know" when appropriate, avoid exaggeration, and stay calm.
+3. Problem-solving Approach: Assess how they think aloud, break problems into steps, handle incomplete information, and ask good clarifying questions.
+4. Teamwork & Collaboration: Assess group project experiences, teammate conflict handling, handling disagreements, and sharing responsibility.
+5. Adaptability: Test how they react to requirements/constraints changes and initial failures.
+6. Ownership & Accountability: Look for whether they take responsibility for their work, mention individual vs team contributions, and reflect on mistakes/improvements.
+7. Emotional Intelligence: Look for respect in language, empathy toward teammates/users, and maturity.
+8. Learning Mindset: Look for what they learned from projects/failures and response to criticism.
+
+Provide feedback conforming to the following JSON schema:
+{
+  "score": 85, // Integer from 0 to 100 assessing the maturity and strength of their behavioral/soft skills response
+  "strengths": ["strong point description, e.g. detailed individual role vs team role"],
+  "improvements": ["improvement description, e.g. needs to show more empathy towards colleagues during conflicts"],
+  "speechFeedback": "Feedback about vocabulary richness, structural coherence, and filler-word reduction.",
+  "contentFeedback": "Feedback on the alignment, maturity, and quality of the soft skills/behavioral response.",
+  "presentationFeedback": "Guidance on on-camera verbal engagement, pacing, confidence, and articulation."
+}
+
+RULE: Absolutely do not judge or infer personal, physical, medical, emotional, or identity traits. Evaluate only the speech structure, communication technique, and the soft skills maturity shown by the content of the answer.`;
+    } else {
+      prompt = `You are an elite communication coach and technical grader. Grade this candidate's spoken response transcript.
 Question Category: ${category}
 Question asked: "${questionText}"
 Spoken Answer Transcript: "${transcript}"
@@ -1250,6 +1350,7 @@ Provide feedback conforming to the following JSON schema:
 }
 
 RULE: Absolutely do not judge or infer personal, physical, medical, emotional, or identity traits. Evaluate only the speech structure, communication technique, and technical accuracy of the spoken content.`;
+    }
 
     const completionText = await getLLMCompletion({
       messages: [
@@ -1285,7 +1386,7 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
 // 5. API Endpoint: Compile Final Report & Scorecard
 app.post("/api/interview/generate-report", requireAuth, async (req: any, res) => {
   try {
-    const { studentId, githubUsername, answerFeedbacks, originalAnalysis } = req.body;
+    const { studentId, githubUsername, answerFeedbacks, originalAnalysis, interviewType } = req.body;
 
     if (!answerFeedbacks || !Array.isArray(answerFeedbacks) || answerFeedbacks.length === 0) {
       res.status(400).json({ error: "Answers feedback list is required to compile a final report." });
@@ -1302,7 +1403,72 @@ app.post("/api/interview/generate-report", requireAuth, async (req: any, res) =>
       }
     }
 
-    const prompt = `You are a senior talent architect and engineering director. Review the performance logs of a college student mock interview:
+    const isSoftSkills = interviewType === "soft-skills" || (answerFeedbacks[0] && [
+      "Communication Clarity",
+      "Teamwork & Collaboration",
+      "Problem-Solving & Adaptability",
+      "Ownership & Accountability",
+      "Emotional Intelligence & Learning",
+      "Decision-Making Under Pressure"
+    ].includes(answerFeedbacks[0].category));
+
+    let prompt = "";
+    if (isSoftSkills) {
+      prompt = `You are a senior behavioral coach and talent development director. Review the performance logs of a college student mock behavioral/soft skills interview:
+- Candidate Profile summary: Resume: ${JSON.stringify(originalAnalysis?.parsedResume?.skills || [])}, GitHub Stack: ${JSON.stringify(originalAnalysis?.githubAnalysis?.primaryStack || [])}
+- Question-by-question response audits: ${JSON.stringify(answerFeedbacks)}
+
+Synthesize a comprehensive University-grade Behavioral & Soft Skills Interview Scorecard report.
+Calculate:
+1. Overall score (0 to 100) — synthesized from communication, collaboration, problem-solving, and emotional intelligence categories.
+2. Category scores (0 to 100) for:
+   - communicationClarity (structure, coherence, ability to clearly explain projects/mistakes)
+   - presentationConfidence (vocal certainty, calm under pressure, authentic delivery)
+   - problemSolving (how they structure thoughts, think aloud, break problems down)
+   - teamworkCollaboration (how they handle conflicts, disagreements, share responsibility)
+   - adaptabilityResilience (how they react to changing constraints/failure)
+   - ownershipEQ (responsibility, learning mindset, maturity under criticism, empathy)
+   - overallReadiness (overall benchmark readiness for landing a job / handling behavioral and corporate culture rounds)
+3. Map overall score to standard Candidate Levels:
+   - 0-59: Beginner
+   - 60-72: Developing
+   - 73-84: Interview Ready
+   - 85-92: Strong Candidate
+   - 93-100: Excellent Candidate
+4. Compile bulleted overall Strengths and Weaknesses.
+5. Recommend specific practical focus topics to improve their interpersonal and team dynamics.
+6. Provide "Sample Improved Answers" for 3 of the interview questions: show the question, the student's response, a pristine industry-standard expert-level behavioral response (using STAR format: Situation, Task, Action, Result), and an explanation of what makes it stand out.
+7. Write a professional, encouraging "final verdict" summation.
+
+Respond with STRICT JSON matching this schema:
+{
+  "overallScore": 85,
+  "candidateLevel": "Interview Ready",
+  "interviewType": "soft-skills",
+  "categoryScores": {
+    "communicationClarity": 90,
+    "presentationConfidence": 85,
+    "problemSolving": 80,
+    "teamworkCollaboration": 85,
+    "adaptabilityResilience": 80,
+    "ownershipEQ": 90,
+    "overallReadiness": 85
+  },
+  "strengths": ["Strength description"],
+  "weaknesses": ["Weakness description"],
+  "recommendedTopics": ["Topic description"],
+  "sampleAnswers": [
+    {
+      "question": "Question text",
+      "originalResponse": "Student response text",
+      "improvedVersion": "STAR formatted rewritten behavioral answer",
+      "explanation": "Explanation description"
+    }
+  ],
+  "finalVerdict": "Summation verdict text"
+}`;
+    } else {
+      prompt = `You are a senior talent architect and engineering director. Review the performance logs of a college student mock interview:
 - Candidate Profile summary: Resume: ${JSON.stringify(originalAnalysis?.parsedResume?.skills || [])}, GitHub Stack: ${JSON.stringify(originalAnalysis?.githubAnalysis?.primaryStack || [])}
 - Question-by-question response audits: ${JSON.stringify(answerFeedbacks)}
 
@@ -1333,6 +1499,7 @@ Respond with STRICT JSON matching this schema:
 {
   "overallScore": 85,
   "candidateLevel": "Interview Ready",
+  "interviewType": "technical",
   "categoryScores": {
     "resumeStrength": 80,
     "githubStrength": 85,
@@ -1356,6 +1523,7 @@ Respond with STRICT JSON matching this schema:
   ],
   "finalVerdict": "Summation verdict text"
 }`;
+    }
 
     const completionText = await getLLMCompletion({
       messages: [
@@ -1371,6 +1539,7 @@ Respond with STRICT JSON matching this schema:
       studentId,
       githubUsername,
       date: new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' }),
+      interviewType: isSoftSkills ? "soft-skills" : "technical",
       ...rawReport
     };
 
@@ -2190,9 +2359,137 @@ app.post("/api/gd-room/leave", async (req, res) => {
     res.status(500).json({ error: "Failed to process leave." });
   }
 });
+// --- System Health Check Endpoint for Load Balancers & Self-Healing ---
+app.get("/api/health", async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    let dbStatus = "Not Configured";
+    if (supabase) {
+      try {
+        const { error } = await supabase.from("group_discussion_rooms").select("code").limit(1);
+        dbStatus = error ? `Error: ${error.message}` : "Connected";
+      } catch (dbErr: any) {
+        dbStatus = `Error: ${dbErr.message}`;
+      }
+    }
+    
+    const stats = {
+      status: "healthy",
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+      memory: process.memoryUsage(),
+      database: dbStatus,
+      system: {
+        platform: process.platform,
+        nodeVersion: process.version
+      }
+    };
+    res.json(stats);
+  } catch (err: any) {
+    res.status(500).json({ status: "unhealthy", error: err.message });
+  }
+});
+
+// --- API Endpoint: Evaluate Recorded GD Voice Audio with Multimodal Gemini ---
+app.post("/api/gd-room/evaluate-audio", requireAuth, async (req: any, res) => {
+  try {
+    const { audio, mimeType, transcript, topic } = req.body;
+
+    if (!audio) {
+      res.status(400).json({ error: "Base64 audio payload is required." });
+      return;
+    }
+
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+    if (!geminiKey) {
+      res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server. Audio analysis is unavailable." });
+      return;
+    }
+
+    console.log(`[Gemini Multimodal] Evaluating GD recorded audio for topic: "${topic || 'Untitled'}"`);
+
+    const prompt = `You are an elite academic soft-skills evaluator and voice coach.
+You are evaluating a candidate's verbal performance in a Group Discussion.
+Discussion Topic: "${topic || 'General Discussion'}"
+Candidate's Spoken Transcript: "${transcript || 'No transcript available.'}"
+
+Analyze the attached audio recording of the candidate's speech. Evaluate their:
+1. Pitch variance & vocal expression (monotone vs animated, confidence cues)
+2. Speaking pace & rhythm (words per minute, pauses, filler words like "um", "uh", "like")
+3. Pronunciation clarity & vocal articulation
+4. Content structure (relevance to the topic, maturity of arguments)
+
+Provide a rigorous, constructive evaluation. Conform strictly to this JSON format:
+{
+  "vocalClarity": 85, // 0 to 100 rating of how clear and understandable their voice was
+  "speakingPace": "Optimal (130 WPM)", // qualitative description of pacing
+  "pitchVariance": "Good variation, animated tone", // qualitative description of inflection
+  "fillerWordsFeedback": "Feedback on occurrences of filler words",
+  "strengths": ["Vocal clarity was excellent", "Well-structured arguments in dialogue"],
+  "improvements": ["Reduce use of filler words like 'like'", "Add more vocal expressiveness"],
+  "voiceCoachFeedback": "Detailed feedback advising how they can improve their voice projection, clarity, and pacing."
+}
+
+Do not include any Markdown wrapper like \`\`\`json. Return pure JSON string only.`;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: mimeType || "audio/webm",
+                  data: audio
+                }
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Gemini API error: ${response.status} - ${errorText}`);
+      res.status(500).json({ error: `Gemini API returned error: ${response.status}` });
+      return;
+    }
+
+    const result = await response.json();
+    const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    
+    let parsedResult;
+    try {
+      parsedResult = JSON.parse(rawText.trim());
+    } catch (parseErr) {
+      console.warn("Gemini did not return valid JSON, sending raw text wrapper", rawText);
+      parsedResult = {
+        vocalClarity: 70,
+        speakingPace: "N/A",
+        pitchVariance: "N/A",
+        fillerWordsFeedback: "Unable to parse vocal patterns.",
+        strengths: ["Spoke actively during discussion"],
+        improvements: ["Ensure clean recording context"],
+        voiceCoachFeedback: rawText
+      };
+    }
+
+    res.json(parsedResult);
+  } catch (err: any) {
+    console.error("Audio evaluation error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 
-app.get("/api/gd-room/diagnose", async (req, res) => {
+app.get("/api/gd-room/diagnose", requireAuth, async (req: any, res) => {
   try {
     const rawUrl = process.env.SUPABASE_URL || "";
     const rawKey = process.env.SUPABASE_ANON_KEY || "";

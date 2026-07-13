@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { StudentProfile } from "../types";
 import Button from "./ui/Button";
+import { supabase } from "../lib/supabaseClient";
 
 interface GroupDiscussionPageProps {
   studentProfile: StudentProfile;
@@ -132,6 +133,20 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const [isPollingMode, setIsPollingMode] = useState(false);
   const [myParticipantId, setMyParticipantId] = useState<string | null>(null);
 
+  // Voice recording and AI audio analysis states
+  const [isAudioRecording, setIsAudioRecording] = useState(false);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [audioAnalysis, setAudioAnalysis] = useState<any | null>(null);
+  const [analyzingAudio, setAnalyzingAudio] = useState(false);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingIntervalRef = useRef<any>(null);
+  const audioMixerDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const recordingContextRef = useRef<AudioContext | null>(null);
+
   // Discord-like media control states
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [micMuted, setMicMuted] = useState(false);
@@ -238,6 +253,21 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         ...prev,
         [peerId]: remoteStream
       }));
+
+      // Dynamically connect new remote tracks to mixer if recording is active
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording" && recordingContextRef.current && audioMixerDestRef.current) {
+        try {
+          const audioTracks = remoteStream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            const rCtx = recordingContextRef.current;
+            const dest = audioMixerDestRef.current;
+            const remoteSource = rCtx.createMediaStreamSource(new MediaStream([audioTracks[0]]));
+            remoteSource.connect(dest);
+          }
+        } catch (err) {
+          console.warn("Failed to dynamically connect remote stream to mixer:", err);
+        }
+      }
     };
 
     return pc;
@@ -310,6 +340,160 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       setRemoteStreams({});
     }
   }, [step]);
+
+  const startCombinedRecording = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const rCtx = new AudioCtx();
+      recordingContextRef.current = rCtx;
+      
+      const dest = rCtx.createMediaStreamDestination();
+      audioMixerDestRef.current = dest;
+      
+      // Connect local stream (mic track)
+      const localStr = mediaStreamRef.current;
+      if (localStr && localStr.getAudioTracks().length > 0) {
+        try {
+          const localSource = rCtx.createMediaStreamSource(new MediaStream([localStr.getAudioTracks()[0]]));
+          localSource.connect(dest);
+        } catch (err) {
+          console.warn("Failed to connect local stream to recording mixer:", err);
+        }
+      }
+      
+      // Connect all remote streams
+      Object.values(remoteStreams).forEach(stream => {
+        const audioTracks = stream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          try {
+            const remoteSource = rCtx.createMediaStreamSource(new MediaStream([audioTracks[0]]));
+            remoteSource.connect(dest);
+          } catch (err) {
+            console.warn("Failed to connect remote stream to recording mixer:", err);
+          }
+        }
+      });
+      
+      audioChunksRef.current = [];
+      const options = { mimeType: "audio/webm" };
+      let recorder;
+      try {
+        recorder = new MediaRecorder(dest.stream, options);
+      } catch (e) {
+        recorder = new MediaRecorder(dest.stream); // Fallback
+      }
+      
+      mediaRecorderRef.current = recorder;
+      
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        setAudioBlob(blob);
+        const url = URL.createObjectURL(blob);
+        setRecordedAudioUrl(url);
+      };
+      
+      recorder.start();
+      setIsAudioRecording(true);
+      setRecordingDuration(0);
+      
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+      
+      console.log("Combined recording started.");
+    } catch (err) {
+      console.error("Failed to start combined recording:", err);
+    }
+  };
+
+  const stopCombinedRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+    setIsAudioRecording(false);
+    if (recordingContextRef.current) {
+      recordingContextRef.current.close().catch(() => {});
+      recordingContextRef.current = null;
+    }
+    console.log("Combined recording stopped.");
+  };
+
+  const analyzeVoiceRecording = async () => {
+    if (!audioBlob) {
+      setError("No recorded audio file found to analyze.");
+      return;
+    }
+    
+    setAnalyzingAudio(true);
+    setError(null);
+    
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(audioBlob);
+      reader.onloadend = async () => {
+        try {
+          const base64Data = (reader.result as string).split(",")[1];
+          const session = await supabase.auth.getSession();
+          const token = session.data.session?.access_token;
+          
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json"
+          };
+          if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
+          }
+
+          const response = await fetch("/api/gd-room/evaluate-audio", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              audio: base64Data,
+              mimeType: audioBlob.type || "audio/webm",
+              transcript: dialogue.map(t => `${t.speakerName}: ${t.text}`).join("\n"),
+              topic: topicToUse
+            })
+          });
+
+          if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error || "Failed to analyze recorded audio.");
+          }
+
+          const results = await response.json();
+          setAudioAnalysis(results);
+        } catch (err: any) {
+          console.error("Audio analysis failed:", err);
+          setError("Failed to run AI voice analysis: " + err.message);
+        } finally {
+          setAnalyzingAudio(false);
+        }
+      };
+    } catch (err: any) {
+      console.error("Audio conversion failed:", err);
+      setError("Failed to process recording: " + err.message);
+      setAnalyzingAudio(false);
+    }
+  };
+
+  useEffect(() => {
+    if (step === "discussion" && roomStarted) {
+      startCombinedRecording();
+    }
+    return () => {
+      stopCombinedRecording();
+    };
+  }, [step, roomStarted]);
 
   // Dynamically update audio track enablement based on micMuted state
   useEffect(() => {
@@ -943,6 +1127,14 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     setError(null);
     setReceiveLog([]);
     setCurrentText("");
+
+    // Reset voice recording states
+    setIsAudioRecording(false);
+    setRecordedAudioUrl(null);
+    setAudioBlob(null);
+    setRecordingDuration(0);
+    setAudioAnalysis(null);
+    setAnalyzingAudio(false);
   };
 
   const evaluationParticipants = evaluation?.participants || [];
@@ -1187,6 +1379,21 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   </div>
                 </div>
               </div>
+
+              {isAudioRecording && (
+                <div className="p-3.5 bg-emerald-50 border border-emerald-250/50 rounded-xl space-y-2 flex flex-col justify-between shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider font-mono flex items-center gap-1.5 animate-pulse">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                      Live Audio Recording
+                    </span>
+                    <span className="text-[10px] font-mono text-emerald-800 font-bold bg-white px-2 py-0.5 rounded border border-emerald-100">
+                      {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, "0")}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-emerald-650 font-sans leading-normal">Recording soft-skills voice tracks. Audio is mixed and processed live.</p>
+                </div>
+              )}
 
               {/* Supervised Banner */}
               <div className="p-3 bg-brand-accent/5 border border-brand-accent/20 rounded-xl space-y-1.5">
@@ -1492,6 +1699,99 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
               </div>
             ))}
           </div>
+
+          {/* Voice Chat Recording and Multimodal AI Analysis */}
+          {recordedAudioUrl && (
+            <div className="bg-white border border-slate-100 shadow-sm rounded-2xl p-5 space-y-4">
+              <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                    <Mic className="w-4 h-4 text-emerald-500" />
+                    Live Voice Chat Recording
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Listen to your group discussion audio recording.</p>
+                </div>
+                <div className="text-xs text-slate-500 bg-slate-50 border border-slate-150 px-2.5 py-1 rounded-lg">
+                  Duration: {Math.floor(recordingDuration / 60)}m {recordingDuration % 60}s
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row items-center gap-4 justify-between bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <audio src={recordedAudioUrl} controls className="w-full max-w-md" />
+                <Button
+                  onClick={analyzeVoiceRecording}
+                  disabled={analyzingAudio}
+                  className="w-full md:w-auto px-5 py-2.5 flex items-center justify-center gap-2 text-xs font-bold badge-white-text"
+                >
+                  {analyzingAudio ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Analyzing Voice...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      Run AI Voice Soft-Skills Audit
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {audioAnalysis && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
+                  <div className="md:col-span-1 border border-slate-100 rounded-xl p-4 bg-slate-50/50 space-y-4 flex flex-col justify-between">
+                    <div className="space-y-4">
+                      <div className="text-center">
+                        <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block">Voice Clarity Score</span>
+                        <div className="text-3xl font-mono font-black text-emerald-600 mt-1">{audioAnalysis.vocalClarity}%</div>
+                      </div>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                          <span className="text-slate-500">Speaking Pace:</span>
+                          <span className="font-semibold text-slate-800">{audioAnalysis.speakingPace}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                          <span className="text-slate-500">Vocal Inflection:</span>
+                          <span className="font-semibold text-slate-800">{audioAnalysis.pitchVariance}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-slate-500 italic bg-white border border-slate-100 p-2.5 rounded-lg text-left">
+                      <span className="font-bold text-slate-700 not-italic block mb-0.5">Filler Words Feedback:</span>
+                      "{audioAnalysis.fillerWordsFeedback}"
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-2 border border-slate-100 rounded-xl p-4 space-y-4 bg-white text-left">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                      <div>
+                        <span className="font-bold text-emerald-650 text-[10px] uppercase tracking-wider block">Vocal Strengths</span>
+                        <ul className="list-disc pl-4 mt-2 space-y-1 text-slate-650">
+                          {audioAnalysis.strengths?.map((str: string, idx: number) => (
+                            <li key={idx}>{str}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <span className="font-bold text-brand-accent text-[10px] uppercase tracking-wider block">Vocal Improvements</span>
+                        <ul className="list-disc pl-4 mt-2 space-y-1 text-slate-650">
+                          {audioAnalysis.improvements?.map((imp: string, idx: number) => (
+                            <li key={idx}>{imp}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                    <div className="border-t border-slate-100 pt-3">
+                      <span className="font-bold text-slate-850 text-[10px] uppercase tracking-wider block">Voice Coach Evaluation</span>
+                      <p className="mt-2 text-[11px] leading-relaxed text-slate-650 font-sans whitespace-pre-line">
+                        {audioAnalysis.voiceCoachFeedback}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="bg-white border border-slate-100 shadow-sm rounded-2xl p-5 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-3">

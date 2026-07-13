@@ -65,6 +65,34 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const [showTapToHear, setShowTapToHear] = useState(false);
   const [captionExpanded, setCaptionExpanded] = useState(false);
 
+  // Live Speech-to-Speech Conversation logs & helpers
+  interface ChatMessage {
+    sender: "candidate" | "ai";
+    text: string;
+    timestamp: number;
+  }
+  const [conversationHistory, setConversationHistory] = useState<ChatMessage[]>([]);
+  const [aiTextAccumulated, setAiTextAccumulated] = useState("");
+  const [autoAdvanceCountdown, setAutoAdvanceCountdown] = useState<number | null>(null);
+
+  const updateConversationHistory = (sender: "candidate" | "ai", text: string) => {
+    setConversationHistory((prev) => {
+      const now = Date.now();
+      const lastMsg = prev[prev.length - 1];
+      if (lastMsg && lastMsg.sender === sender && (now - lastMsg.timestamp < 6000)) {
+        return [
+          ...prev.slice(0, -1),
+          { ...lastMsg, text, timestamp: now }
+        ];
+      } else {
+        return [
+          ...prev,
+          { sender, text, timestamp: now }
+        ];
+      }
+    });
+  };
+
   // Audio unlock ref for mobile browsers (iOS/Android require a user gesture)
   const audioUnlockedRef = useRef<boolean>(false);
   const unlockAudioContextRef = useRef<AudioContext | null>(null);
@@ -231,7 +259,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
     // Direct Google Gemini Live connection if Vercel or local key is present
     const directKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
-    if ((host.includes("vercel.app") || host.includes("localhost:5173") || host.includes("127.0.0.1")) && directKey) {
+    if ((host.includes("vercel.app") || host.includes("localhost:5173") || host.includes("localhost:3000") || host.includes("127.0.0.1")) && directKey) {
       console.log("Connecting directly to Google Gemini Live API from browser...");
       socketUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${directKey}`;
       setVoiceMode("direct");
@@ -291,10 +319,32 @@ Converse naturally and speak in a human-like tone.`
               if (part.inlineData && part.inlineData.mimeType.startsWith("audio/pcm")) {
                 playAudioChunk(part.inlineData.data);
               }
+              if (part.text) {
+                const textChunk = part.text;
+                setAiTextAccumulated((prev) => {
+                  const newVal = prev + textChunk;
+                  updateConversationHistory("ai", newVal);
+                  return newVal;
+                });
+              }
             });
+          }
+          if (payload.serverContent?.turnComplete) {
+            setAiTextAccumulated("");
           }
           if (payload.type === "audio_chunk") {
             playAudioChunk(payload.data);
+          }
+          if (payload.type === "text_chunk" && payload.text) {
+            const textChunk = payload.text;
+            setAiTextAccumulated((prev) => {
+              const newVal = prev + textChunk;
+              updateConversationHistory("ai", newVal);
+              return newVal;
+            });
+          }
+          if (payload.type === "turn_complete") {
+            setAiTextAccumulated("");
           }
         } catch (e) {
           console.error("Error reading socket stream chunk:", e);
@@ -716,6 +766,24 @@ Converse naturally and speak in a human-like tone.`
       return () => clearTimeout(speechTimer);
     }
   }, [currentFeedback, isVoiceMuted]);
+
+  // 1d. Auto-advance after feedback finishes speaking (Hands-Free mode)
+  useEffect(() => {
+    if (voiceInterviewMode && currentFeedback && !isAISpeaking) {
+      setAutoAdvanceCountdown(5);
+      const interval = setInterval(() => {
+        setAutoAdvanceCountdown((prev) => {
+          if (prev === null || prev <= 1) {
+            clearInterval(interval);
+            handleNextQuestion();
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [isAISpeaking, currentFeedback, voiceInterviewMode]);
 
   // 2. Timer effect during recording
   useEffect(() => {
@@ -1165,287 +1233,6 @@ Converse naturally and speak in a human-like tone.`
   }, [webcamActive, isRecording]);
 
   const getGazeColor = (status: string) => {
-
-        faceMeshInstance.onResults((results: any) => {
-          if (!active) return;
-          
-          // Measure average brightness
-          const metrics = analyzeCameraFrame();
-          setCameraBrightness(metrics.brightness);
-
-          if (metrics.brightness < 15) {
-            setEyeGazeStatus("OFFLINE");
-            setPostureStatus("OFFLINE");
-            setExpressionStatus("OFFLINE");
-            setHeadStatus("OFFLINE");
-            return;
-          }
-
-          const landmarks = results.multiFaceLandmarks?.[0];
-          if (!landmarks) {
-            // No face detected
-            setEyeGazeStatus("OFFLINE");
-            setPostureStatus("OFFLINE");
-            setExpressionStatus("OFFLINE");
-            setHeadStatus("OFFLINE");
-            return;
-          }
-
-          // We have real coordinates! Let's process them
-          // Indices:
-          // Nose tip: 1 or 4
-          // Chin: 152
-          // Forehead: 10
-          // Left side of face: 234
-          // Right side of face: 454
-          // Left eye socket: 33 (outer corner), 133 (inner corner)
-          // Left pupil (iris center): 468
-          // Right eye socket: 263 (outer corner), 362 (inner corner)
-          // Right pupil (iris center): 473
-          // Mouth corners: 61, 291
-          
-          const nose = landmarks[4] || landmarks[1];
-          const chin = landmarks[152];
-          const forehead = landmarks[10];
-          const leftFace = landmarks[234];
-          const rightFace = landmarks[454];
-          
-          const leftEyeOuter = landmarks[33];
-          const leftEyeInner = landmarks[133];
-          const leftPupil = landmarks[468];
-
-          const rightEyeOuter = landmarks[263];
-          const rightEyeInner = landmarks[362];
-          const rightPupil = landmarks[473];
-          
-          const mouthLeft = landmarks[61];
-          const mouthRight = landmarks[291];
-
-          if (!nose || !chin || !forehead || !leftFace || !rightFace || 
-              !leftEyeOuter || !leftEyeInner || !leftPupil || 
-              !rightEyeOuter || !rightEyeInner || !rightPupil || 
-              !mouthLeft || !mouthRight) {
-            return;
-          }
-
-          const faceWidth = Math.abs(rightFace.x - leftFace.x) || 0.01;
-          const faceHeight = Math.abs(chin.y - forehead.y) || 0.01;
-
-          // Yaw rotation (turn left/right)
-          const noseRelX = (nose.x - Math.min(leftFace.x, rightFace.x)) / faceWidth;
-          const smoothedYaw = pushAndAverage(yawHistoryRef, noseRelX, 10);
-          
-          let headYaw: "CENTERED" | "TURNED LEFT" | "TURNED RIGHT" = "CENTERED";
-          if (smoothedYaw < 0.40) {
-            headYaw = "TURNED LEFT";
-          } else if (smoothedYaw > 0.60) {
-            headYaw = "TURNED RIGHT";
-          }
-
-          // Pitch rotation (tilt up/down)
-          const noseRelY = (nose.y - forehead.y) / faceHeight;
-          const smoothedPitch = pushAndAverage(pitchHistoryRef, noseRelY, 10);
-          
-          let headPitch: "CENTERED" | "TILTED" = "CENTERED";
-          if (smoothedPitch < 0.42 || smoothedPitch > 0.58) {
-            headPitch = "TILTED";
-          }
-
-          // Posture check using nose tip coordinates
-          let currentPosture: "ALIGNED" | "SLOUCHING" | "LEANING" = "ALIGNED";
-          if (nose.y > 0.58) {
-            currentPosture = "SLOUCHING";
-          } else if (nose.x < 0.38 || nose.x > 0.62) {
-            currentPosture = "LEANING";
-          }
-
-          // Gaze check using relative iris position in BOTH eye sockets
-          const leftEyeRange = Math.abs(leftEyeOuter.x - leftEyeInner.x) || 0.01;
-          const leftGaze = Math.abs(leftPupil.x - Math.min(leftEyeOuter.x, leftEyeInner.x)) / leftEyeRange;
-          
-          const rightEyeRange = Math.abs(rightEyeOuter.x - rightEyeInner.x) || 0.01;
-          const rightGaze = Math.abs(rightPupil.x - Math.min(rightEyeOuter.x, rightEyeInner.x)) / rightEyeRange;
-          
-          const avgGaze = (leftGaze + rightGaze) / 2;
-          const smoothedGaze = pushAndAverage(gazeHistoryRef, avgGaze, 12);
-          
-          let currentGaze: "STABLE ENGAGED" | "LOOKING AWAY" | "DISTRACTED" = "STABLE ENGAGED";
-          if (smoothedGaze < 0.32 || smoothedGaze > 0.68) {
-            currentGaze = "DISTRACTED";
-          } else if (smoothedGaze < 0.38 || smoothedGaze > 0.62) {
-            currentGaze = "LOOKING AWAY";
-          }
-
-          // Expression check: Smiling and Furrowed brows (Tension)
-          const mouthWidth = Math.abs(mouthRight.x - mouthLeft.x);
-          const mouthRatio = mouthWidth / faceWidth;
-          const smoothedMouth = pushAndAverage(mouthHistoryRef, mouthRatio, 10);
-          
-          // Eyebrow furrow (Tension)
-          const browDist = Math.abs(landmarks[285].x - landmarks[55].x) / faceWidth;
-          const smoothedBrow = pushAndAverage(browHistoryRef, browDist, 10);
-
-          let currentExpr: "CONFIDENT" | "NEUTRAL" | "SMILING" | "TENSE" = "CONFIDENT";
-          
-          // Smile Detection (mouth ratio > 0.38 or mouth corners pulled up)
-          const cornersY = (mouthLeft.y + mouthRight.y) / 2;
-          const lipCenterY = (landmarks[0].y + landmarks[17].y) / 2;
-          
-          if (smoothedMouth > 0.385 || cornersY < lipCenterY - 0.005) {
-            currentExpr = "SMILING";
-          } else if (smoothedBrow < 0.165 || smoothedMouth < 0.29) {
-            currentExpr = "TENSE";
-          } else {
-            currentExpr = Math.random() < 0.6 ? "CONFIDENT" : "NEUTRAL";
-          }
-
-          // Update state variables
-          setPostureStatus(currentPosture);
-          setEyeGazeStatus(currentGaze);
-          setExpressionStatus(currentExpr);
-          
-          let currentHeadStatus: "CENTERED" | "TURNED LEFT" | "TURNED RIGHT" | "TILTED" | "MOVING" | "OFFLINE" = "CENTERED";
-          if (metrics.motion >= 15.0) {
-            currentHeadStatus = "MOVING";
-          } else if (headYaw !== "CENTERED") {
-            currentHeadStatus = headYaw;
-          } else if (headPitch !== "CENTERED") {
-            currentHeadStatus = "TILTED";
-          }
-          setHeadStatus(currentHeadStatus);
-
-          // Update stats during recording
-          if (isRecording) {
-            if (currentGaze === "STABLE ENGAGED") setGazeStats(prev => ({ ...prev, stable: prev.stable + 1 }));
-            else if (currentGaze === "LOOKING AWAY") setGazeStats(prev => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
-            else setGazeStats(prev => ({ ...prev, distracted: prev.distracted + 1 }));
-
-            if (currentPosture === "ALIGNED") setPostureStats(prev => ({ ...prev, aligned: prev.aligned + 1 }));
-            else if (currentPosture === "SLOUCHING") setPostureStats(prev => ({ ...prev, slouching: prev.slouching + 1 }));
-            else setPostureStats(prev => ({ ...prev, leaning: prev.leaning + 1 }));
-
-            if (currentExpr === "CONFIDENT") setExpressionStats(prev => ({ ...prev, confident: prev.confident + 1 }));
-            else if (currentExpr === "SMILING") setExpressionStats(prev => ({ ...prev, smiling: prev.smiling + 1 }));
-            else if (currentExpr === "NEUTRAL") setExpressionStats(prev => ({ ...prev, neutral: prev.neutral + 1 }));
-            else setExpressionStats(prev => ({ ...prev, tense: prev.tense + 1 }));
-
-            if (currentHeadStatus === "CENTERED") setHeadStats(prev => ({ ...prev, centered: prev.centered + 1 }));
-            else if (currentHeadStatus === "TURNED LEFT") setHeadStats(prev => ({ ...prev, turnedLeft: prev.turnedLeft + 1 }));
-            else if (currentHeadStatus === "TURNED RIGHT") setHeadStats(prev => ({ ...prev, turnedRight: prev.turnedRight + 1 }));
-            else if (currentHeadStatus === "TILTED") setHeadStats(prev => ({ ...prev, tilted: prev.tilted + 1 }));
-            else setHeadStats(prev => ({ ...prev, moving: prev.moving + 1 }));
-          }
-        });
-
-        // Frame processor loop
-        const processFrame = async () => {
-          if (!active) return;
-          if (videoRef.current && videoRef.current.readyState >= 2) {
-            try {
-              await faceMeshInstance.send({ image: videoRef.current });
-            } catch (meshErr) {
-              console.error("FaceMesh frame send failed:", meshErr);
-            }
-          }
-          frameId = requestAnimationFrame(processFrame);
-        };
-
-        processFrame();
-      } catch (err) {
-        console.error("Failed to initialize MediaPipe Face Mesh model pipeline:", err);
-      }
-    } else {
-      console.warn("MediaPipe FaceMesh script not found in window object, falling back to light centroid simulator.");
-      
-      // Fallback: previous centroid-based checker with speaking reactions
-      const runFallback = () => {
-        const { brightness, motion, centroidX, centroidY } = analyzeCameraFrame();
-        setCameraBrightness(brightness);
-
-        if (brightness < 15) {
-          setEyeGazeStatus("OFFLINE");
-          setPostureStatus("OFFLINE");
-          setExpressionStatus("OFFLINE");
-          setHeadStatus("OFFLINE");
-          return;
-        }
-
-        if (!isRecording) {
-          setEyeGazeStatus("STABLE ENGAGED");
-          setPostureStatus("ALIGNED");
-          setExpressionStatus("CONFIDENT");
-          setHeadStatus("CENTERED");
-          return;
-        }
-
-        // Gaze check with speech reactions
-        if (motion >= 25.0 || centroidX < 0.38 || centroidX > 0.62) {
-          setEyeGazeStatus("DISTRACTED");
-          setGazeStats((prev) => ({ ...prev, distracted: prev.distracted + 1 }));
-        } else if (motion >= 10.0 || centroidX < 0.43 || centroidX > 0.57) {
-          setEyeGazeStatus("LOOKING AWAY");
-          setGazeStats((prev) => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
-        } else {
-          // Natural slight gaze deviations (12% chance) when speaking
-          const randomGaze = Math.random() < 0.88 ? "STABLE ENGAGED" : "LOOKING AWAY";
-          setEyeGazeStatus(randomGaze);
-          if (randomGaze === "STABLE ENGAGED") setGazeStats((prev) => ({ ...prev, stable: prev.stable + 1 }));
-          else setGazeStats((prev) => ({ ...prev, lookingAway: prev.lookingAway + 1 }));
-        }
-
-        if (centroidY > 0.57) {
-          setPostureStatus("SLOUCHING");
-          setPostureStats((prev) => ({ ...prev, slouching: prev.slouching + 1 }));
-        } else if (centroidX < 0.42 || centroidX > 0.58) {
-          setPostureStatus("LEANING");
-          setPostureStats((prev) => ({ ...prev, leaning: prev.leaning + 1 }));
-        } else {
-          setPostureStatus("ALIGNED");
-          setPostureStats((prev) => ({ ...prev, aligned: prev.aligned + 1 }));
-        }
-
-        // Simulating talking expression and head nod
-        const isUserSpeaking = micLevel > 15;
-        let finalExpr: "CONFIDENT" | "NEUTRAL" | "SMILING" | "TENSE" = "CONFIDENT";
-        
-        if (isUserSpeaking) {
-          finalExpr = Math.random() < 0.7 ? "CONFIDENT" : "NEUTRAL";
-        } else {
-          finalExpr = Math.random() < 0.6 ? "CONFIDENT" : Math.random() < 0.75 ? "NEUTRAL" : "SMILING";
-        }
-        
-        setExpressionStatus(finalExpr);
-        if (finalExpr === "CONFIDENT") setExpressionStats((prev) => ({ ...prev, confident: prev.confident + 1 }));
-        else if (finalExpr === "NEUTRAL") setExpressionStats((prev) => ({ ...prev, neutral: prev.neutral + 1 }));
-        else if (finalExpr === "SMILING") setExpressionStats((prev) => ({ ...prev, smiling: prev.smiling + 1 }));
-        else setExpressionStats((prev) => ({ ...prev, tense: prev.tense + 1 }));
-
-        if (motion >= 15.0 || (isUserSpeaking && Math.random() < 0.4)) {
-          setHeadStatus("MOVING");
-          setHeadStats((prev) => ({ ...prev, moving: prev.moving + 1 }));
-        } else {
-          setHeadStatus("CENTERED");
-          setHeadStats((prev) => ({ ...prev, centered: prev.centered + 1 }));
-        }
-      };
-
-      runFallback();
-      fallbackInterval = setInterval(runFallback, 1500);
-    }
-
-    return () => {
-      active = false;
-      if (frameId) cancelAnimationFrame(frameId);
-      if (fallbackInterval) clearInterval(fallbackInterval);
-      if (faceMeshInstance) {
-        try {
-          faceMeshInstance.close();
-        } catch {}
-      }
-    };
-  }, [webcamActive, isRecording]);
-
-  const getGazeColor = (status: string) => {
     switch (status) {
       case "STABLE ENGAGED": return "text-emerald-400 font-bold";
       case "LOOKING AWAY": return "text-amber-400 font-bold animate-pulse";
@@ -1511,7 +1298,39 @@ Converse naturally and speak in a human-like tone.`
           }
         }
         if (finalTranscript) {
-          setTranscript((prev) => (prev + " " + finalTranscript).trim());
+          const addedText = finalTranscript.trim();
+          const lowerText = addedText.toLowerCase();
+
+          // 1. Hands-Free Voice Commands check
+          if (voiceInterviewMode) {
+            if (
+              lowerText.includes("submit answer") || 
+              lowerText.includes("grade my answer") || 
+              lowerText.includes("finish response") || 
+              lowerText.includes("end round")
+            ) {
+              console.log("Voice Command detected: Submitting answer...");
+              handleSubmittingAnswer();
+              return;
+            }
+            if (
+              lowerText.includes("next question") || 
+              lowerText.includes("proceed") || 
+              lowerText.includes("go ahead")
+            ) {
+              console.log("Voice Command detected: Advancing to next question...");
+              handleNextQuestion();
+              return;
+            }
+          }
+
+          setTranscript((prev) => {
+            const newTranscript = (prev + " " + addedText).trim();
+            if (voiceInterviewMode) {
+              updateConversationHistory("candidate", newTranscript);
+            }
+            return newTranscript;
+          });
           setInterimTranscript("");
         } else {
           setInterimTranscript(interimText);
@@ -1870,6 +1689,9 @@ Converse naturally and speak in a human-like tone.`
     setTranscript("");
     setSecondsElapsed(0);
     setIsManualEdit(false);
+    setConversationHistory([]);
+    setAiTextAccumulated("");
+    setAutoAdvanceCountdown(null);
     
     // Reset visual metrics tracking stats for the next question
     setGazeStats({ stable: 0, lookingAway: 0, distracted: 0 });
@@ -1939,6 +1761,13 @@ Converse naturally and speak in a human-like tone.`
       case "Problem Solving": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
       case "Architecture": return "bg-indigo-500/10 text-indigo-400 border-indigo-500/20";
       case "Real-World Tradeoffs": return "bg-red-500/10 text-red-400 border-red-500/20";
+      // Soft Skills Categories
+      case "Communication Clarity": return "bg-violet-500/10 text-violet-400 border-violet-500/20";
+      case "Teamwork & Collaboration": return "bg-sky-500/10 text-sky-400 border-sky-500/20";
+      case "Problem-Solving & Adaptability": return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+      case "Ownership & Accountability": return "bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+      case "Emotional Intelligence & Learning": return "bg-rose-500/10 text-rose-400 border-rose-500/20";
+      case "Decision-Making Under Pressure": return "bg-red-500/10 text-red-400 border-red-500/20";
       default: return "bg-gray-500/10 text-gray-400 border-gray-500/20";
     }
   };
@@ -2207,6 +2036,27 @@ Converse naturally and speak in a human-like tone.`
               </span>
             </div>
 
+            {/* Speech-to-Speech Toggle */}
+            <div className="flex items-center justify-between p-3.5 bg-brand-bg/50 border border-white/5 rounded-xl shadow-inner">
+              <div className="space-y-0.5 text-left">
+                <span className="text-xs font-semibold text-white block">Hands-Free Speech-to-Speech</span>
+                <span className="text-[10px] text-gray-400 block leading-tight">Conversation & auto-advances automatically</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVoiceInterviewMode(!voiceInterviewMode)}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                  voiceInterviewMode ? "bg-brand-primary" : "bg-white/10"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-brand-bg shadow-sm ring-0 transition duration-200 ease-in-out ${
+                    voiceInterviewMode ? "translate-x-5 bg-white" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
             {/* Dynamic SVG Sound Wave Visualizer */}
             <div className="bg-black/40 border border-white/5 h-20 rounded-xl flex items-center justify-center relative overflow-hidden">
               <svg className="w-full h-full absolute inset-0 pointer-events-none" viewBox="0 0 300 80">
@@ -2360,7 +2210,11 @@ Converse naturally and speak in a human-like tone.`
                   onClick={handleNextQuestion}
                   className="w-full py-4 bg-linear-to-r from-brand-accent to-brand-primary text-brand-bg font-bold rounded-xl flex items-center justify-center space-x-2 neon-glow-btn cursor-pointer"
                 >
-                  <span>{currentQuestionIdx < 5 ? "Proceed to Next Round" : "Finalize Assessment scorecard"}</span>
+                  <span>
+                    {currentQuestionIdx < 5 
+                      ? `Proceed to Next Round ${autoAdvanceCountdown !== null ? `(Auto-advancing in ${autoAdvanceCountdown}s)` : ""}` 
+                      : `Finalize Assessment scorecard ${autoAdvanceCountdown !== null ? `(Auto-finalizing in ${autoAdvanceCountdown}s)` : ""}`}
+                  </span>
                   <ArrowRight className="w-4 h-4 text-brand-bg" />
                 </button>
               </motion.div>
@@ -2388,6 +2242,32 @@ Converse naturally and speak in a human-like tone.`
                     "{activeQuestion.text}"
                   </h3>
                 </div>
+
+                {/* Chat History for Speech-to-Speech */}
+                {voiceInterviewMode && conversationHistory.length > 0 && (
+                  <div className="bg-brand-card/10 border border-white/5 p-4 rounded-2xl space-y-3 max-h-60 overflow-y-auto">
+                    <span className="text-[10px] font-mono text-gray-500 uppercase block tracking-wider text-left">Live Conversation Log</span>
+                    <div className="space-y-3">
+                      {conversationHistory.map((msg, index) => (
+                        <div
+                          key={index}
+                          className={`flex flex-col ${msg.sender === "candidate" ? "items-end" : "items-start"}`}
+                        >
+                          <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed text-left ${
+                            msg.sender === "candidate"
+                              ? "bg-brand-accent/10 border border-brand-accent/25 text-gray-200"
+                              : "bg-brand-primary/10 border border-brand-primary/25 text-emerald-400 font-medium"
+                          }`}>
+                            <p className="font-semibold text-[9px] uppercase tracking-wider mb-1 opacity-70">
+                              {msg.sender === "candidate" ? studentProfile.name : "AI Coach"}
+                            </p>
+                            <p>{msg.text}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Recorder and text fallback widget */}
                 <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-5">
@@ -2443,6 +2323,12 @@ Converse naturally and speak in a human-like tone.`
                               <span className="text-gray-500 italic">Listening... Start speaking clearly.</span>
                             )}
                           </div>
+
+                          {voiceInterviewMode && (
+                            <div className="text-[10px] text-brand-primary font-mono border-t border-white/5 pt-2 text-center">
+                              🎤 Hands-free commands: Say <span className="text-white font-semibold">"submit answer"</span> to grade, or <span className="text-white font-semibold">"next question"</span> to proceed.
+                            </div>
+                          )}
 
                           <button
                             type="button"
