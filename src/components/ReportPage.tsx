@@ -41,16 +41,27 @@ export default function ReportPage({ scorecard, onNavigate }: ReportPageProps) {
     );
   }
 
-  // Define Category items
-  const categories = [
-    { label: "Resume Strength", score: scorecard.categoryScores.resumeStrength, desc: "Alignment and project mapping clarity" },
-    { label: "GitHub Strength", score: scorecard.categoryScores.githubStrength, desc: "Commit habits, readme density and repositories" },
-    { label: "Technical Depth", score: scorecard.categoryScores.technicalDepth, desc: "Accuracy of definitions and system scopes" },
-    { label: "Problem Solving", score: scorecard.categoryScores.problemSolving, desc: "Algorithmic thinking and code scalability" },
-    { label: "Communication", score: scorecard.categoryScores.communicationClarity, desc: "Structural clarity and grammatical cohesion" },
-    { label: "Vocabulary Richness", score: scorecard.categoryScores.vocabularyRichness, desc: "Use of precise industry terminology" },
-    { label: "Presentation", score: scorecard.categoryScores.presentationConfidence, desc: "Fluency, pacing, and confident delivery" },
-    { label: "Overall Readiness", score: scorecard.categoryScores.overallReadiness, desc: "Benchmark alignment for landing elite tech jobs" }
+  // Define Category items dynamically
+  const isSoftSkills = scorecard.interviewType === "soft-skills" || 
+    (!("resumeStrength" in scorecard.categoryScores) && "teamworkCollaboration" in scorecard.categoryScores);
+
+  const categories = isSoftSkills ? [
+    { label: "Communication Clarity", score: scorecard.categoryScores.communicationClarity || 0, desc: "Structure, clarity, and explanation details" },
+    { label: "Confidence & Composure", score: scorecard.categoryScores.presentationConfidence || 0, desc: "Certainty, calm, and authenticity" },
+    { label: "Problem-Solving Approach", score: scorecard.categoryScores.problemSolving || 0, desc: "Thinking process, breaking questions down" },
+    { label: "Teamwork & Collaboration", score: scorecard.categoryScores.teamworkCollaboration || 0, desc: "Conflict handling, sharing responsibility" },
+    { label: "Adaptability & Resilience", score: scorecard.categoryScores.adaptabilityResilience || 0, desc: "Handling requirements shifts or constraints" },
+    { label: "Ownership & EQ", score: scorecard.categoryScores.ownershipEQ || 0, desc: "Accountability, learning mindset, and empathy" },
+    { label: "Overall Readiness", score: scorecard.categoryScores.overallReadiness || 0, desc: "Benchmark readiness for interpersonal rounds" }
+  ] : [
+    { label: "Resume Strength", score: scorecard.categoryScores.resumeStrength || 0, desc: "Alignment and project mapping clarity" },
+    { label: "GitHub Strength", score: scorecard.categoryScores.githubStrength || 0, desc: "Commit habits, readme density and repositories" },
+    { label: "Technical Depth", score: scorecard.categoryScores.technicalDepth || 0, desc: "Accuracy of definitions and system scopes" },
+    { label: "Problem Solving", score: scorecard.categoryScores.problemSolving || 0, desc: "Algorithmic thinking and code scalability" },
+    { label: "Communication", score: scorecard.categoryScores.communicationClarity || 0, desc: "Structural clarity and grammatical cohesion" },
+    { label: "Vocabulary Richness", score: scorecard.categoryScores.vocabularyRichness || 0, desc: "Use of precise industry terminology" },
+    { label: "Presentation", score: scorecard.categoryScores.presentationConfidence || 0, desc: "Fluency, pacing, and confident delivery" },
+    { label: "Overall Readiness", score: scorecard.categoryScores.overallReadiness || 0, desc: "Benchmark alignment for landing elite tech jobs" }
   ];
 
   return (

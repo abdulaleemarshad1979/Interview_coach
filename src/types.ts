@@ -90,7 +90,7 @@ export interface FullAnalysisResult {
 export interface InterviewQuestion {
   id: string;
   text: string;
-  category: 'Intro' | 'Project Explanation' | 'Technical Depth' | 'Problem Solving' | 'Architecture' | 'Real-World Tradeoffs';
+  category: string;
   difficulty: 'Beginner' | 'Developing' | 'Intermediate' | 'Advanced' | 'Expert';
 }
 
@@ -115,15 +115,19 @@ export interface Scorecard {
   date: string;
   overallScore: number;
   candidateLevel: 'Beginner' | 'Developing' | 'Interview Ready' | 'Strong Candidate' | 'Excellent Candidate';
+  interviewType?: 'technical' | 'soft-skills';
   categoryScores: {
-    resumeStrength: number;
-    githubStrength: number;
-    technicalDepth: number;
+    resumeStrength?: number;
+    githubStrength?: number;
+    technicalDepth?: number;
     problemSolving: number;
     communicationClarity: number;
-    vocabularyRichness: number;
+    vocabularyRichness?: number;
     presentationConfidence: number;
     overallReadiness: number;
+    teamworkCollaboration?: number;
+    adaptabilityResilience?: number;
+    ownershipEQ?: number;
   };
   strengths: string[];
   weaknesses: string[];
