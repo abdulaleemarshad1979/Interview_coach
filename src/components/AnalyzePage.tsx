@@ -43,8 +43,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
   const [stageIndex, setStageIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [questionGenerating, setQuestionGenerating] = useState(false);
-  const [interviewType, setInterviewType] = useState<"technical" | "soft-skills">("technical");
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stageTimerRef = useRef<any>(null);
 
@@ -235,7 +234,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
           "Content-Type": "application/json",
           ...(token ? { "Authorization": `Bearer ${token}` } : {})
         },
-        body: JSON.stringify({ analysisResult, interviewType })
+        body: JSON.stringify({ analysisResult })
       });
 
       const questions = await response.json();
@@ -466,54 +465,6 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
                   Your portfolio alignment has been diagnosed. Gemini mapped your claimed frameworks, academic achievements, and projects against codebases scanned on GitHub under the alias <span className="text-brand-primary font-mono">@{studentProfile.githubUsername}</span>.
                 </p>
 
-                {/* Track Selector */}
-                <div className="space-y-3 pt-2">
-                  <label className="block text-[10px] font-mono uppercase tracking-wider text-gray-500">
-                    Choose Interview Preparation Track
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Technical Card */}
-                    <div
-                      onClick={() => setInterviewType("technical")}
-                      className={`p-4 rounded-xl border transition-all cursor-pointer text-left flex flex-col justify-between ${
-                        interviewType === "technical"
-                          ? "border-brand-primary bg-brand-primary/5 shadow-xs"
-                          : "border-white/10 hover:border-brand-primary/20 bg-brand-bg/50"
-                      }`}
-                    >
-                      <div>
-                        <h5 className="font-semibold text-sm text-white flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${interviewType === 'technical' ? 'bg-brand-primary' : 'bg-gray-400'}`}></span>
-                          Technical & Architecture Track
-                        </h5>
-                        <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
-                          Grades technical stack depth, claim verifications, database structure, and code design decisions.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Soft Skills Card */}
-                    <div
-                      onClick={() => setInterviewType("soft-skills")}
-                      className={`p-4 rounded-xl border transition-all cursor-pointer text-left flex flex-col justify-between ${
-                        interviewType === "soft-skills"
-                          ? "border-brand-primary bg-brand-primary/5 shadow-xs"
-                          : "border-white/10 hover:border-brand-accent/20 bg-brand-bg/50"
-                      }`}
-                    >
-                      <div>
-                        <h5 className="font-semibold text-sm text-white flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${interviewType === 'soft-skills' ? 'bg-brand-accent' : 'bg-gray-400'}`}></span>
-                          Behavioral & Soft Skills Track
-                        </h5>
-                        <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">
-                          Grades composure, accountability, teamwork, adaptability under constraint shifts, and clear communication.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
                 {/* Big Action CTA */}
                 <div className="pt-4">
                   <button
@@ -524,11 +475,11 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
                     {questionGenerating ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin animate-duration-1000" />
-                        <span>{interviewType === 'soft-skills' ? 'Structuring Soft Skills Questions...' : 'Structuring Technical Questions...'}</span>
+                        <span>Structuring Tailored Interview Questions...</span>
                       </>
                     ) : (
                       <>
-                        <span>{interviewType === 'soft-skills' ? 'Generate Soft Skills Questions' : 'Generate Interview Questions'}</span>
+                        <span>Generate Interview Questions</span>
                         <ArrowRight className="w-4 h-4 text-brand-bg" />
                       </>
                     )}
