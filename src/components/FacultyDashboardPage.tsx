@@ -93,6 +93,23 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
 
         const matched = (data || []).filter((row: any) => {
           const roll = (row.roll_number || "").toLowerCase().trim();
+          if (!roll) return false;
+
+          // Check if explicitly assigned via DB or LocalStorage
+          const localAssignStr = localStorage.getItem(`assigned_proctor_${row.roll_number}`);
+          let assignedProctorId = row.assigned_proctor_id;
+
+          if (localAssignStr) {
+            try {
+              const parsed = JSON.parse(localAssignStr);
+              assignedProctorId = parsed.proctorId;
+            } catch {}
+          }
+
+          if (assignedProctorId) {
+            return assignedProctorId === facultyProfile.facultyId;
+          }
+
           const studentSection = (row.section || row.class_section || "").toLowerCase().trim();
           
           // Match branch and section cleanly

@@ -394,4 +394,95 @@ CREATE TRIGGER on_auth_user_deleted
   EXECUTE FUNCTION public.handle_deleted_user();
 ```
 
+---
+
+## 9. Admin Roles & Proctor-Student Assignments Schema Migration
+
+To support role flags (`is_faculty` / `is_admin`) and explicit student assignments in the database, run the following SQL block in your **Supabase SQL Editor**:
+
+```sql
+-- A. Alter profiles table to add role flags and assignment columns
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_faculty BOOLEAN DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS assigned_proctor_id UUID;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS assigned_proctor_name TEXT;
+
+-- B. Update the handle_new_user trigger function to parse is_faculty, is_admin, and faculty names
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (
+    id, 
+    roll_number, 
+    name, 
+    student_name, 
+    class_section, 
+    section, 
+    attendance, 
+    branch, 
+    college_assessments, 
+    is_synced,
+    is_faculty,
+    is_admin
+  )
+  VALUES (
+    new.id,
+    COALESCE(new.raw_user_meta_data->>'roll_number', ''),
+    COALESCE(new.raw_user_meta_data->>'student_name', new.raw_user_meta_data->>'faculty_name', new.raw_user_meta_data->>'name', ''),
+    COALESCE(new.raw_user_meta_data->>'student_name', new.raw_user_meta_data->>'faculty_name', new.raw_user_meta_data->>'name', ''),
+    COALESCE(new.raw_user_meta_data->>'class_section', ''),
+    COALESCE(new.raw_user_meta_data->>'class_section', ''),
+    COALESCE((new.raw_user_meta_data->>'attendance')::numeric, 80),
+    COALESCE(new.raw_user_meta_data->>'branch', COALESCE(new.raw_user_meta_data->>'department', '')),
+    COALESCE(new.raw_user_meta_data->'college_assessments', '[]'::jsonb),
+    COALESCE((new.raw_user_meta_data->>'is_synced')::boolean, false),
+    COALESCE((new.raw_user_meta_data->>'is_faculty')::boolean, false),
+    COALESCE((new.raw_user_meta_data->>'is_admin')::boolean, false)
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- C. Update the handle_update_user trigger function to copy updates to role/assignment columns
+CREATE OR REPLACE FUNCTION public.handle_update_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE public.profiles
+  SET
+    roll_number = COALESCE(new.raw_user_meta_data->>'roll_number', roll_number),
+    name = COALESCE(new.raw_user_meta_data->>'student_name', new.raw_user_meta_data->>'faculty_name', new.raw_user_meta_data->>'name', name),
+    student_name = COALESCE(new.raw_user_meta_data->>'student_name', new.raw_user_meta_data->>'faculty_name', new.raw_user_meta_data->>'name', student_name),
+    class_section = COALESCE(new.raw_user_meta_data->>'class_section', class_section),
+    section = COALESCE(new.raw_user_meta_data->>'class_section', section),
+    attendance = COALESCE((new.raw_user_meta_data->>'attendance')::numeric, attendance),
+    branch = COALESCE(new.raw_user_meta_data->>'branch', COALESCE(new.raw_user_meta_data->>'department', branch)),
+    college_assessments = COALESCE(new.raw_user_meta_data->'college_assessments', college_assessments),
+    is_synced = COALESCE((new.raw_user_meta_data->>'is_synced')::boolean, is_synced),
+    github_username = COALESCE(new.raw_user_meta_data->>'github_username', github_username),
+    resume_file_name = COALESCE(new.raw_user_meta_data->>'resume_file_name', resume_file_name),
+    is_faculty = COALESCE((new.raw_user_meta_data->>'is_faculty')::boolean, is_faculty),
+    is_admin = COALESCE((new.raw_user_meta_data->>'is_admin')::boolean, is_admin),
+    assigned_proctor_id = COALESCE((new.raw_user_meta_data->>'assigned_proctor_id')::uuid, assigned_proctor_id),
+    assigned_proctor_name = COALESCE(new.raw_user_meta_data->>'assigned_proctor_name', assigned_proctor_name),
+    updated_at = now()
+  WHERE id = new.id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- D. Update RLS policies to allow Admins to update user assignment fields
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+CREATE POLICY "Users can update own profile or admins update all"
+ON public.profiles FOR ALL
+TO authenticated
+USING (
+  (auth.uid() = id) OR
+  ((auth.jwt()->'user_metadata'->>'is_admin')::boolean = true)
+)
+WITH CHECK (
+  (auth.uid() = id) OR
+  ((auth.jwt()->'user_metadata'->>'is_admin')::boolean = true)
+);
+```
+
 // Modified by Database Engineer agent for Task run-3e9897-IC-101 at 2026-07-07 11:12:48

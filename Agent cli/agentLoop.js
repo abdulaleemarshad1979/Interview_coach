@@ -1,0 +1,76 @@
+import chalk from "chalk";
+import { chat } from "./ollamaClient.js";
+import { toolImpls, toolSchemas } from "./tools.js";
+
+const SYSTEM_PROMPT = `You are a local coding agent working directly inside the user's project directory.
+You have tools to list directories, read files, write files, make targeted edits, run shell commands, and search files.
+
+Rules:
+- Always inspect relevant files with read_file or search_files before editing them. Don't guess at file contents.
+- Prefer edit_file (targeted find/replace) over write_file when modifying an existing file, unless a full rewrite is truly needed.
+- After making changes, verify with run_command when it makes sense (e.g. run a build, typecheck, or the relevant tests).
+- Work in small, verifiable steps. Don't try to do everything in one giant tool call.
+- When you are done, reply with plain text summarizing what you changed and why — with no further tool calls.
+- If a task is ambiguous, make a reasonable assumption, state it, and proceed rather than stalling.`;
+
+const MAX_TURNS = 25;
+
+export async function runAgent({ model, userPrompt, verbose = true }) {
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: userPrompt },
+  ];
+
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
+    const assistantMsg = await chat({ model, messages, tools: toolSchemas });
+    messages.push(assistantMsg);
+
+    const toolCalls = assistantMsg.tool_calls;
+
+    if (!toolCalls || toolCalls.length === 0) {
+      // Model is done — final answer
+      if (verbose && assistantMsg.content) {
+        console.log(chalk.green("\n✓ Agent:\n") + assistantMsg.content);
+      }
+      return assistantMsg.content;
+    }
+
+    for (const call of toolCalls) {
+      const name = call.function.name;
+      let args = call.function.arguments;
+      if (typeof args === "string") {
+        try {
+          args = JSON.parse(args);
+        } catch {
+          args = {};
+        }
+      }
+
+      if (verbose) {
+        console.log(chalk.cyan(`\n→ ${name}(${JSON.stringify(args).slice(0, 200)})`));
+      }
+
+      let result;
+      try {
+        const impl = toolImpls[name];
+        if (!impl) throw new Error(`Unknown tool: ${name}`);
+        result = impl(args);
+      } catch (err) {
+        result = `ERROR: ${err.message}`;
+      }
+
+      if (verbose) {
+        const preview = String(result).slice(0, 400);
+        console.log(chalk.gray(preview + (String(result).length > 400 ? "\n...[truncated]" : "")));
+      }
+
+      messages.push({
+        role: "tool",
+        content: typeof result === "string" ? result : JSON.stringify(result),
+      });
+    }
+  }
+
+  console.log(chalk.yellow(`\n⚠ Hit max turns (${MAX_TURNS}) without finishing.`));
+  return null;
+}
