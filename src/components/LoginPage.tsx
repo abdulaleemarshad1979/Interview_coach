@@ -471,8 +471,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       {/* Right Panel (Form) */}
       <div className="flex-1 flex items-center justify-center p-6 lg:p-16 relative">
         {/* Glowing backdrop spheres */}
-        <div className="absolute top-1/4 right-1/4 w-80 h-80 rounded-full bg-accent-blue/5 blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-1/4 left-1/4 w-80 h-80 rounded-full bg-accent-cyan/5 blur-[120px] pointer-events-none" />
+        <div className="absolute top-1/4 right-1/4 w-80 h-80 rounded-full bg-accent-blue/3 blur-[40px] pointer-events-none" />
+        <div className="absolute bottom-1/4 left-1/4 w-80 h-80 rounded-full bg-accent-cyan/3 blur-[40px] pointer-events-none" />
 
         {/* Login/Signup Container Card */}
         <div className="w-full max-w-[420px] relative z-10 text-left">

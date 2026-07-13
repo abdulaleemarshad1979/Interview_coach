@@ -352,11 +352,13 @@ Converse naturally and speak in a human-like tone.`
       };
 
       ws.onclose = () => {
-        console.log("Interview voice socket closed.");
+        console.log("Interview voice socket closed. Activating fallback.");
+        setVoiceMode("fallback");
       };
 
       ws.onerror = (err) => {
         console.error("Interview voice socket error:", err);
+        setVoiceMode("fallback");
       };
     } catch (e) {
       console.error("Failed to connect voice socket:", e);

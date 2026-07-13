@@ -8,7 +8,6 @@ import AnalyzePage from "./components/AnalyzePage";
 import InterviewPage from "./components/InterviewPage";
 import ReportPage from "./components/ReportPage";
 
-import CustomCursor from "./components/effects/CustomCursor";
 import GroupDiscussionPage from "./components/GroupDiscussionPage";
 import FacultyDashboardPage from "./components/FacultyDashboardPage";
 import AdminDashboardPage from "./components/AdminDashboardPage";
@@ -792,7 +791,6 @@ export default function App() {
 
   return (
     <div id="main-app-container" className="min-h-screen bg-brand-bg text-gray-100 flex flex-col font-sans selection:bg-brand-primary selection:text-brand-bg relative antialiased">
-      <CustomCursor />
       {/* Universal header navigation */}
       <Navbar
         studentProfile={studentProfile}
