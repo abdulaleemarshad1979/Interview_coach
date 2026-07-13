@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { GraduationCap, LogOut, Code, User, Settings, Award } from "lucide-react";
 import { StudentProfile } from "../types";
 
@@ -10,6 +10,17 @@ interface NavbarProps {
 }
 
 export default function Navbar({ studentProfile, currentView, onNavigate, onLogout }: NavbarProps) {
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    // Check if the user is an admin based on roll number
+    if (studentProfile && studentProfile.studentId.toLowerCase() === 'admin') {
+      setIsAdmin(true);
+    } else {
+      setIsAdmin(false);
+    }
+  }, [studentProfile]);
+
   return (
     <header id="app-navbar" className="glass-nav sticky top-0 z-50 w-full px-6 py-4 transition-all duration-300">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -93,6 +104,21 @@ export default function Navbar({ studentProfile, currentView, onNavigate, onLogo
             >
               Latest Report
             </button>
+            
+            {/* Admin Navigation - only shown for admin users */}
+            {isAdmin && (
+              <button
+                onClick={() => onNavigate("admin-dashboard")}
+                className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${
+                  currentView === "admin-dashboard"
+                    ? "text-purple-600 bg-purple-100 font-semibold"
+                    : "text-slate-600 hover:text-purple-600 hover:bg-purple-50"
+                }`}
+              >
+                Admin Dashboard
+              </button>
+            )}
+            
             <button
               onClick={() => onNavigate("settings")}
               className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 ${

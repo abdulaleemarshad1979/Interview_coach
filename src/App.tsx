@@ -10,6 +10,7 @@ import ReportPage from "./components/ReportPage";
 import SettingsPage from "./components/SettingsPage";
 import CustomCursor from "./components/effects/CustomCursor";
 import GroupDiscussionPage from "./components/GroupDiscussionPage";
+import AdminDashboardPage from "./components/AdminDashboardPage";
 import { StudentProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
 import { supabase } from "./lib/supabaseClient";
 
@@ -238,6 +239,15 @@ export default function App() {
         ) : (
           <LoginPage onLoginSuccess={handleLoginSuccess} />
         );
+      case "admin-dashboard":
+        // Only show admin dashboard for admin users
+        if (studentProfile && studentProfile.studentId.toLowerCase() === 'admin') {
+          return <AdminDashboardPage />;
+        } else {
+          // Redirect non-admin users to dashboard
+          setCurrentView("dashboard");
+          return null;
+        }
       case "settings":
         return studentProfile ? (
           <SettingsPage

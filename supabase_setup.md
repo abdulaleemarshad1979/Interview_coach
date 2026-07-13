@@ -127,4 +127,87 @@ SUPABASE_ANON_KEY="your-anon-key"
 GEMINI_API_KEY="AIzaSy..."
 ```
 
-// Modified by Database Engineer agent for Task run-3e9897-IC-101 at 2026-07-07 11:12:48
+---
+
+## 5. Admin Dashboard Setup (Pending Registrations & Faculty Assignment)
+
+To enable the admin dashboard's pending registrations feature:
+
+### A. Create Faculty Accounts
+
+Faculty accounts need to be created manually in Supabase with a specific metadata field:
+
+1. Go to **Supabase Dashboard** → **Authentication** → **Users**
+2. Click **Add user** → **Create new user**
+3. Fill in:
+   - Email: e.g., `faculty@university.edu`
+   - Password: secure password
+4. Under "User metadata", add:
+   ```json
+   {
+     "roll_number": "",
+     "role": "faculty"
+   }
+   ```
+5. Click **Create user**
+
+### B. How Faculty Assignment Works
+
+1. When a student registers, their account is stored in Supabase with `user_metadata.roll_number`
+2. The admin dashboard fetches all users from `auth.users` and filters for those without `faculty_id`
+3. From the "Pending Registrations" list, the admin can:
+   - Select a faculty member from the dropdown (populated from users with `role="faculty"`)
+   - Click the green checkmark to assign
+4. The assignment is saved to the student's `user_metadata.faculty_id`
+
+### C. Testing the Feature
+
+1. Register a new student account via the login page
+2. Log in as admin (roll number = "admin")
+3. Navigate to **Admin Dashboard**
+4. You should see the new registration in the "Pending Registrations" section
+5. Select a faculty member and click the green checkmark to assign
+
+### D. Note on Admin Permissions
+
+The admin dashboard uses `supabase.auth.admin.listUsers()` which requires special permissions:
+- In development, this works with standard Supabase projects
+- For production, consider using server-side API routes for better security
+
+---
+
+## 6. Environment Variables (Complete List)
+
+```env
+# Supabase Configuration
+VITE_SUPABASE_URL="https://your-project-ref.supabase.co"
+VITE_SUPABASE_ANON_KEY="your-anon-key"
+
+SUPABASE_URL="https://your-project-ref.supabase.co"
+SUPABASE_ANON_KEY="your-anon-key"
+
+# AI Provider (choose one: groq or ollama)
+AI_PROVIDER="groq"
+
+# Groq API Key (if using groq provider)
+GROQ_API_KEY="gsk_..."
+
+# Ollama Configuration (if using ollama provider)
+OLLAMA_HOST="http://localhost:11434"
+OLLAMA_MODEL="qwen3-coder:480b"
+```
+
+---
+
+## 7. Running the Application
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+```
