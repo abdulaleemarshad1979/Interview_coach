@@ -304,7 +304,7 @@ function findChromiumExecutable(): string | null {
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   ];
   for (const c of candidates) {
-    try { if (c && fs.existsSync(c)) return c; } catch { }
+    try { if (c && fs.existsSync(c)) return c; } catch {}
   }
   return null;
 }
@@ -368,7 +368,7 @@ async function scrapeWithPuppeteer(rollNo: string, password: string, portal: str
     if (portal === "aus") {
       // ── AUS / Campus Connect login ──
       console.log(`[Puppeteer] AUS portal: selecting Student radio...`);
-      await page.waitForSelector('input[type="radio"]', { timeout: 10000 }).catch(() => { });
+      await page.waitForSelector('input[type="radio"]', { timeout: 10000 }).catch(() => {});
 
       const radioClicked = await page.evaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]')) as HTMLInputElement[];
@@ -444,14 +444,14 @@ async function scrapeWithPuppeteer(rollNo: string, password: string, portal: str
       }, rollNo, password, encryptedPwd);
       await page.evaluate(() => {
         const btn = (document.querySelector<HTMLElement>('#imgBtn2, input[name="imgBtn2"]') ||
-          document.querySelector<HTMLElement>('input[type="image"]'));
+                     document.querySelector<HTMLElement>('input[type="image"]'));
         if (btn) btn.click();
       });
     }
 
     // Wait for portal to navigate to dashboard
     console.log(`[Puppeteer] Waiting for post-login navigation...`);
-    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => { });
+    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
     await new Promise(r => setTimeout(r, 2000));
 
     const postLoginUrl = page.url();
@@ -2359,137 +2359,9 @@ app.post("/api/gd-room/leave", async (req, res) => {
     res.status(500).json({ error: "Failed to process leave." });
   }
 });
-// --- System Health Check Endpoint for Load Balancers & Self-Healing ---
-app.get("/api/health", async (req, res) => {
-  try {
-    const supabase = getSupabaseClient();
-    let dbStatus = "Not Configured";
-    if (supabase) {
-      try {
-        const { error } = await supabase.from("group_discussion_rooms").select("code").limit(1);
-        dbStatus = error ? `Error: ${error.message}` : "Connected";
-      } catch (dbErr: any) {
-        dbStatus = `Error: ${dbErr.message}`;
-      }
-    }
-
-    const stats = {
-      status: "healthy",
-      uptime: process.uptime(),
-      timestamp: new Date().toISOString(),
-      memory: process.memoryUsage(),
-      database: dbStatus,
-      system: {
-        platform: process.platform,
-        nodeVersion: process.version
-      }
-    };
-    res.json(stats);
-  } catch (err: any) {
-    res.status(500).json({ status: "unhealthy", error: err.message });
-  }
-});
-
-// --- API Endpoint: Evaluate Recorded GD Voice Audio with Multimodal Gemini ---
-app.post("/api/gd-room/evaluate-audio", requireAuth, async (req: any, res) => {
-  try {
-    const { audio, mimeType, transcript, topic } = req.body;
-
-    if (!audio) {
-      res.status(400).json({ error: "Base64 audio payload is required." });
-      return;
-    }
-
-    const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-    if (!geminiKey) {
-      res.status(500).json({ error: "GEMINI_API_KEY is not configured on the server. Audio analysis is unavailable." });
-      return;
-    }
-
-    console.log(`[Gemini Multimodal] Evaluating GD recorded audio for topic: "${topic || 'Untitled'}"`);
-
-    const prompt = `You are an elite academic soft-skills evaluator and voice coach.
-You are evaluating a candidate's verbal performance in a Group Discussion.
-Discussion Topic: "${topic || 'General Discussion'}"
-Candidate's Spoken Transcript: "${transcript || 'No transcript available.'}"
-
-Analyze the attached audio recording of the candidate's speech. Evaluate their:
-1. Pitch variance & vocal expression (monotone vs animated, confidence cues)
-2. Speaking pace & rhythm (words per minute, pauses, filler words like "um", "uh", "like")
-3. Pronunciation clarity & vocal articulation
-4. Content structure (relevance to the topic, maturity of arguments)
-
-Provide a rigorous, constructive evaluation. Conform strictly to this JSON format:
-{
-  "vocalClarity": 85, // 0 to 100 rating of how clear and understandable their voice was
-  "speakingPace": "Optimal (130 WPM)", // qualitative description of pacing
-  "pitchVariance": "Good variation, animated tone", // qualitative description of inflection
-  "fillerWordsFeedback": "Feedback on occurrences of filler words",
-  "strengths": ["Vocal clarity was excellent", "Well-structured arguments in dialogue"],
-  "improvements": ["Reduce use of filler words like 'like'", "Add more vocal expressiveness"],
-  "voiceCoachFeedback": "Detailed feedback advising how they can improve their voice projection, clarity, and pacing."
-}
-
-Do not include any Markdown wrapper like \`\`\`json. Return pure JSON string only.`;
-
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: mimeType || "audio/webm",
-                  data: audio
-                }
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          responseMimeType: "application/json"
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Gemini API error: ${response.status} - ${errorText}`);
-      res.status(500).json({ error: `Gemini API returned error: ${response.status}` });
-      return;
-    }
-
-    const result = await response.json();
-    const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-
-    let parsedResult;
-    try {
-      parsedResult = JSON.parse(rawText.trim());
-    } catch (parseErr) {
-      console.warn("Gemini did not return valid JSON, sending raw text wrapper", rawText);
-      parsedResult = {
-        vocalClarity: 70,
-        speakingPace: "N/A",
-        pitchVariance: "N/A",
-        fillerWordsFeedback: "Unable to parse vocal patterns.",
-        strengths: ["Spoke actively during discussion"],
-        improvements: ["Ensure clean recording context"],
-        voiceCoachFeedback: rawText
-      };
-    }
-
-    res.json(parsedResult);
-  } catch (err: any) {
-    console.error("Audio evaluation error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 
-app.get("/api/gd-room/diagnose", requireAuth, async (req: any, res) => {
+app.get("/api/gd-room/diagnose", async (req, res) => {
   try {
     const rawUrl = process.env.SUPABASE_URL || "";
     const rawKey = process.env.SUPABASE_ANON_KEY || "";
