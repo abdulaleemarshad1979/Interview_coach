@@ -1102,21 +1102,22 @@ app.post("/api/interview/generate-questions", requireAuth, async (req: any, res)
       }
     }
 
-    let prompt = "";
-    if (interviewType === "soft-skills") {
-      prompt = `You are a world-class behavioral interviewer compiling a personalized, adaptive behavioral and soft-skills interview plan.
+    const prompt = `You are a world-class technical and behavioral interviewer compiling a personalized, adaptive interview plan.
 Based on the candidate's profile:
 - Parsed Resume: ${JSON.stringify(analysisResult.parsedResume)}
 - GitHub Repos: ${JSON.stringify(analysisResult.githubAnalysis)}
+- Cross-Reference Audit: ${JSON.stringify(analysisResult.crossReference || {})}
 
-Generate exactly 6 behavioral and soft skills questions that escalate in difficulty, using projects and stack details from their resume to make the questions highly contextual and realistic.
-Assess the following soft skills:
-1. Communication Clarity (Beginner difficulty) — warm-up. Ask the candidate to explain one of the projects or roles from their resume, focusing on clear and structured explanation of their background/interests.
-2. Teamwork & Collaboration (Developing difficulty) — ask about a group project experience, a conflict with a teammate, how they handled disagreements, or shared responsibility.
-3. Problem-Solving & Adaptability (Intermediate difficulty) — test how they react when requirements change, when they get a new constraint, or when their first solution fails.
-4. Ownership & Accountability (Intermediate difficulty) — look for whether they take responsibility for their work, mention what they did vs what the team did, and reflect on mistakes and improvements.
-5. Emotional Intelligence & Learning (Advanced difficulty) — focus on response to criticism/feedback, empathy toward teammates/users, maturity, and how they pick up new tools.
-6. Decision-Making Under Pressure (Expert difficulty) — frame a realistic high-pressure situational question customized to their technology stack or projects (e.g. "What would you do if your teammate disappears before demo day?" or "How would you handle a client changing requirements at the last minute?").
+Generate exactly 6 interview questions that escalate in difficulty, combining both technical depth and behavioral soft skills, with a stronger emphasis on soft skills.
+CRITICAL: You must ONLY ask about projects that are explicitly mentioned in the provided Parsed Resume or GitHub Repos. Do NOT invent, hallucinate, or reference any other projects or details not found in the candidate's profile.
+
+The 6 questions must assess:
+1. Communication Clarity (Beginner difficulty, Soft Skill) — Greet the candidate and ask them to explain their background and walk through one of the main projects or roles from their resume.
+2. Technical explanation & Depth (Developing difficulty, Technical) — ask them to explain the technical implementation, architecture, or code design decisions of their primary project from their resume/GitHub.
+3. Teamwork & Collaboration (Developing/Intermediate difficulty, Soft Skill) — ask about a group project experience, how they handled disagreements/conflicts with a teammate, or shared responsibility.
+4. Problem-Solving & Adaptability (Intermediate difficulty, Soft Skill) — test how they react when requirements/constraints change or when their first solution/setup fails during development.
+5. Ownership & Accountability (Advanced difficulty, Soft Skill) — look for whether they take responsibility for mistakes/bugs, distinguish individual vs team contributions, and reflect on lessons learned.
+6. Real-World Tradeoffs (Expert difficulty, Technical) — frame a realistic scenario requiring them to evaluate trade-offs between two languages, frameworks, or architectural approaches they used (e.g. SQL vs NoSQL, React state management choices).
 
 Respond with STRICT JSON matching this schema:
 {
@@ -1129,93 +1130,36 @@ Respond with STRICT JSON matching this schema:
     },
     {
       "id": "question_2",
+      "text": "The custom technical explanation question tailored to their profile.",
+      "category": "Technical Depth",
+      "difficulty": "Developing"
+    },
+    {
+      "id": "question_3",
       "text": "The custom behavioral question tailored to their profile.",
       "category": "Teamwork & Collaboration",
       "difficulty": "Developing"
     },
     {
-      "id": "question_3",
+      "id": "question_4",
       "text": "The custom behavioral question tailored to their profile.",
       "category": "Problem-Solving & Adaptability",
       "difficulty": "Intermediate"
     },
     {
-      "id": "question_4",
+      "id": "question_5",
       "text": "The custom behavioral question tailored to their profile.",
       "category": "Ownership & Accountability",
       "difficulty": "Intermediate"
     },
     {
-      "id": "question_5",
-      "text": "The custom behavioral question tailored to their profile.",
-      "category": "Emotional Intelligence & Learning",
-      "difficulty": "Advanced"
-    },
-    {
       "id": "question_6",
-      "text": "The custom behavioral question tailored to their profile.",
-      "category": "Decision-Making Under Pressure",
-      "difficulty": "Expert"
-    }
-  ]
-}`;
-    } else {
-      prompt = `You are a world-class technical interviewer compiling a personalized, adaptive interview plan.
-Based on the candidate's profile:
-- Parsed Resume: ${JSON.stringify(analysisResult.parsedResume)}
-- GitHub Repos: ${JSON.stringify(analysisResult.githubAnalysis)}
-- Cross-Reference Audit: ${JSON.stringify(analysisResult.crossReference)}
-
-Generate exactly 6 technical interview questions that escalate in difficulty:
-1. "Intro" category (Beginner difficulty) — warm-up, focus on the student's background/interests.
-2. "Project Explanation" category (Developing difficulty) — ask them to explain a specific project from their resume, especially one matched or unmatched on GitHub.
-3. "Technical Depth" category (Intermediate difficulty) — dig deep into one of the main languages or frameworks they claim (e.g., React, Python, TS).
-4. "Problem Solving" category (Advanced difficulty) — ask how they would solve a specific scenario-based technical challenge relevant to their stack.
-5. "Architecture" category (Advanced difficulty) — system design/architecture of a feature relevant to their projects (e.g. database schema, API gateway, file processing).
-6. "Real-World Tradeoffs" category (Expert difficulty) — ask them to evaluate trade-offs between two frameworks/tools they used or design approaches (e.g. SQL vs NoSQL, client-side vs server-side rendering).
-
-Respond with STRICT JSON matching this schema:
-{
-  "questions": [
-    {
-      "id": "question_1",
-      "text": "The custom interview question tailored to their profile.",
-      "category": "Intro",
-      "difficulty": "Beginner"
-    },
-    {
-      "id": "question_2",
-      "text": "The custom interview question tailored to their profile.",
-      "category": "Project Explanation",
-      "difficulty": "Developing"
-    },
-    {
-      "id": "question_3",
-      "text": "The custom interview question tailored to their profile.",
-      "category": "Technical Depth",
-      "difficulty": "Intermediate"
-    },
-    {
-      "id": "question_4",
-      "text": "The custom interview question tailored to their profile.",
-      "category": "Problem Solving",
-      "difficulty": "Advanced"
-    },
-    {
-      "id": "question_5",
-      "text": "The custom interview question tailored to their profile.",
-      "category": "Architecture",
-      "difficulty": "Advanced"
-    },
-    {
-      "id": "question_6",
-      "text": "The custom interview question tailored to their profile.",
+      "text": "The custom technical tradeoff question tailored to their profile.",
       "category": "Real-World Tradeoffs",
       "difficulty": "Expert"
     }
   ]
 }`;
-    }
 
     const entropySeed = Math.random().toString(36).substring(2, 10);
     const completionText = await getLLMCompletion({

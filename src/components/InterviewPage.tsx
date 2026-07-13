@@ -620,6 +620,9 @@ Converse naturally and speak in a human-like tone.`
       };
       utterance.onend = () => { setIsAISpeaking(false); if (ttsHeartbeatRef.current) { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; } };
       utterance.onerror = () => { setIsAISpeaking(false); if (ttsHeartbeatRef.current) { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; } };
+      
+      // Bind to window to prevent garbage collection in Chrome mid-speech
+      (window as any).activeUtterance = utterance;
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.error("Browser TTS error:", e);
@@ -749,7 +752,7 @@ Converse naturally and speak in a human-like tone.`
         if (autoRecordTimerRef.current) clearTimeout(autoRecordTimerRef.current);
         autoRecordTimerRef.current = setTimeout(() => {
           if (!isRecordingRef.current) {
-            startRecording();
+            startRecording(true);
           }
         }, 600);
       }
@@ -1343,6 +1346,11 @@ Converse naturally and speak in a human-like tone.`
         isRecordingRef.current = false;
         setInterimTranscript("");
 
+        if (e.error === "aborted") {
+          // Ignore normal mic suspension/abort events
+          return;
+        }
+
         if (e.error === "not-allowed") {
           setError("Microphone permission was denied. Try enabling microphone in settings, or use manual keyboard mode.");
         } else if (e.error === "network") {
@@ -1508,11 +1516,13 @@ Converse naturally and speak in a human-like tone.`
   };
 
   // Recording Controls
-  const startRecording = () => {
+  const startRecording = (preserveExisting = false) => {
     setError(null);
-    setTranscript("");
+    if (!preserveExisting) {
+      setTranscript("");
+      setSecondsElapsed(0);
+    }
     setInterimTranscript("");
-    setSecondsElapsed(0);
     setIsRecording(true);
     isRecordingRef.current = true;
 
