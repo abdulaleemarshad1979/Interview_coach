@@ -61,7 +61,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const [voiceMode, setVoiceMode] = useState<"direct" | "proxy" | "fallback" | "connecting">("connecting");
 
   // Voice-to-voice mode: auto-starts mic after AI speaks
-  const [voiceInterviewMode, setVoiceInterviewMode] = useState(true);
+  const [voiceInterviewMode, setVoiceInterviewMode] = useState(false);
   const [showTapToHear, setShowTapToHear] = useState(false);
   const [captionExpanded, setCaptionExpanded] = useState(false);
 
