@@ -28,8 +28,8 @@ export default function LandingPage({ onNavigate, isLoggedIn }: LandingPageProps
   return (
     <div id="landing-page" className="relative min-h-[calc(100vh-73px)] w-full flex flex-col justify-between overflow-x-hidden">
       {/* Decorative Background Glows */}
-      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-brand-primary/10 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 rounded-full bg-brand-accent/10 blur-[120px] pointer-events-none" />
+      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-brand-primary/5 blur-[40px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 rounded-full bg-brand-accent/5 blur-[40px] pointer-events-none" />
 
       {/* Hero Section */}
       <div className="max-w-7xl mx-auto px-6 py-16 md:py-24 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center flex-1">
