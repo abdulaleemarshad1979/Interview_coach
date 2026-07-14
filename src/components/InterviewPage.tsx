@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { InterviewQuestion, AnswerFeedback, StudentProfile, FullAnalysisResult, Scorecard } from "../types";
 import { supabase } from "../lib/supabaseClient";
+import { getApiUrl, getWsUrl } from "../lib/api";
 
 interface InterviewPageProps {
   studentProfile: StudentProfile;
@@ -260,7 +261,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     const isSecure = window.location.protocol === "https:";
     const wsProtocol = isSecure ? "wss" : "ws";
     const host = window.location.host;
-    let socketUrl = `${wsProtocol}://${host}/ws/interview`;
+    let socketUrl = getWsUrl("/ws/interview");
 
     // Direct Google Gemini Live connection if Vercel or local key is present
     const directKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
@@ -1680,7 +1681,7 @@ Converse naturally and speak in a human-like tone.`
         speakingPace
       };
 
-      const response = await fetch("/api/interview/submit-answer", {
+      const response = await fetch(getApiUrl("/api/interview/submit-answer"), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -1751,7 +1752,7 @@ Converse naturally and speak in a human-like tone.`
         originalAnalysis: analysisResult
       };
 
-      const response = await fetch("/api/interview/generate-report", {
+      const response = await fetch(getApiUrl("/api/interview/generate-report"), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
