@@ -2931,7 +2931,12 @@ server.on("upgrade", (request, socket, head) => {
 
 // Serve Vite or Static files depending on environment
 async function initServer() {
-  if (process.env.NODE_ENV !== "production") {
+  const isDev = process.env.NODE_ENV === "development" || 
+                (process.env.NODE_ENV !== "production" && 
+                 process.argv[1] && 
+                 (process.argv[1].endsWith("server.ts") || process.argv[1].includes("tsx")));
+
+  if (isDev) {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
