@@ -139,7 +139,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const [raisedHand, setRaisedHand] = useState(false);
   const [speakingPeerId, setSpeakingPeerId] = useState<string | null>(null);
   
-  // Webcam media handles
+  // Webcam/Audio media handles
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<{[peerId: string]: MediaStream}>({});
@@ -407,6 +407,29 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       clearInterval(interval);
     };
   }, [isPollingMode, joinedRoomCode, myParticipantId, step]);
+
+  const submitSpeechTurn = async (text: string) => {
+    if (!text.trim()) return;
+    if (!roomStarted) return;
+
+    if (isPollingMode) {
+      try {
+        await fetch("/api/gd-room/submit-turn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomCode: joinedRoomCode,
+            participantId: myParticipantId,
+            text: text.trim()
+          }),
+        });
+      } catch (err) {
+        console.error("Auto-submit speech turn error:", err);
+      }
+    } else {
+      sendSocketMessage({ type: "submit_turn", text: text.trim() });
+    }
+  };
 
   const setupSpeechRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -786,24 +809,11 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     setReceiveLog([]);
   };
 
-  const startVoiceCapture = async () => {
+  const startVoiceCapture = () => {
     setError(null);
     setIsRecording(true);
     isRecordingRef.current = true;
     setInterimText("");
-
-    // Release any previous audio context / streams before initializing SpeechRecognition
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(t => t.stop());
-      mediaStreamRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
-    if (analyserRef.current) {
-      analyserRef.current = null;
-    }
 
     if (recognitionRef.current) {
       try {
@@ -812,48 +822,6 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         console.error("Speech recognition start failed:", e);
       }
     }
-
-    // Try to acquire separate mic capture for visualizer, catch errors to avoid mobile crashes
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-          if (isRecordingRef.current) {
-            mediaStreamRef.current = stream;
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            const audioCtx = new AudioContextClass();
-            const source = audioCtx.createMediaStreamSource(stream);
-            const analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 32;
-            source.connect(analyser);
-
-            audioContextRef.current = audioCtx;
-            analyserRef.current = analyser;
-
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-
-            const draw = () => {
-              if (!analyserRef.current) return;
-              analyserRef.current.getByteFrequencyData(dataArray);
-
-              let sum = 0;
-              for (let i = 0; i < bufferLength; i += 1) {
-                sum += dataArray[i];
-              }
-              const average = sum / bufferLength;
-              setMicLevel(Math.min(100, Math.round((average / 110) * 100)));
-              animationFrameRef.current = requestAnimationFrame(draw);
-            };
-
-            draw();
-          } else {
-            stream.getTracks().forEach(t => t.stop());
-          }
-        })
-        .catch(err => {
-          console.warn("Visualizer mic acquisition failed:", err);
-        });
-    }
   };
 
   const stopVoiceCapture = () => {
@@ -861,7 +829,6 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     isRecordingRef.current = false;
     setInterimText("");
     setMicLevel(0);
-    cleanupAudioStreams();
 
     if (recognitionRef.current) {
       try {
@@ -877,16 +844,86 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-    }
     if (audioContextRef.current) {
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
     analyserRef.current = null;
   };
+
+  // Automatically start/stop speech recognition based on mic muting and room start state
+  useEffect(() => {
+    if (step === "discussion" && roomStarted) {
+      if (!micMuted) {
+        startVoiceCapture();
+      } else {
+        stopVoiceCapture();
+      }
+    } else {
+      stopVoiceCapture();
+    }
+  }, [micMuted, roomStarted, step]);
+
+  // Start/Stop mic visualizer using the existing WebRTC localStream
+  useEffect(() => {
+    if (localStream && !micMuted && step === "discussion") {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx = new AudioContextClass();
+      const source = audioCtx.createMediaStreamSource(localStream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 32;
+      source.connect(analyser);
+
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const draw = () => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i += 1) {
+          sum += dataArray[i];
+        }
+        const average = sum / bufferLength;
+        setMicLevel(Math.min(100, Math.round((average / 110) * 100)));
+        animationFrameRef.current = requestAnimationFrame(draw);
+      };
+
+      draw();
+    } else {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+      analyserRef.current = null;
+      setMicLevel(0);
+    }
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+      }
+    };
+  }, [localStream, micMuted, step]);
+
+  // Auto-submit turn when user mutes their microphone (passing their turn)
+  useEffect(() => {
+    if (micMuted && currentText.trim() && step === "discussion" && roomStarted) {
+      submitSpeechTurn(currentText);
+      setCurrentText("");
+    }
+  }, [micMuted, roomStarted, step]);
 
   const topicToUse = useCustomTopic ? customTopic.trim() : topic;
   const roomStatusText = roomStarted ? "Active discussion" : "Waiting for host to start the discussion";
@@ -1225,18 +1262,16 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
             </div>
           </div>
 
-          {/* 2. DISCORD CENTER STAGE (15-MEMBER VIDEO CALL GRID) */}
+          {/* 2. DISCORD CENTER STAGE (AUDIO/VIDEO CALL GRID) */}
           <div className="lg:col-span-6 bg-white flex flex-col p-4 justify-between min-h-[580px]">
-            {/* Live Camera Grid */}
+            {/* Live Audio/Video Grid */}
             <div className={`grid gap-4 flex-1 items-center justify-center py-2 w-full ${gridLayoutClass}`}>
               {/* Local User Card (Slot 1) */}
               <div 
-                className={`relative bg-slate-100 rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-lg w-full ${cardHeightClass} ${
-                  isRecording && micLevel > 5
-                    ? "border-emerald-500 ring-2 ring-emerald-500/20 scale-[1.01]" 
-                    : micMuted
-                    ? "border-slate-300"
-                    : "border-brand-primary/30"
+                className={`relative bg-slate-900 rounded-2xl overflow-hidden border transition-all duration-300 flex flex-col items-center justify-center shadow-lg w-full ${cardHeightClass} ${
+                  !micMuted && micLevel > 5
+                    ? "border-emerald-500 ring-4 ring-emerald-500/20 scale-[1.02]" 
+                    : "border-slate-800"
                 }`}
               >
                 {/* Local Webcam stream */}
@@ -1249,20 +1284,45 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                     className="absolute inset-0 w-full h-full object-cover" 
                   />
                 ) : (
-                  <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center border border-slate-300 font-mono text-slate-600 font-bold text-xs">
-                    {participantRoll.slice(-2)}
+                  /* Avatar fallback if camera disabled */
+                  <div className="relative flex flex-col items-center justify-center">
+                    {!micMuted && micLevel > 5 && (
+                      <>
+                        <div className="absolute w-20 h-20 bg-emerald-500/20 rounded-full animate-ping" />
+                        <div className="absolute w-24 h-24 bg-emerald-500/10 rounded-full animate-pulse" />
+                      </>
+                    )}
+                    <div className="w-16 h-16 rounded-full bg-brand-primary flex items-center justify-center border-2 border-white shadow-md font-mono text-white font-bold text-xl relative z-10">
+                      {participantRoll.slice(-2) || "??"}
+                    </div>
                   </div>
                 )}
-                
-                {/* Labels and Mute badging */}
-                <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-700 flex items-center gap-1.5 z-20">
-                  <span className="font-bold truncate max-w-[70px]">{participantName.split(" ")[0]} (You)</span>
+
+                {/* Name & Roll label overlay */}
+                <div className="absolute bottom-3 left-3 z-20 bg-slate-900/80 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-mono text-white border border-white/10 max-w-[80%]">
+                  <span className="font-bold truncate block">{participantName} (You)</span>
                 </div>
-                {micMuted && (
-                  <div className="absolute top-2 right-2 bg-red-500/80 p-1.5 rounded-full text-white z-20">
-                    <MicOff className="w-2.5 h-2.5" />
+
+                {/* Turn Speaking indicator overlay */}
+                {!micMuted && (
+                  <div className="absolute top-3 left-3 z-20 bg-emerald-500/90 text-white text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                    <span>Speaking Turn</span>
                   </div>
                 )}
+
+                {/* Muted/Unmuted Indicator Badges */}
+                <div className="absolute top-3 right-3 z-20">
+                  {micMuted ? (
+                    <span className="bg-red-500 text-white p-1.5 rounded-full inline-block border border-white/15 shadow-sm">
+                      <MicOff className="w-3.5 h-3.5" />
+                    </span>
+                  ) : (
+                    <span className="bg-emerald-500 text-white p-1.5 rounded-full inline-block border border-white/15 shadow-sm">
+                      <Mic className="w-3.5 h-3.5" />
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Real Participants Cards */}
@@ -1274,12 +1334,25 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   return (
                     <div 
                       key={peer.id}
-                      className={`relative bg-slate-50 rounded-2xl overflow-hidden border transition-all duration-300 flex items-center justify-center shadow-md w-full ${cardHeightClass} ${
+                      className={`relative bg-slate-900 rounded-2xl overflow-hidden border transition-all duration-300 flex flex-col items-center justify-center shadow-lg w-full ${cardHeightClass} ${
                         isSpeaking 
-                          ? "border-emerald-500 ring-2 ring-emerald-500/20 scale-[1.01]" 
-                          : "border-slate-200"
+                          ? "border-emerald-500 ring-4 ring-emerald-500/20 scale-[1.02]" 
+                          : "border-slate-800"
                       }`}
                     >
+                      {/* Hidden Audio element to play remote streams */}
+                      {remoteStreams[peer.id] && (
+                        <audio
+                          ref={el => {
+                            if (el && el.srcObject !== remoteStreams[peer.id]) {
+                              el.srcObject = remoteStreams[peer.id];
+                            }
+                          }}
+                          autoPlay
+                          playsInline
+                        />
+                      )}
+
                       {/* Remote Peer Video or Avatar */}
                       {remoteStreams[peer.id] ? (
                         <video
@@ -1293,20 +1366,37 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                           className="absolute inset-0 w-full h-full object-cover"
                         />
                       ) : (
-                        <div className={`w-8 h-8 rounded-full ${avatarColor} flex items-center justify-center font-bold font-mono text-[10px] text-white z-10 border border-white/5`}>
-                          {peer.roll.slice(-2) || "??"}
+                        /* Avatar fallback if no remote video stream */
+                        <div className="relative flex flex-col items-center justify-center">
+                          {isSpeaking && (
+                            <>
+                              <div className="absolute w-20 h-20 bg-emerald-500/20 rounded-full animate-ping" />
+                              <div className="absolute w-24 h-24 bg-emerald-500/10 rounded-full animate-pulse" />
+                            </>
+                          )}
+                          <div className={`w-16 h-16 rounded-full ${avatarColor} flex items-center justify-center border-2 border-white shadow-md font-mono text-white font-bold text-xl relative z-10`}>
+                            {peer.roll.slice(-2) || "??"}
+                          </div>
                         </div>
                       )}
 
-                      {/* Bottom Label and badges */}
-                      <div className="absolute bottom-2 left-2 bg-white/90 backdrop-blur-md px-2 py-0.5 rounded-lg text-[9px] font-mono text-slate-700 flex items-center gap-1.5 z-20">
-                        <span className="font-bold truncate max-w-[70px]">{peer.name.split(" ")[0]}</span>
+                      {/* Name & Roll label overlay */}
+                      <div className="absolute bottom-3 left-3 z-20 bg-slate-900/80 backdrop-blur-md px-2.5 py-1 rounded-lg text-[10px] font-mono text-white border border-white/10 flex items-center gap-1.5 max-w-[80%]">
+                        <span className="font-bold truncate">{peer.name}</span>
                         {peer.isHost && (
-                          <span className="text-[7px] bg-brand-primary/20 text-brand-primary px-1 rounded font-sans uppercase">
+                          <span className="text-[8px] bg-brand-primary text-white px-1.5 py-0.5 rounded font-sans uppercase font-bold">
                             Host
                           </span>
                         )}
                       </div>
+
+                      {/* Active speaking turn badge */}
+                      {isSpeaking && (
+                        <div className="absolute top-3 left-3 z-20 bg-emerald-500/90 text-white text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                          <span>Speaking Turn</span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1430,27 +1520,14 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                 className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-brand-primary"
               />
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={isRecording ? stopVoiceCapture : startVoiceCapture}
-                  disabled={!roomStarted}
-                  className={`flex items-center justify-center gap-1 rounded-lg py-2 text-[10px] font-bold border cursor-pointer transition ${
-                    isRecording
-                      ? "bg-red-500/10 border-red-500/20 text-red-500"
-                      : "bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200"
-                  }`}
-                >
-                  <Mic className="w-3.5 h-3.5" />
-                  <span>{isRecording ? "Stop" : "Record"}</span>
-                </button>
+              <div className="w-full">
                 <button
                   onClick={submitRoomTurn}
                   disabled={!roomStarted || !currentText.trim()}
-                  className="flex items-center justify-center gap-1 rounded-lg py-2 text-[10px] font-bold bg-brand-primary hover:bg-blue-600 text-white cursor-pointer badge-white-text disabled:opacity-50 disabled:hover:bg-brand-primary"
+                  className="w-full flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold bg-brand-primary hover:bg-blue-600 text-white cursor-pointer badge-white-text disabled:opacity-50 disabled:hover:bg-brand-primary transition"
                 >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Send</span>
+                  <Check className="w-4 h-4" />
+                  <span>Send Text Argument</span>
                 </button>
               </div>
 
