@@ -184,7 +184,7 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
 
 const app = express();
 const server = http.createServer(app);
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Increase payload limit to handle base64-encoded PDF resumes
 app.use(express.json({ limit: "25mb" }));
