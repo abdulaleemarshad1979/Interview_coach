@@ -13,6 +13,11 @@ dotenv.config();
 
 import { createClient } from "@supabase/supabase-js";
 
+// Polyfill global WebSocket for Node.js < 22 where native WebSocket is not available
+if (typeof globalThis.WebSocket === "undefined") {
+  (globalThis as any).WebSocket = WebSocket;
+}
+
 // Lazy initialize Supabase client for backend authentication verification
 let supabaseInstance: any = null;
 
