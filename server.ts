@@ -115,6 +115,7 @@ interface CompletionOptions {
   messages: { role: string; content: string }[];
   jsonMode?: boolean;
   temperature?: number;
+  purpose?: "chat" | "analyze" | "report";
 }
 
 
@@ -123,7 +124,15 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
 
   if (provider === "ollama") {
     const ollamaUrl = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
-    const ollamaModel = process.env.OLLAMA_MODEL || "qwen3-coder:480b";
+    let ollamaModel = process.env.OLLAMA_MODEL || "qwen3-coder:480b";
+
+    if (options.purpose === "chat") {
+      ollamaModel = process.env.OLLAMA_MODEL_CHAT || process.env.OLLAMA_MODEL || "qwen2.5-coder:7b";
+    } else if (options.purpose === "analyze") {
+      ollamaModel = process.env.OLLAMA_MODEL_ANALYZE || process.env.OLLAMA_MODEL || "qwen3-coder:480b";
+    } else if (options.purpose === "report") {
+      ollamaModel = process.env.OLLAMA_MODEL_REPORT || process.env.OLLAMA_MODEL || "qwen3-coder:480b";
+    }
 
     const payload: any = {
       model: ollamaModel,
@@ -1099,7 +1108,8 @@ Respond with STRICT JSON matching this schema:
         { role: "system", content: "You are a professional technical auditor. Respond with a JSON object conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
-      jsonMode: true
+      jsonMode: true,
+      purpose: "analyze"
     });
 
     const rawResult = parseLLMJson(completionText, {});
@@ -1229,7 +1239,8 @@ Respond with STRICT JSON matching this schema:
         { role: "user", content: prompt + `\n\n[System directive: Generate a completely fresh and unique set of questions. Random seed/entropy: ${entropySeed}]` }
       ],
       jsonMode: true,
-      temperature: 0.9
+      temperature: 0.9,
+      purpose: "analyze"
     });
 
     const DEFAULT_QUESTIONS = [
@@ -1385,7 +1396,8 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
         { role: "system", content: "You are an expert technical interviewer and feedback coach. Respond with a JSON object conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
-      jsonMode: true
+      jsonMode: true,
+      purpose: "chat"
     });
 
     const rawEvaluation = parseLLMJson(completionText, {});
@@ -1587,7 +1599,8 @@ Respond with STRICT JSON matching this schema:
         { role: "system", content: "You are an engineering director. Respond with a JSON object conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
-      jsonMode: true
+      jsonMode: true,
+      purpose: "report"
     });
 
     const rawReport = parseLLMJson(completionText, {});
@@ -1785,7 +1798,8 @@ RULE: Assess purely communication skills and argument logic. Do not judge or ref
         { role: "system", content: "You are a professional university soft skills assessor. Respond with a JSON object conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
-      jsonMode: true
+      jsonMode: true,
+      purpose: "report"
     });
 
     const defaultGDResult = {
@@ -2028,6 +2042,7 @@ async function evaluateDiscussionRoom(room: GDRoom) {
       { role: "user", content: prompt }
     ],
     jsonMode: true,
+    purpose: "report"
   });
 
   try {
@@ -2877,7 +2892,8 @@ wss.on("connection", async (ws: WebSocket) => {
             messages: [
               { role: "system", content: "You are a helpful and polite mock interview helper." },
               { role: "user", content: message.text }
-            ]
+            ],
+            purpose: "chat"
           });
           ws.send(JSON.stringify({ type: "text_response", text: respText || "" }));
         } catch (err: any) {
