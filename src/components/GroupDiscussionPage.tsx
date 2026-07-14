@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { StudentProfile } from "../types";
 import Button from "./ui/Button";
+import { getApiUrl, getWsUrl } from "../lib/api";
 
 interface GroupDiscussionPageProps {
   studentProfile: StudentProfile;
@@ -374,7 +375,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     let active = true;
     const poll = async () => {
       try {
-        const res = await fetch(`/api/gd-room/state?roomCode=${joinedRoomCode}&participantId=${myParticipantId}&t=${Date.now()}`);
+        const res = await fetch(getApiUrl(`/api/gd-room/state?roomCode=${joinedRoomCode}&participantId=${myParticipantId}&t=${Date.now()}`));
         if (!res.ok) {
           const data = await res.json();
           throw new Error(data.error || "Failed to fetch state");
@@ -414,7 +415,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
     if (isPollingMode) {
       try {
-        await fetch("/api/gd-room/submit-turn", {
+        await fetch(getApiUrl("/api/gd-room/submit-turn"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -507,10 +508,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       setError(null);
 
       try {
-        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-        // If served from Vite dev server (e.g., port 5173), direct the WebSocket to the backend port 3000
-        const host = (window.location.port && window.location.port !== "3000") ? `${window.location.hostname}:3000` : window.location.host;
-        const socket = new WebSocket(`${protocol}://${host}/ws/gd-room`);
+        const socket = new WebSocket(getWsUrl("/ws/gd-room"));
         socketRef.current = socket;
 
         socket.onopen = () => {
@@ -665,7 +663,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       try {
         setConnectionLoading(true);
         setError(null); // Clear WebSocket errors since we are falling back to polling
-        const res = await fetch("/api/gd-room/join", {
+        const res = await fetch(getApiUrl("/api/gd-room/join"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -701,7 +699,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     }
     if (isPollingMode) {
       try {
-        const res = await fetch("/api/gd-room/start", {
+        const res = await fetch(getApiUrl("/api/gd-room/start"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId }),
@@ -731,7 +729,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     setError(null);
     if (isPollingMode) {
       try {
-        const res = await fetch("/api/gd-room/submit-turn", {
+        const res = await fetch(getApiUrl("/api/gd-room/submit-turn"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId, text: currentText.trim() }),
@@ -758,7 +756,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     if (isPollingMode) {
       setConnectionLoading(true);
       try {
-        const res = await fetch("/api/gd-room/end", {
+        const res = await fetch(getApiUrl("/api/gd-room/end"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId }),
@@ -782,7 +780,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const leaveRoom = async () => {
     if (isPollingMode) {
       try {
-        await fetch("/api/gd-room/leave", {
+        await fetch(getApiUrl("/api/gd-room/leave"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId }),

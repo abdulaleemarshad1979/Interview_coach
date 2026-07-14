@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { FullAnalysisResult, StudentProfile } from "../types";
 import { supabase } from "../lib/supabaseClient";
+import { getApiUrl } from "../lib/api";
 
 interface AnalyzePageProps {
   studentProfile: StudentProfile;
@@ -193,7 +194,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
         resumeMimeType: file.type
       };
 
-      const response = await fetch("/api/analyze", {
+      const response = await fetch(getApiUrl("/api/analyze"), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -228,7 +229,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || "";
 
-      const response = await fetch("/api/interview/generate-questions", {
+      const response = await fetch(getApiUrl("/api/interview/generate-questions"), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",

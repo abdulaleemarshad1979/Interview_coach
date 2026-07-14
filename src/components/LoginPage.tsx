@@ -4,6 +4,7 @@ import { Mail, Fingerprint, Check, Star, AlertCircle, GraduationCap, CheckCircle
 import InputField from "./ui/InputField";
 import Button from "./ui/Button";
 import { supabase } from "../lib/supabaseClient";
+import { getApiUrl } from "../lib/api";
 
 interface LoginPageProps {
   onLoginSuccess: (studentId: string, email?: string) => void;
@@ -75,7 +76,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       const token = session.data.session?.access_token;
       if (!token) return;
 
-      const syncRes = await fetch("/api/college/sync-portal", {
+      const syncRes = await fetch(getApiUrl("/api/college/sync-portal"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -130,7 +131,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
       try {
         // 1. Verify credentials and sync details from college website scraper
-        const syncRes = await fetch("/api/college/auth-sync", {
+        const syncRes = await fetch(getApiUrl("/api/college/auth-sync"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

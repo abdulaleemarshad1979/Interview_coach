@@ -14,6 +14,7 @@ import AdminDashboardPage from "./components/AdminDashboardPage";
 import { StudentProfile, FacultyProfile, AdminProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
 import { supabase } from "./lib/supabaseClient";
 import ProfilePage from "./components/ProfilePage";
+import { getApiUrl } from "./lib/api";
 
 
 export default function App() {
@@ -34,8 +35,8 @@ export default function App() {
         return;
       }
 
-      const session = await supabase.auth.getSession();
-      const token = session.data.session?.access_token;
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
       
       const headers: Record<string, string> = {
         "Content-Type": "application/json"
@@ -49,14 +50,14 @@ export default function App() {
 
       if (portalPwd) {
         console.log(`[Background Sync] Syncing profile details from college portal API for Roll No: ${rollNo}`);
-        res = await fetch("/api/college/sync-portal", {
+        res = await fetch(getApiUrl("/api/college/sync-portal"), {
           method: "POST",
           headers,
           body: JSON.stringify({ rollNo, password: portalPwd })
         });
       } else {
         console.log(`[Fallback Sync] Syncing profile from college API (no password cached) for Roll No: ${rollNo}`);
-        res = await fetch(`/api/college/student/${rollNo}`, {
+        res = await fetch(getApiUrl(`/api/college/student/${rollNo}`), {
           headers
         });
       }
