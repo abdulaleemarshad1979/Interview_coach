@@ -159,6 +159,26 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const socketRef = useRef<WebSocket | null>(null);
   const silenceTimeoutRef = useRef<any>(null);
   const audioPlayerRef = useRef<any>(null);
+  const activeAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const stopAllTTS = () => {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.stop();
+      audioPlayerRef.current = null;
+    }
+    if (activeAudioSourceRef.current) {
+      try {
+        activeAudioSourceRef.current.stop();
+      } catch (err) {
+        // Source node might already be stopped
+      }
+      activeAudioSourceRef.current = null;
+    }
+    setIsAISpeaking(false);
+  };
   const micStreamerContextRef = useRef<AudioContext | null>(null);
   const micStreamerScriptNodeRef = useRef<ScriptProcessorNode | null>(null);
 
@@ -518,10 +538,14 @@ Converse naturally and speak in a human-like tone.`
             }
 
             const source = audioCtx.createBufferSource();
+            activeAudioSourceRef.current = source;
             source.buffer = audioBuffer;
             source.connect(audioCtx.destination);
             source.onended = () => {
               setIsAISpeaking(false);
+              if (activeAudioSourceRef.current === source) {
+                activeAudioSourceRef.current = null;
+              }
             };
             source.start(0);
             console.log("[TTS] Playing via Gemini 2.5 Flash TTS — Aoede voice");
@@ -582,9 +606,15 @@ Converse naturally and speak in a human-like tone.`
 
                 const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
                 const source = audioCtx.createBufferSource();
+                activeAudioSourceRef.current = source;
                 source.buffer = audioBuffer;
                 source.connect(audioCtx.destination);
-                source.onended = () => { setIsAISpeaking(false); };
+                source.onended = () => {
+                  setIsAISpeaking(false);
+                  if (activeAudioSourceRef.current === source) {
+                    activeAudioSourceRef.current = null;
+                  }
+                };
                 source.start(0);
                 console.log(`[TTS] Playing via Google Cloud TTS — ${voice.name}`);
                 return;
@@ -679,7 +709,7 @@ Converse naturally and speak in a human-like tone.`
         if (ttsHeartbeatRef.current) clearInterval(ttsHeartbeatRef.current);
         if (autoRecordTimerRef.current) clearTimeout(autoRecordTimerRef.current);
         cleanupStreams();
-        window.speechSynthesis.cancel();
+        stopAllTTS();
       };
     }
 
@@ -689,9 +719,7 @@ Converse naturally and speak in a human-like tone.`
       if (ttsHeartbeatRef.current) clearInterval(ttsHeartbeatRef.current);
       if (autoRecordTimerRef.current) clearTimeout(autoRecordTimerRef.current);
       cleanupStreams();
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
+      stopAllTTS();
     };
   }, []);
 
@@ -1641,6 +1669,7 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
 
   const toggleMic = () => {
     setMicActive(prev => !prev);
+    stopAllTTS();
   };
 
   const cleanupStreams = () => {
@@ -1665,6 +1694,7 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
   // Recording Controls
   const startRecording = (preserveExisting = false) => {
     setError(null);
+    stopAllTTS();
     if (!preserveExisting) {
       setTranscript("");
       setSecondsElapsed(0);
@@ -1784,9 +1814,7 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
 
   const handleSubmittingAnswer = async () => {
     stopRecording();
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel(); // Stop talking on submission
-    }
+    stopAllTTS();
 
     if (!transcript.trim()) {
       setError("Please record or write a written response before submitting.");
@@ -1839,9 +1867,7 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
 
   const handleNextQuestion = () => {
     if (!currentFeedback) return;
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel(); // Stop talking when proceeding
-    }
+    stopAllTTS();
 
     // Append completed feedback
     const updatedFeedbacks = [...feedbacks, currentFeedback];
@@ -2156,8 +2182,8 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
                 onClick={() => {
                   const newMuted = !isVoiceMuted;
                   setIsVoiceMuted(newMuted);
-                  if (newMuted && typeof window !== "undefined" && window.speechSynthesis) {
-                    window.speechSynthesis.cancel();
+                  if (newMuted) {
+                    stopAllTTS();
                   }
                 }}
                 className={`p-2.5 rounded-xl border transition-all cursor-pointer ${!isVoiceMuted
