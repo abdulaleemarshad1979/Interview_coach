@@ -12,12 +12,25 @@ import mongoose from "mongoose";
 
 dotenv.config();
 
-// Connect to MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/interview-coach";
-console.log("Connecting to MongoDB at:", MONGODB_URI);
-mongoose.connect(MONGODB_URI)
-  .then(() => console.log("Connected successfully to MongoDB"))
-  .catch((err) => console.error("MongoDB connection failed:", err));
+// Cached lazy MongoDB connector — safe for Vercel serverless cold starts.
+// process.env.MONGODB_URI is read at call-time, not module-load time.
+let mongoConnecting: Promise<typeof mongoose> | null = null;
+async function connectDB() {
+  if (mongoose.connection.readyState >= 1) return; // already connected / connecting
+  if (mongoConnecting) return mongoConnecting;      // reuse in-flight promise
+  const uri = process.env.MONGODB_URI || "mongodb://localhost:27017/interview-coach";
+  console.log("Connecting to MongoDB at:", uri);
+  mongoConnecting = mongoose.connect(uri).then((m) => {
+    console.log("Connected successfully to MongoDB");
+    mongoConnecting = null;
+    return m;
+  }).catch((err) => {
+    console.error("MongoDB connection failed:", err);
+    mongoConnecting = null;
+    throw err;
+  });
+  return mongoConnecting;
+}
 
 // MongoDB Schema Definitions
 const ProfileSchema = new mongoose.Schema({
@@ -311,6 +324,7 @@ app.use(express.json({ limit: "25mb" }));
 
 app.post("/api/auth/signup", async (req, res) => {
   try {
+    await connectDB();
     const { email, password, user_metadata } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required." });
@@ -397,6 +411,7 @@ app.post("/api/auth/signup", async (req, res) => {
 
 app.post("/api/auth/login", async (req, res) => {
   try {
+    await connectDB();
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required." });
