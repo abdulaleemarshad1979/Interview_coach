@@ -1550,7 +1550,7 @@ Respond with STRICT JSON matching this schema:
   }
 });
 
-// 3. API Endpoint: Generate 6 Adaptive Interview Questions
+// 3. API Endpoint: Generate 15 Adaptive Interview Questions
 app.post("/api/interview/generate-questions", requireAuth, async (req: any, res) => {
   try {
     const { analysisResult, interviewType } = req.body;
@@ -1570,62 +1570,50 @@ app.post("/api/interview/generate-questions", requireAuth, async (req: any, res)
       }
     }
 
-    const prompt = `You are a world-class technical and behavioral interviewer compiling a personalized, adaptive interview plan.
+    const prompt = `You are a professional mock interviewer compiling a personalized, adaptive interview plan.
 Based on the candidate's profile:
 - Parsed Resume: ${JSON.stringify(analysisResult.parsedResume)}
 - GitHub Repos: ${JSON.stringify(analysisResult.githubAnalysis)}
 - Cross-Reference Audit: ${JSON.stringify(analysisResult.crossReference || {})}
 
-Generate exactly 6 interview questions that escalate in difficulty, combining both technical depth and behavioral soft skills, with a stronger emphasis on soft skills.
-CRITICAL: You must ONLY ask about projects that are explicitly mentioned in the provided Parsed Resume or GitHub Repos. Do NOT invent, hallucinate, or reference any other projects or details not found in the candidate's profile.
+Generate exactly 15 interview questions. IMPORTANT: Start with very simple, easy, friendly questions (ice-breakers) and GRADUALLY increase difficulty. The first 5 questions must be basic and comfortable so the candidate warms up. Do NOT start with complex or multi-part questions.
+CRITICAL: You must ONLY ask about projects/skills that are explicitly mentioned in the Parsed Resume or GitHub Repos. Do NOT invent or reference anything not in the profile.
 
-The 6 questions must assess:
-1. Communication Clarity (Beginner difficulty, Soft Skill) — Greet the candidate and ask them to explain their background and walk through one of the main projects or roles from their resume.
-2. Technical explanation & Depth (Developing difficulty, Technical) — ask them to explain the technical implementation, architecture, or code design decisions of their primary project from their resume/GitHub.
-3. Teamwork & Collaboration (Developing/Intermediate difficulty, Soft Skill) — ask about a group project experience, how they handled disagreements/conflicts with a teammate, or shared responsibility.
-4. Problem-Solving & Adaptability (Intermediate difficulty, Soft Skill) — test how they react when requirements/constraints change or when their first solution/setup fails during development.
-5. Ownership & Accountability (Advanced difficulty, Soft Skill) — look for whether they take responsibility for mistakes/bugs, distinguish individual vs team contributions, and reflect on lessons learned.
-6. Real-World Tradeoffs (Expert difficulty, Technical) — frame a realistic scenario requiring them to evaluate trade-offs between two languages, frameworks, or architectural approaches they used (e.g. SQL vs NoSQL, React state management choices).
+The 15 questions must follow this exact progression:
+1. Ice-Breaker / Introduction (Easy) — A very simple, friendly greeting + ask the candidate to introduce themselves in 1-2 sentences.
+2. Background (Easy) — Ask which field/domain they are studying or working in and why they chose it.
+3. Hobbies & Motivation (Easy) — Ask what they enjoy doing outside of academics/work and what motivates them to learn technology.
+4. Favourite Subject / Skill (Easy) — Ask what their favourite subject or skill is and why.
+5. Simple Project Introduction (Easy) — Ask them to briefly name one project from their resume and describe it in simple terms (what it does).
+6. Communication Clarity (Beginner) — Ask them to explain one of their projects to someone with no technical background.
+7. Learning Experience (Beginner) — Ask what they learned while building a project from their resume — what was new or surprising.
+8. Tools & Technologies (Beginner) — Ask which programming languages, tools, or frameworks they used and why they chose them.
+9. Challenges Faced (Developing) — Ask about a specific challenge or bug they encountered in a project and how they fixed it.
+10. Teamwork & Collaboration (Developing) — Ask about working in a team — how they communicated, divided tasks, or resolved a disagreement.
+11. Technical Explanation (Developing) — Ask them to explain the architecture or logic of their main project in a bit more detail.
+12. Problem-Solving (Intermediate) — Ask how they handled a situation where their original approach did not work and what they did instead.
+13. Ownership & Accountability (Intermediate) — Ask about a mistake they made in a project and what they did to fix it and prevent it next time.
+14. Real-World Scenario (Advanced) — Present a realistic scenario related to their tech stack and ask how they would approach it.
+15. Tradeoffs & Decisions (Advanced) — Ask them to compare two technologies or approaches they used and explain why they picked one over the other.
 
-Respond with STRICT JSON matching this schema:
+Respond with STRICT JSON matching this schema (exactly 15 items in the array):
 {
   "questions": [
-    {
-      "id": "question_1",
-      "text": "The custom behavioral question tailored to their profile.",
-      "category": "Communication Clarity",
-      "difficulty": "Beginner"
-    },
-    {
-      "id": "question_2",
-      "text": "The custom technical explanation question tailored to their profile.",
-      "category": "Technical Depth",
-      "difficulty": "Developing"
-    },
-    {
-      "id": "question_3",
-      "text": "The custom behavioral question tailored to their profile.",
-      "category": "Teamwork & Collaboration",
-      "difficulty": "Developing"
-    },
-    {
-      "id": "question_4",
-      "text": "The custom behavioral question tailored to their profile.",
-      "category": "Problem-Solving & Adaptability",
-      "difficulty": "Intermediate"
-    },
-    {
-      "id": "question_5",
-      "text": "The custom behavioral question tailored to their profile.",
-      "category": "Ownership & Accountability",
-      "difficulty": "Intermediate"
-    },
-    {
-      "id": "question_6",
-      "text": "The custom technical tradeoff question tailored to their profile.",
-      "category": "Real-World Tradeoffs",
-      "difficulty": "Expert"
-    }
+    { "id": "question_1", "text": "...", "category": "Ice-Breaker", "difficulty": "Easy" },
+    { "id": "question_2", "text": "...", "category": "Background", "difficulty": "Easy" },
+    { "id": "question_3", "text": "...", "category": "Motivation", "difficulty": "Easy" },
+    { "id": "question_4", "text": "...", "category": "Favourite Skill", "difficulty": "Easy" },
+    { "id": "question_5", "text": "...", "category": "Project Introduction", "difficulty": "Easy" },
+    { "id": "question_6", "text": "...", "category": "Communication Clarity", "difficulty": "Beginner" },
+    { "id": "question_7", "text": "...", "category": "Learning Experience", "difficulty": "Beginner" },
+    { "id": "question_8", "text": "...", "category": "Tools & Technologies", "difficulty": "Beginner" },
+    { "id": "question_9", "text": "...", "category": "Challenges Faced", "difficulty": "Developing" },
+    { "id": "question_10", "text": "...", "category": "Teamwork & Collaboration", "difficulty": "Developing" },
+    { "id": "question_11", "text": "...", "category": "Technical Depth", "difficulty": "Developing" },
+    { "id": "question_12", "text": "...", "category": "Problem-Solving", "difficulty": "Intermediate" },
+    { "id": "question_13", "text": "...", "category": "Ownership & Accountability", "difficulty": "Intermediate" },
+    { "id": "question_14", "text": "...", "category": "Real-World Scenario", "difficulty": "Advanced" },
+    { "id": "question_15", "text": "...", "category": "Real-World Tradeoffs", "difficulty": "Advanced" }
   ]
 }`;
 
@@ -1641,12 +1629,21 @@ Respond with STRICT JSON matching this schema:
     });
 
     const DEFAULT_QUESTIONS = [
-      { id: "q1", text: "Tell me about yourself and your journey in technology.", category: "Communication Clarity", difficulty: "Easy" },
-      { id: "q2", text: "Describe a challenging technical project you worked on. What was your role and how did you handle difficulties?", category: "Ownership & Accountability", difficulty: "Intermediate" },
-      { id: "q3", text: "How do you handle disagreements or conflicts within a development team?", category: "Teamwork & Collaboration", difficulty: "Intermediate" },
-      { id: "q4", text: "Explain the difference between SQL and NoSQL databases, and when you would choose one over the other.", category: "Real-World Tradeoffs", difficulty: "Intermediate" },
-      { id: "q5", text: "What is your approach to learning new technologies or frameworks quickly?", difficulty: "Easy", category: "Learning Mindset" },
-      { id: "q6", text: "If a critical production service fails under load, what steps do you take to troubleshoot and resolve it?", difficulty: "Expert", category: "Problem-Solving & Adaptability" }
+      { id: "q1",  text: "Hi! Please introduce yourself in one or two sentences.", category: "Ice-Breaker", difficulty: "Easy" },
+      { id: "q2",  text: "Which field are you studying or working in, and why did you choose it?", category: "Background", difficulty: "Easy" },
+      { id: "q3",  text: "What do you enjoy doing outside of academics or work? What motivates you to learn technology?", category: "Motivation", difficulty: "Easy" },
+      { id: "q4",  text: "What is your favourite subject or skill, and why do you like it?", category: "Favourite Skill", difficulty: "Easy" },
+      { id: "q5",  text: "Can you name one project you have worked on and describe in simple terms what it does?", category: "Project Introduction", difficulty: "Easy" },
+      { id: "q6",  text: "How would you explain that project to a friend who has no technical background?", category: "Communication Clarity", difficulty: "Beginner" },
+      { id: "q7",  text: "What did you learn while building that project — was there anything new or surprising?", category: "Learning Experience", difficulty: "Beginner" },
+      { id: "q8",  text: "Which programming languages, tools, or frameworks did you use, and why did you pick them?", category: "Tools & Technologies", difficulty: "Beginner" },
+      { id: "q9",  text: "Tell me about a specific challenge or bug you encountered in a project and how you resolved it.", category: "Challenges Faced", difficulty: "Developing" },
+      { id: "q10", text: "Have you ever worked in a team? How did you divide tasks and handle any disagreements?", category: "Teamwork & Collaboration", difficulty: "Developing" },
+      { id: "q11", text: "Can you walk me through how your main project works on a technical level — its structure or logic?", category: "Technical Depth", difficulty: "Developing" },
+      { id: "q12", text: "Describe a situation where your first approach did not work. What did you do differently?", category: "Problem-Solving", difficulty: "Intermediate" },
+      { id: "q13", text: "Tell me about a mistake you made in a project. How did you fix it and what did you learn from it?", category: "Ownership & Accountability", difficulty: "Intermediate" },
+      { id: "q14", text: "If you were asked to add a new feature to your project that requires storing user data, how would you approach it?", category: "Real-World Scenario", difficulty: "Advanced" },
+      { id: "q15", text: "Compare two technologies or approaches you have used. Why did you choose one over the other?", category: "Real-World Tradeoffs", difficulty: "Advanced" }
     ];
 
     const result = parseLLMJson(completionText, {});
@@ -1659,12 +1656,21 @@ Respond with STRICT JSON matching this schema:
   } catch (error: any) {
     console.error("Generate Questions Error, using default fallback list:", error);
     const DEFAULT_QUESTIONS = [
-      { id: "q1", text: "Tell me about yourself and your journey in technology.", category: "Communication Clarity", difficulty: "Easy" },
-      { id: "q2", text: "Describe a challenging technical project you worked on. What was your role and how did you handle difficulties?", category: "Ownership & Accountability", difficulty: "Intermediate" },
-      { id: "q3", text: "How do you handle disagreements or conflicts within a development team?", category: "Teamwork & Collaboration", difficulty: "Intermediate" },
-      { id: "q4", text: "Explain the difference between SQL and NoSQL databases, and when you would choose one over the other.", category: "Real-World Tradeoffs", difficulty: "Intermediate" },
-      { id: "q5", text: "What is your approach to learning new technologies or frameworks quickly?", difficulty: "Easy", category: "Learning Mindset" },
-      { id: "q6", text: "If a critical production service fails under load, what steps do you take to troubleshoot and resolve it?", difficulty: "Expert", category: "Problem-Solving & Adaptability" }
+      { id: "q1",  text: "Hi! Please introduce yourself in one or two sentences.", category: "Ice-Breaker", difficulty: "Easy" },
+      { id: "q2",  text: "Which field are you studying or working in, and why did you choose it?", category: "Background", difficulty: "Easy" },
+      { id: "q3",  text: "What do you enjoy doing outside of academics or work? What motivates you to learn technology?", category: "Motivation", difficulty: "Easy" },
+      { id: "q4",  text: "What is your favourite subject or skill, and why do you like it?", category: "Favourite Skill", difficulty: "Easy" },
+      { id: "q5",  text: "Can you name one project you have worked on and describe in simple terms what it does?", category: "Project Introduction", difficulty: "Easy" },
+      { id: "q6",  text: "How would you explain that project to a friend who has no technical background?", category: "Communication Clarity", difficulty: "Beginner" },
+      { id: "q7",  text: "What did you learn while building that project — was there anything new or surprising?", category: "Learning Experience", difficulty: "Beginner" },
+      { id: "q8",  text: "Which programming languages, tools, or frameworks did you use, and why did you pick them?", category: "Tools & Technologies", difficulty: "Beginner" },
+      { id: "q9",  text: "Tell me about a specific challenge or bug you encountered in a project and how you resolved it.", category: "Challenges Faced", difficulty: "Developing" },
+      { id: "q10", text: "Have you ever worked in a team? How did you divide tasks and handle any disagreements?", category: "Teamwork & Collaboration", difficulty: "Developing" },
+      { id: "q11", text: "Can you walk me through how your main project works on a technical level — its structure or logic?", category: "Technical Depth", difficulty: "Developing" },
+      { id: "q12", text: "Describe a situation where your first approach did not work. What did you do differently?", category: "Problem-Solving", difficulty: "Intermediate" },
+      { id: "q13", text: "Tell me about a mistake you made in a project. How did you fix it and what did you learn from it?", category: "Ownership & Accountability", difficulty: "Intermediate" },
+      { id: "q14", text: "If you were asked to add a new feature to your project that requires storing user data, how would you approach it?", category: "Real-World Scenario", difficulty: "Advanced" },
+      { id: "q15", text: "Compare two technologies or approaches you have used. Why did you choose one over the other?", category: "Real-World Tradeoffs", difficulty: "Advanced" }
     ];
     res.json(DEFAULT_QUESTIONS);
   }
