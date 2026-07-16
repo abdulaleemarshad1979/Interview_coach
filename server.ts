@@ -1772,7 +1772,16 @@ Provide feedback conforming to the following JSON schema:
   "presentationFeedback": "Guidance on on-camera verbal engagement, pacing, confidence, and articulation."
 }
 
+STRICT SCORING RULES (MANDATORY — DO NOT IGNORE):
+- If the answer is irrelevant to the question (e.g. just a greeting, random words, or completely off-topic), score MUST be between 0 and 20.
+- If the answer is fewer than 10 words OR only says something like "I am fine", "okay", "good", "yes", "no", or any one-liner that does not address the question, score MUST be between 0 and 25.
+- If the answer is very brief (10–30 words) but somewhat on-topic, score MUST be between 25 and 45.
+- If the answer is moderately detailed and on-topic (30–80 words), score can range from 45 to 70.
+- Only score above 75 if the answer is substantive, well-structured, and clearly addresses the question with at least 50 meaningful words.
+- Do NOT give high scores just because the candidate sounded confident or had good audio — content relevance is the primary criterion.
+
 RULE: Absolutely do not judge or infer personal, physical, medical, emotional, or identity traits. Evaluate only the speech structure, communication technique, and the soft skills maturity shown by the content of the answer.`;
+
     } else {
       prompt = `You are an elite communication coach and technical grader. Grade this candidate's spoken response transcript.
 Question Category: ${category}
@@ -1791,7 +1800,16 @@ Provide feedback conforming to the following JSON schema:
   "presentationFeedback": "Guidance on on-camera verbal engagement, pacing, confidence, and articulation."
 }
 
+STRICT SCORING RULES (MANDATORY — DO NOT IGNORE):
+- If the answer is irrelevant to the question (e.g. just a greeting, random words, or completely off-topic), score MUST be between 0 and 20.
+- If the answer is fewer than 10 words OR only says something like "I am fine", "okay", "good", "yes", "no", or any one-liner that does not address the question, score MUST be between 0 and 25.
+- If the answer is very brief (10–30 words) but somewhat on-topic, score MUST be between 25 and 45.
+- If the answer is moderately detailed and on-topic (30–80 words), score can range from 45 to 70.
+- Only score above 75 if the answer is substantive, well-structured, and clearly addresses the question with at least 50 meaningful words.
+- Do NOT give high scores just because the candidate sounded confident or had good audio — content relevance is the primary criterion.
+
 RULE: Absolutely do not judge or infer personal, physical, medical, emotional, or identity traits. Evaluate only the speech structure, communication technique, and technical accuracy of the spoken content.`;
+
     }
 
     const completionText = await getLLMCompletion({
@@ -1805,12 +1823,12 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
 
     const rawEvaluation = parseLLMJson(completionText, {});
     const defaultFeedback = {
-      score: 80,
-      strengths: ["Clear response structure", "Directly addressed the question key points"],
-      improvements: ["Could practice presenting ideas with slightly faster pacing", "Could elaborate more with specific technical project contexts"],
-      speechFeedback: "The response was fluent with low filler-word count. Good vocabulary choices.",
-      contentFeedback: "The explanation showed solid baseline understanding, matching expectations for this question category.",
-      presentationFeedback: "Maintained standard pacing. Encourage stable posture and clear articulation."
+      score: 40,
+      strengths: ["Attempted to respond to the question"],
+      improvements: ["Answer was too brief or did not address the question — please provide a detailed response", "Try to explain your thinking with at least 2-3 full sentences"],
+      speechFeedback: "The response was too short to evaluate speech quality properly.",
+      contentFeedback: "The answer did not sufficiently address the question. A more detailed and relevant response is needed.",
+      presentationFeedback: "Please provide a more complete answer so presentation skills can be fairly assessed."
     };
 
     const evaluation = {
@@ -1861,13 +1879,13 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
       questionId,
       questionText,
       transcript,
-      score: 80,
-      pacing: "Optimal",
+      score: 40,
+      pacing: "Unknown",
       fillerWordCount: 0,
-      strengths: ["Clear response structure", "Directly addressed the question key points"],
-      improvements: ["Could practice presenting ideas with slightly faster pacing"],
-      speechFeedback: "The response was fluent with low filler-word count.",
-      contentFeedback: "The explanation showed solid baseline understanding.",
+      strengths: ["Attempted to respond"],
+      improvements: ["Could not evaluate — please provide a more detailed answer"],
+      speechFeedback: "Unable to evaluate speech quality for this response.",
+      contentFeedback: "The response could not be scored. Please try again with a more complete answer.",
       presentationFeedback: "Maintained standard pacing.",
       vocalConfidence: 82,
       audioClarity: 85,
