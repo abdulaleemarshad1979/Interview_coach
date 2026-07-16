@@ -263,9 +263,9 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
     const host = window.location.host;
     let socketUrl = getWsUrl("/ws/interview");
 
-    // Direct Google Gemini Live connection if Vercel or local key is present
+    // Direct Google Gemini Live connection if key is present (allows low-latency client-side WebSockets in all environments)
     const directKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
-    if ((host.includes("vercel.app") || host.includes("localhost:5173") || host.includes("localhost:3000") || host.includes("127.0.0.1")) && directKey) {
+    if (directKey) {
       console.log("Connecting directly to Google Gemini Live API from browser...");
       socketUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${directKey}`;
       setVoiceMode("direct");
