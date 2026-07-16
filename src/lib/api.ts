@@ -1,3 +1,5 @@
+import { supabase } from "./supabaseClient";
+
 export function getApiUrl(path: string): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   if (typeof window !== "undefined" && window.location.pathname.includes("/proxy/")) {
@@ -28,4 +30,27 @@ export function getWsUrl(path: string): string {
     : "localhost:3000";
     
   return `${protocol}://${host}${cleanPath}`;
+}
+
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  let token = null;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    token = session?.access_token;
+  } catch (err) {
+    console.warn("Failed to retrieve supabase session for API fetch:", err);
+  }
+
+  const headers = new Headers(options.headers);
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  return fetch(getApiUrl(path), {
+    ...options,
+    headers,
+  });
 }

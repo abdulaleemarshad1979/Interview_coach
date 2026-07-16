@@ -8,10 +8,73 @@ import Groq from "groq-sdk";
 import pdf from "pdf-parse/lib/pdf-parse.js";
 import dotenv from "dotenv";
 import fs from "fs";
+import mongoose from "mongoose";
 
 dotenv.config();
 
+// Connect to MongoDB
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/interview-coach";
+console.log("Connecting to MongoDB at:", MONGODB_URI);
+mongoose.connect(MONGODB_URI)
+  .then(() => console.log("Connected successfully to MongoDB"))
+  .catch((err) => console.error("MongoDB connection failed:", err));
+
+// MongoDB Schema Definitions
+const ProfileSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true }, // Supabase Auth User ID
+  roll_number: { type: String, default: "" },
+  name: { type: String, default: "" },
+  student_name: { type: String, default: "" },
+  class_section: { type: String, default: "" },
+  section: { type: String, default: "" },
+  attendance: { type: Number, default: 80 },
+  branch: { type: String, default: "" },
+  department: { type: String, default: "" },
+  college_assessments: { type: Array, default: [] },
+  is_synced: { type: Boolean, default: false },
+  github_username: { type: String, default: "" },
+  resume_file_name: { type: String, default: "" },
+  profile_image: { type: String, default: "" },
+  avatar_url: { type: String, default: "" },
+  is_faculty: { type: Boolean, default: false },
+  is_admin: { type: Boolean, default: false },
+  assigned_proctor_id: { type: String, default: null },
+  assigned_proctor_name: { type: String, default: null },
+  updated_at: { type: Date, default: Date.now }
+}, { minimize: false });
+
+const Profile = mongoose.model("Profile", ProfileSchema);
+
+const GDRoomSchema = new mongoose.Schema({
+  code: { type: String, required: true, unique: true },
+  topic: { type: String, required: true },
+  participants: { type: Array, default: [] },
+  dialogue: { type: Array, default: [] },
+  createdAt: { type: Number, required: true },
+  startedAt: { type: Number },
+  evaluation: { type: Object }
+}, { minimize: false });
+
+const GDRoom = mongoose.model("GDRoom", GDRoomSchema);
+
+const ProctorAssignmentSchema = new mongoose.Schema({
+  proctor_id: { type: String, required: true },
+  student_roll: { type: String, required: true },
+  task_type: { type: String, enum: ["interview", "gd"], required: true },
+  topic: { type: String, required: true },
+  difficulty: { type: String },
+  room_code: { type: String },
+  completed: { type: Boolean, default: false },
+  score: { type: Number },
+  assigned_at: { type: Date, default: Date.now },
+  completed_at: { type: Date }
+});
+
+const ProctorAssignment = mongoose.model("ProctorAssignment", ProctorAssignmentSchema);
+
+
 import { createClient } from "@supabase/supabase-js";
+
 
 // Polyfill global WebSocket for Node.js < 22 where native WebSocket is not available
 if (typeof globalThis.WebSocket === "undefined") {
@@ -208,6 +271,58 @@ app.use(express.json({ limit: "25mb" }));
 // 1c. API Endpoint: Ping
 app.get("/api/ping", (req, res) => {
   res.json({ success: true });
+});
+
+// API Endpoint: Get all profiles
+app.get("/api/profiles", requireAuth, async (req: any, res) => {
+  try {
+    const profiles = await Profile.find({});
+    res.json(profiles);
+  } catch (err: any) {
+    console.error("Error fetching profiles:", err);
+    res.status(500).json({ error: "Failed to fetch profiles: " + err.message });
+  }
+});
+
+// API Endpoint: Upsert current user profile
+app.post("/api/profiles/upsert", requireAuth, async (req: any, res) => {
+  try {
+    const { id, ...rest } = req.body;
+    if (!id) {
+      res.status(400).json({ error: "Profile id is required." });
+      return;
+    }
+    const profile = await Profile.findOneAndUpdate(
+      { id },
+      { id, ...rest, updated_at: new Date() },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    res.json({ success: true, data: profile });
+  } catch (err: any) {
+    console.error("Error upserting profile:", err);
+    res.status(500).json({ error: "Failed to upsert profile: " + err.message });
+  }
+});
+
+// API Endpoint: Update specific profile (e.g. proctor assignment)
+app.patch("/api/profiles/:id", requireAuth, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+    const profile = await Profile.findOneAndUpdate(
+      { id },
+      { ...updateData, updated_at: new Date() },
+      { new: true }
+    );
+    if (!profile) {
+      res.status(404).json({ error: "Profile not found." });
+      return;
+    }
+    res.json({ success: true, data: profile });
+  } catch (err: any) {
+    console.error("Error updating profile:", err);
+    res.status(500).json({ error: "Failed to update profile: " + err.message });
+  }
 });
 
 // 1d. API Endpoint: Fetch student details from college database or fallback mock
@@ -2176,41 +2291,29 @@ async function evaluateDiscussionRoom(room: GDRoom) {
   }
 }
 
-// --- Supabase Persistence Helpers for Group Discussion Rooms ---
+// --- MongoDB Persistence Helpers for Group Discussion Rooms ---
 
 async function dbGetRoom(code: string): Promise<GDRoom | null> {
-  const supabase = getSupabaseClient();
   let room: GDRoom | null = null;
 
-  if (!supabase) {
-    room = gdRooms.get(code) || null;
-  } else {
-    try {
-      const { data, error } = await supabase
-        .from("group_discussion_rooms")
-        .select("*")
-        .eq("code", code)
-        .single();
-      if (!error && data) {
-        room = {
-          code: data.code,
-          topic: data.topic,
-          participants: data.participants || [],
-          dialogue: data.dialogue || [],
-          createdAt: Number(data.created_at),
-          startedAt: data.started_at ? Number(data.started_at) : undefined,
-          evaluation: data.evaluation || undefined,
-        };
-      } else {
-        if (error) {
-          console.warn("DB Get Room query returned error, falling back to local memory:", error.message);
-        }
-        room = gdRooms.get(code) || null;
-      }
-    } catch (err: any) {
-      console.error("DB Get Room failed, falling back to local memory:", err);
+  try {
+    const data = await GDRoom.findOne({ code });
+    if (data) {
+      room = {
+        code: data.code,
+        topic: data.topic,
+        participants: data.participants || [],
+        dialogue: data.dialogue || [],
+        createdAt: Number(data.createdAt),
+        startedAt: data.startedAt ? Number(data.startedAt) : undefined,
+        evaluation: data.evaluation || undefined,
+      };
+    } else {
       room = gdRooms.get(code) || null;
     }
+  } catch (err: any) {
+    console.error("MongoDB Get Room failed, falling back to local memory:", err);
+    room = gdRooms.get(code) || null;
   }
 
   if (!room) return null;
@@ -2229,11 +2332,6 @@ async function dbGetRoom(code: string): Promise<GDRoom | null> {
 }
 
 async function dbSaveRoom(room: GDRoom): Promise<void> {
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    gdRooms.set(room.code, room);
-    return;
-  }
   try {
     const payload = {
       code: room.code,
@@ -2246,37 +2344,32 @@ async function dbSaveRoom(room: GDRoom): Promise<void> {
         joinedAt: p.joinedAt,
       })),
       dialogue: room.dialogue,
-      created_at: room.createdAt,
-      started_at: room.startedAt || null,
+      createdAt: room.createdAt,
+      startedAt: room.startedAt || null,
       evaluation: room.evaluation || null,
     };
 
-    const { error } = await supabase
-      .from("group_discussion_rooms")
-      .upsert(payload, { onConflict: "code" });
-    if (error) {
-      console.error("DB Save Room upsert error:", error);
-    }
+    await GDRoom.findOneAndUpdate(
+      { code: room.code },
+      payload,
+      { upsert: true, new: true }
+    );
   } catch (err) {
-    console.error("DB Save Room failed:", err);
+    console.error("MongoDB Save Room failed:", err);
   }
   // Keep local in-memory Map as a backup cache
   gdRooms.set(room.code, room);
 }
 
 async function dbDeleteRoom(code: string): Promise<void> {
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    gdRooms.delete(code);
-    return;
-  }
   try {
-    await supabase.from("group_discussion_rooms").delete().eq("code", code);
+    await GDRoom.deleteOne({ code });
   } catch (err) {
-    console.error("DB Delete Room failed:", err);
+    console.error("MongoDB Delete Room failed:", err);
   }
   gdRooms.delete(code);
 }
+
 
 
 const gdWss = new WebSocketServer({ noServer: true });
@@ -2974,8 +3067,8 @@ async function initServer() {
   }
 
   if (!process.env.VERCEL) {
-    server.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    server.listen(PORT, "localhost", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
     });
   }
 }

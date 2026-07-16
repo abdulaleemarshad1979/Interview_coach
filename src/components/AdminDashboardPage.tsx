@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { supabase } from "../lib/supabaseClient";
+import { apiFetch } from "../lib/api";
 import { 
   Users, 
   GraduationCap, 
@@ -63,11 +63,11 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
     setLoading(true);
     setError(null);
     try {
-      const { data, error: dbError } = await supabase
-        .from("profiles")
-        .select("*");
-
-      if (dbError) throw dbError;
+      const response = await apiFetch("/api/profiles");
+      if (!response.ok) {
+        throw new Error(`Failed to load profiles: ${response.statusText}`);
+      }
+      const data = await response.json();
 
       const allProfiles = data || [];
       setProfiles(allProfiles);
@@ -167,13 +167,21 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
       }
 
       // 2. Attempt to update in Supabase
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
-          assigned_proctor_id: proctorId || null,
-          assigned_proctor_name: proctorName || null
-        })
-        .eq("id", studentId);
+      let updateError = null;
+      try {
+        const res = await apiFetch(`/api/profiles/${studentId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            assigned_proctor_id: proctorId || null,
+            assigned_proctor_name: proctorName || null
+          })
+        });
+        if (!res.ok) {
+          updateError = new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+      } catch (err: any) {
+        updateError = err;
+      }
 
       if (updateError) {
         console.warn("DB Update failed (likely due to RLS). Relying on LocalStorage fallback.", updateError);
@@ -247,13 +255,18 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
           }));
 
           // Background update in DB
-          supabase.from("profiles").update({
-            assigned_proctor_id: matchingProctor.id,
-            assigned_proctor_name: matchingProctor.name
+          apiFetch(`/api/profiles/${student.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              assigned_proctor_id: matchingProctor.id,
+              assigned_proctor_name: matchingProctor.name
+            })
           })
-          .eq("id", student.id)
-          .then(({ error: dbErr }) => {
-            if (dbErr) console.warn(`Auto-assign DB sync failed for ${student.roll_number}`);
+          .then((res) => {
+            if (!res.ok) console.warn(`Auto-assign DB sync failed for ${student.roll_number}`);
+          })
+          .catch((err) => {
+            console.warn(`Auto-assign DB sync failed for ${student.roll_number}`, err);
           });
 
           return {

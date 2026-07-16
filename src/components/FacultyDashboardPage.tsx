@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { supabase } from "../lib/supabaseClient";
+import { apiFetch } from "../lib/api";
 import {
   GraduationCap,
   Users,
@@ -79,13 +79,17 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
         const end = typeof facultyProfile.rollEnd === "number" ? facultyProfile.rollEnd : parseInt(String(facultyProfile.rollEnd || "30"), 10);
         const targetSection = (facultyProfile.classSection || "").toLowerCase().trim();
 
-        // 1. Fetch real students from Supabase profiles table
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("*");
-
-        if (error) {
-          console.warn("Could not query profiles from Supabase", error);
+        // 1. Fetch real students from MongoDB profiles collection via API
+        let data = null;
+        try {
+          const res = await apiFetch("/api/profiles");
+          if (res.ok) {
+            data = await res.json();
+          } else {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          }
+        } catch (err) {
+          console.warn("Could not query profiles from MongoDB", err);
           setStudents([]);
           setIsRealData(true);
           return;
