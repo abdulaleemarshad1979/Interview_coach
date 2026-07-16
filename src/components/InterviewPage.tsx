@@ -157,6 +157,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   const prevFrameRef = useRef<Uint8ClampedArray | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
+  const silenceTimeoutRef = useRef<any>(null);
   const audioPlayerRef = useRef<any>(null);
   const micStreamerContextRef = useRef<AudioContext | null>(null);
   const micStreamerScriptNodeRef = useRef<ScriptProcessorNode | null>(null);
@@ -1297,6 +1298,33 @@ Converse naturally and speak in a human-like tone.`
     }
   };
 
+  const sendSpeechToLocalLLM = (userText: string) => {
+    if (!userText.trim()) return;
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+
+    console.log("[Local Voice] Sending user input to local LLM:", userText);
+
+    const systemPrompt = `You are a warm, empathetic, conversational, and highly professional mock technical interviewer.
+Converse naturally and speak in a short, human-like tone (max 2-3 sentences).
+Keep the discussion focused on the current question: "${activeQuestion?.text}".
+Ask follow-up questions or prompt the candidate to elaborate where needed.`;
+
+    const historyMessages = [
+      { role: "system", content: systemPrompt },
+      ...conversationHistory.map(msg => ({
+        role: msg.sender === "candidate" ? "user" : "assistant",
+        content: msg.text
+      })),
+      { role: "user", content: userText }
+    ];
+
+    socketRef.current.send(JSON.stringify({
+      type: "text_input",
+      text: userText,
+      history: historyMessages
+    }));
+  };
+
   const setupSpeechRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -1316,6 +1344,13 @@ Converse naturally and speak in a human-like tone.`
             interimText += e.results[i][0].transcript;
           }
         }
+
+        // Clear silence timeout whenever active speech input is received
+        if (silenceTimeoutRef.current) {
+          clearTimeout(silenceTimeoutRef.current);
+          silenceTimeoutRef.current = null;
+        }
+
         if (finalTranscript) {
           const addedText = finalTranscript.trim();
           const lowerText = addedText.toLowerCase();
@@ -1347,6 +1382,13 @@ Converse naturally and speak in a human-like tone.`
             const newTranscript = (prev + " " + addedText).trim();
             if (voiceInterviewMode) {
               updateConversationHistory("candidate", newTranscript);
+
+              // Silence timeout to trigger local LLM response in fallback/local mode
+              if (voiceMode === "fallback") {
+                silenceTimeoutRef.current = setTimeout(() => {
+                  sendSpeechToLocalLLM(addedText);
+                }, 1800); // 1.8 seconds of silence triggers follow-up
+              }
             }
             return newTranscript;
           });
@@ -1589,6 +1631,10 @@ Converse naturally and speak in a human-like tone.`
     setIsRecording(false);
     isRecordingRef.current = false;
     setInterimTranscript("");
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+      silenceTimeoutRef.current = null;
+    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
