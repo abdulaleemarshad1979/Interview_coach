@@ -174,10 +174,10 @@ function parseLLMJson(text: string, defaultValue: any): any {
 }
 
 interface CompletionOptions {
-  messages: { role: string; content: string }[];
+  messages: Array<{ role: string; content: string }>;
   jsonMode?: boolean;
   temperature?: number;
-  purpose?: "chat" | "analyze" | "report";
+  purpose?: "chat" | "analyze" | "report" | "questions";
 }
 
 
@@ -192,6 +192,8 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
       ollamaModel = process.env.OLLAMA_MODEL_CHAT || process.env.OLLAMA_MODEL || "qwen2.5-coder:7b";
     } else if (options.purpose === "analyze") {
       ollamaModel = process.env.OLLAMA_MODEL_ANALYZE || process.env.OLLAMA_MODEL || "qwen3-coder:480b";
+    } else if (options.purpose === "questions") {
+      ollamaModel = process.env.OLLAMA_MODEL_QUESTIONS || process.env.OLLAMA_MODEL || "qwen3-coder:480b";
     } else if (options.purpose === "report") {
       ollamaModel = process.env.OLLAMA_MODEL_REPORT || process.env.OLLAMA_MODEL || "qwen3-coder:480b";
     }
@@ -246,6 +248,8 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
       model = process.env.OPENAI_MODEL_CHAT || process.env.OPENAI_MODEL || "gpt-4o";
     } else if (options.purpose === "analyze") {
       model = process.env.OPENAI_MODEL_ANALYZE || process.env.OPENAI_MODEL || "gpt-4o";
+    } else if (options.purpose === "questions") {
+      model = process.env.OPENAI_MODEL_QUESTIONS || process.env.OPENAI_MODEL || "gpt-4o";
     } else if (options.purpose === "report") {
       model = process.env.OPENAI_MODEL_REPORT || process.env.OPENAI_MODEL || "gpt-4o";
     }
@@ -1612,7 +1616,7 @@ Respond with STRICT JSON matching this schema:
       ],
       jsonMode: true,
       temperature: 0.9,
-      purpose: "analyze"
+      purpose: "questions"
     });
 
     const DEFAULT_QUESTIONS = [
