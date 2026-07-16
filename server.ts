@@ -259,7 +259,7 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
   } else if (provider === "openai" || provider === "litellm") {
     const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
     const apiKey = process.env.OPENAI_API_KEY || "";
-    
+
     let model = process.env.OPENAI_MODEL || "gpt-4o";
     if (options.purpose === "chat") {
       model = process.env.OPENAI_MODEL_CHAT || process.env.OPENAI_MODEL || "gpt-4o";
@@ -739,7 +739,7 @@ function findChromiumExecutable(): string | null {
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   ];
   for (const c of candidates) {
-    try { if (c && fs.existsSync(c)) return c; } catch {}
+    try { if (c && fs.existsSync(c)) return c; } catch { }
   }
   return null;
 }
@@ -803,7 +803,7 @@ async function scrapeWithPuppeteer(rollNo: string, password: string, portal: str
     if (portal === "aus") {
       // ── AUS / Campus Connect login ──
       console.log(`[Puppeteer] AUS portal: selecting Student radio...`);
-      await page.waitForSelector('input[type="radio"]', { timeout: 10000 }).catch(() => {});
+      await page.waitForSelector('input[type="radio"]', { timeout: 10000 }).catch(() => { });
 
       const radioClicked = await page.evaluate(() => {
         const radios = Array.from(document.querySelectorAll('input[type="radio"]')) as HTMLInputElement[];
@@ -879,14 +879,14 @@ async function scrapeWithPuppeteer(rollNo: string, password: string, portal: str
       }, rollNo, password, encryptedPwd);
       await page.evaluate(() => {
         const btn = (document.querySelector<HTMLElement>('#imgBtn2, input[name="imgBtn2"]') ||
-                     document.querySelector<HTMLElement>('input[type="image"]'));
+          document.querySelector<HTMLElement>('input[type="image"]'));
         if (btn) btn.click();
       });
     }
 
     // Wait for portal to navigate to dashboard
     console.log(`[Puppeteer] Waiting for post-login navigation...`);
-    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
+    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => { });
     await new Promise(r => setTimeout(r, 2000));
 
     const postLoginUrl = page.url();
@@ -1534,8 +1534,8 @@ Respond with STRICT JSON matching this schema:
 
     const result = {
       parsedResume: { ...defaultAnalysis.parsedResume, ...(rawResult.parsedResume || {}) },
-      githubAnalysis: { 
-        ...defaultAnalysis.githubAnalysis, 
+      githubAnalysis: {
+        ...defaultAnalysis.githubAnalysis,
         ...(rawResult.githubAnalysis || {}),
         repos: repos || []
       },
@@ -1815,12 +1815,12 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
     };
 
     // Calculate a physical vocal confidence score based on DSP audio metrics
-    let vocalConfidence = 85; 
+    let vocalConfidence = 85;
     if (audioClarity !== undefined && pitchVariance !== undefined && speakingPace !== undefined) {
       let baseConf = 100;
       if (pitchVariance < 60) baseConf -= (60 - pitchVariance) * 0.5;
       if (audioClarity < 75) baseConf -= (75 - audioClarity) * 0.8;
-      
+
       const paceVal = typeof speakingPace === "number" ? speakingPace : 120;
       if (paceVal < 100 || paceVal > 150) {
         baseConf -= Math.min(25, Math.abs(130 - paceVal) * 0.3);
@@ -2454,7 +2454,7 @@ async function evaluateDiscussionRoom(room: GDRoom) {
   });
 
   const prompt = evaluateRoomPrompt(room);
-  
+
   // 1. Establish the unified default fallback evaluation result
   const defaultResult = {
     participants: room.participants.map((p) => {
@@ -3326,10 +3326,10 @@ server.on("upgrade", (request, socket, head) => {
 
 // Serve Vite or Static files depending on environment
 async function initServer() {
-  const isDev = process.env.NODE_ENV === "development" || 
-                (process.env.NODE_ENV !== "production" && 
-                 process.argv[1] && 
-                 (process.argv[1].endsWith("server.ts") || process.argv[1].includes("tsx")));
+  const isDev = process.env.NODE_ENV === "development" ||
+    (process.env.NODE_ENV !== "production" &&
+      process.argv[1] &&
+      (process.argv[1].endsWith("server.ts") || process.argv[1].includes("tsx")));
 
   if (isDev) {
     const { createServer: createViteServer } = await import("vite");
