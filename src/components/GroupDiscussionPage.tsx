@@ -26,6 +26,7 @@ import {
 import { StudentProfile } from "../types";
 import Button from "./ui/Button";
 import { getApiUrl, getWsUrl } from "../lib/api";
+import { supabase } from "../lib/supabaseClient";
 
 interface GroupDiscussionPageProps {
   studentProfile: StudentProfile;
@@ -38,6 +39,8 @@ interface GDParticipant {
   roll: string;
   isHost: boolean;
   joinedAt: number;
+  cameraEnabled?: boolean;
+  micMuted?: boolean;
 }
 
 interface GDTurn {
@@ -121,6 +124,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const [joinedRoomCode, setJoinedRoomCode] = useState<string | null>(null);
   const [isHost, setIsHost] = useState(false);
   const [evaluation, setEvaluation] = useState<GDEvaluation | null>(null);
+  const [activeStreamerIds, setActiveStreamerIds] = useState<string[]>([]);
 
   const [currentText, setCurrentText] = useState("");
   const [interimText, setInterimText] = useState("");
@@ -145,9 +149,10 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<{[peerId: string]: MediaStream}>({});
   const peerConnectionsRef = useRef<{[peerId: string]: RTCPeerConnection}>({});
+  const iceQueuesRef = useRef<Record<string, RTCIceCandidateInit[]>>({});
 
-  // Dynamically calculate grid layout classes based on the number of participants
-  const totalFeeds = 1 + participants.filter((p) => p.id !== myParticipantId).length;
+  // Dynamically calculate grid layout classes based on the number of participants who are active streamers
+  const totalFeeds = 1 + participants.filter((p) => p.id !== myParticipantId && activeStreamerIds.includes(p.id)).length;
 
   let gridLayoutClass = "grid-cols-3 sm:grid-cols-4 lg:grid-cols-5";
   let cardHeightClass = "aspect-video";
@@ -215,6 +220,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     });
 
     peerConnectionsRef.current[peerId] = pc;
+    iceQueuesRef.current[peerId] = []; // Initialize candidate queue
 
     // Add local tracks to peer connection
     stream.getTracks().forEach(track => {
@@ -249,20 +255,54 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     if (!myParticipantId) return;
     participants.forEach(p => {
       if (p.id !== myParticipantId && !peerConnectionsRef.current[p.id]) {
-        const pc = createPeerConnection(p.id, stream);
-        pc.createOffer()
-          .then(offer => pc.setLocalDescription(offer))
-          .then(() => {
-            sendSocketMessage({
-              type: "signal",
-              targetId: p.id,
-              signal: { sdp: pc.localDescription }
-            });
-          })
-          .catch(e => console.error("Error creating WebRTC offer:", e));
+        // Only connect if either the target peer is an active streamer, or we are one
+        const isTargetStreamer = activeStreamerIds.includes(p.id);
+        const amIStreamer = activeStreamerIds.includes(myParticipantId);
+        if (!isTargetStreamer && !amIStreamer) return;
+
+        // GLARE CONTROL: Only initiate offer if myParticipantId is lexicographically smaller than the peer ID
+        if (myParticipantId < p.id) {
+          const pc = createPeerConnection(p.id, stream);
+          pc.createOffer()
+            .then(offer => pc.setLocalDescription(offer))
+            .then(() => {
+              sendSocketMessage({
+                type: "signal",
+                targetId: p.id,
+                signal: { sdp: pc.localDescription }
+              });
+            })
+            .catch(e => console.error("Error creating WebRTC offer:", e));
+        }
       }
     });
   };
+
+  // Dynamic WebRTC connection clean-up and creation for active streamers
+  useEffect(() => {
+    if (!myParticipantId) return;
+    const activeStreamersSet = new Set(activeStreamerIds);
+    const amIStreamer = activeStreamersSet.has(myParticipantId);
+
+    // Close connections that are no longer active streamers on either side
+    Object.keys(peerConnectionsRef.current).forEach(peerId => {
+      const isPeerStreamer = activeStreamersSet.has(peerId);
+      if (!isPeerStreamer && !amIStreamer) {
+        peerConnectionsRef.current[peerId]?.close();
+        delete peerConnectionsRef.current[peerId];
+        setRemoteStreams(prev => {
+          const updated = { ...prev };
+          delete updated[peerId];
+          return updated;
+        });
+      }
+    });
+
+    // Connect to newly activated streamers
+    if (localStream) {
+      initializeWebRTC(localStream);
+    }
+  }, [activeStreamerIds, localStream]);
 
   // Cleanup peer connections for participants who left
   useEffect(() => {
@@ -329,6 +369,26 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       });
     }
   }, [cameraEnabled, localStream]);
+
+  // Re-bind stream to the video element ref on state or element changes (prevents black screen on remount)
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      if (localVideoRef.current.srcObject !== localStream) {
+        localVideoRef.current.srcObject = localStream;
+      }
+    }
+  }, [localStream, cameraEnabled, step]);
+
+  // Broadcast local camera and mic toggles to the room
+  useEffect(() => {
+    if (step === "discussion" && myParticipantId && socketConnected) {
+      sendSocketMessage({
+        type: "media_status",
+        cameraEnabled,
+        micMuted
+      });
+    }
+  }, [cameraEnabled, micMuted, step, myParticipantId, socketConnected]);
 
   // Triggers WebRTC connections when participants list changes
   useEffect(() => {
@@ -534,6 +594,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
               setDialogue(message.dialogue || []);
               setHostId(message.hostId || null);
               setRoomStarted(Boolean(message.startedAt));
+              setActiveStreamerIds(message.activeStreamerIds || []);
               if (!joinedRoomCode && message.roomCode) {
                 setJoinedRoomCode(message.roomCode);
               }
@@ -565,6 +626,14 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
               if (senderId && signal) {
                 const stream = mediaStreamRef.current;
                 if (stream) {
+                  // Only establish connection if sender is streamer, or we are
+                  const isSenderStreamer = activeStreamerIds.includes(senderId);
+                  const amIStreamer = myParticipantId ? activeStreamerIds.includes(myParticipantId) : false;
+                  if (!isSenderStreamer && !amIStreamer) {
+                    console.log("Ignoring signal: neither peer is an active streamer.");
+                    return;
+                  }
+
                   let pc = peerConnectionsRef.current[senderId];
                   if (!pc) {
                     pc = createPeerConnection(senderId, stream);
@@ -573,6 +642,16 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                   if (signal.sdp) {
                     pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
                       .then(() => {
+                        // Drain queued ICE candidates
+                        const queue = iceQueuesRef.current[senderId] || [];
+                        while (queue.length > 0) {
+                          const cand = queue.shift();
+                          if (cand) {
+                            pc.addIceCandidate(new RTCIceCandidate(cand))
+                              .catch(e => console.error("Error processing queued candidate:", e));
+                          }
+                        }
+
                         if (signal.sdp.type === "offer") {
                           return pc.createAnswer()
                             .then(answer => pc.setLocalDescription(answer))
@@ -587,8 +666,16 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                       })
                       .catch(e => console.error("Error setting SDP:", e));
                   } else if (signal.candidate) {
-                    pc.addIceCandidate(new RTCIceCandidate(signal.candidate))
-                      .catch(e => console.error("Error adding ICE candidate:", e));
+                    if (pc.remoteDescription && pc.remoteDescription.type) {
+                      pc.addIceCandidate(new RTCIceCandidate(signal.candidate))
+                        .catch(e => console.error("Error adding ICE candidate:", e));
+                    } else {
+                      if (!iceQueuesRef.current[senderId]) {
+                        iceQueuesRef.current[senderId] = [];
+                      }
+                      iceQueuesRef.current[senderId].push(signal.candidate);
+                      console.log(`Queued ICE candidate for ${senderId} until SDP is set.`);
+                    }
                   }
                 }
               }
@@ -601,8 +688,13 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         socket.onclose = () => {
           setSocketConnected(false);
           setConnectionLoading(false);
-          setReceiveLog((prev) => [...prev, "Socket connection closed. Switching to HTTP Polling..."]);
-          setIsPollingMode(true);
+          setReceiveLog((prev) => [...prev, "Socket closed. Reconnecting in 3s..."]);
+          setTimeout(() => {
+            // Only attempt reconnect if the discussion step is still active
+            if (mediaStreamRef.current) {
+              connectToRoomSocket().catch(() => {});
+            }
+          }, 3000);
         };
 
         socket.onerror = (event) => {
@@ -926,6 +1018,70 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const topicToUse = useCustomTopic ? customTopic.trim() : topic;
   const roomStatusText = roomStarted ? "Active discussion" : "Waiting for host to start the discussion";
   const participantCount = participants.length;
+
+  // Automatically parse and save scorecards to localStorage & Database for all participants
+  useEffect(() => {
+    if (evaluation && evaluation.participants) {
+      evaluation.participants.forEach((p) => {
+        const scorecardId = `gd_eval_${p.roll}_${Date.now()}`;
+        const scorecard: any = {
+          id: scorecardId,
+          studentId: p.roll,
+          githubUsername: p.roll.toLowerCase(),
+          date: new Date().toLocaleDateString(),
+          overallScore: p.overallScore,
+          candidateLevel:
+            p.overallScore >= 90
+              ? "Excellent Candidate"
+              : p.overallScore >= 80
+              ? "Strong Candidate"
+              : p.overallScore >= 70
+              ? "Interview Ready"
+              : p.overallScore >= 50
+              ? "Developing"
+              : "Beginner",
+          interviewType: "soft-skills",
+          categoryScores: {
+            problemSolving: p.criteria.argumentQuality.score * 20,
+            communicationClarity: p.criteria.participation.score * 20,
+            presentationConfidence: p.criteria.listeningSkills.score * 20,
+            overallReadiness: p.overallScore,
+            teamworkCollaboration: p.criteria.teamCollaboration.score * 20,
+            adaptabilityResilience: p.criteria.conflictHandling.score * 20,
+            ownershipEQ: p.criteria.leadershipIndicators.score * 20,
+          },
+          strengths: p.strengths,
+          weaknesses: p.improvements,
+          recommendedTopics: [
+            "Structuring Logical Arguments",
+            "Active Listening & Facilitation",
+            "Constructive Conflict Handling",
+          ],
+          sampleAnswers: dialogue
+            .filter((d) => d.speakerRoll === p.roll)
+            .map((d) => ({
+              question: `Argument Turn on Topic: "${topicToUse}"`,
+              originalResponse: d.text,
+              improvedVersion: p.coachFeedback,
+              explanation: "Feedback from group discussion soft-skills evaluator.",
+            })),
+          finalVerdict: p.coachFeedback || evaluation.overallVerdict,
+        };
+
+        // Save to localStorage for this student
+        localStorage.setItem(`scorecard_${p.roll}`, JSON.stringify(scorecard));
+
+        // If this is the current logged in student, sync to MongoDB via supabase client
+        if (p.roll === studentProfile.studentId) {
+          supabase.auth.updateUser({
+            data: {
+              active_scorecard: scorecard,
+            }
+          }).catch(err => console.error("Error syncing scorecard database metadata:", err));
+        }
+      });
+    }
+  }, [evaluation]);
 
   const renderCriterionRow = (
     label: string,
@@ -1325,7 +1481,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
               {/* Real Participants Cards */}
               {participants
-                .filter((p) => p.id !== myParticipantId)
+                .filter((p) => p.id !== myParticipantId && activeStreamerIds.includes(p.id))
                 .map((peer) => {
                   const isSpeaking = speakingPeerId === peer.id;
                   const avatarColor = getAvatarColor(peer.roll);
@@ -1352,7 +1508,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                       )}
 
                       {/* Remote Peer Video or Avatar */}
-                      {remoteStreams[peer.id] ? (
+                      {remoteStreams[peer.id] && peer.cameraEnabled !== false ? (
                         <video
                           ref={el => {
                             if (el && el.srcObject !== remoteStreams[peer.id]) {
@@ -1364,7 +1520,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                           className="absolute inset-0 w-full h-full object-cover"
                         />
                       ) : (
-                        /* Avatar fallback if no remote video stream */
+                        /* Avatar fallback if no remote video stream or camera disabled */
                         <div className="relative flex flex-col items-center justify-center">
                           {isSpeaking && (
                             <>
@@ -1395,6 +1551,19 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
                           <span>Speaking Turn</span>
                         </div>
                       )}
+
+                      {/* Muted/Unmuted Indicator Badges */}
+                      <div className="absolute top-3 right-3 z-20">
+                        {peer.micMuted ? (
+                          <span className="bg-red-500 text-white p-1.5 rounded-full inline-block border border-white/15 shadow-sm">
+                            <MicOff className="w-3.5 h-3.5" />
+                          </span>
+                        ) : (
+                          <span className="bg-emerald-500 text-white p-1.5 rounded-full inline-block border border-white/15 shadow-sm">
+                            <Mic className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

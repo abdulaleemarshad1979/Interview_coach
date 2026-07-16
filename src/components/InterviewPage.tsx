@@ -820,16 +820,32 @@ Converse naturally and speak in a human-like tone.`
     };
   }, [isRecording]);
 
-  const [cameraBrightness, setCameraBrightness] = useState<number>(100);
+  const [isLowLight, setIsLowLight] = useState<boolean>(false);
+  const [faceBox, setFaceBox] = useState<{ left: string; top: string; width: string; height: string }>({
+    left: "calc(50% - 65px)",
+    top: "calc(50% - 80px)",
+    width: "130px",
+    height: "160px"
+  });
+  const faceBoxRef = useRef<{ left: string; top: string; width: string; height: string }>({
+    left: "50%",
+    top: "50%",
+    width: "130px",
+    height: "160px"
+  });
+  const analysisCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const analyzeCameraFrame = () => {
     if (!videoRef.current || !webcamActive) {
       return { brightness: 0, motion: 0, centroidX: 0.5, centroidY: 0.5 };
     }
     try {
-      const canvas = document.createElement("canvas");
-      canvas.width = 80;
-      canvas.height = 60;
+      if (!analysisCanvasRef.current) {
+        analysisCanvasRef.current = document.createElement("canvas");
+        analysisCanvasRef.current.width = 80;
+        analysisCanvasRef.current.height = 60;
+      }
+      const canvas = analysisCanvasRef.current;
       const ctx = canvas.getContext("2d");
       if (!ctx) return { brightness: 100, motion: 0, centroidX: 0.5, centroidY: 0.5 };
 
@@ -843,35 +859,42 @@ Converse naturally and speak in a human-like tone.`
       let sumY = 0;
       let luminanceWeightSum = 0;
 
-      for (let y = 0; y < canvas.height; y++) {
-        for (let x = 0; x < canvas.width; x++) {
-          const idx = (y * canvas.width + x) * 4;
-          const r = data[idx];
-          const g = data[idx + 1];
-          const b = data[idx + 2];
-          const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-          totalLuminance += lum;
+      // Sample every 4th pixel for high efficiency/performance (down to 1200 operations)
+      const step = 4;
+      const pixelStepBytes = step * 4;
+      const width = canvas.width;
 
-          if (lum > 40) { // filter out background noise/darkness
-            sumX += x * lum;
-            sumY += y * lum;
-            luminanceWeightSum += lum;
-          }
+      for (let i = 0; i < data.length; i += pixelStepBytes) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        totalLuminance += lum;
+
+        const pixelIdx = i / 4;
+        const x = pixelIdx % width;
+        const y = Math.floor(pixelIdx / width);
+
+        if (lum > 40) {
+          sumX += x * lum;
+          sumY += y * lum;
+          luminanceWeightSum += lum;
         }
       }
 
-      const numPixels = data.length / 4;
+      const numPixels = data.length / pixelStepBytes;
       const avgBrightness = totalLuminance / numPixels;
 
-      const centroidX = luminanceWeightSum > 0 ? (sumX / luminanceWeightSum) / canvas.width : 0.5;
+      const centroidX = luminanceWeightSum > 0 ? (sumX / luminanceWeightSum) / width : 0.5;
       const centroidY = luminanceWeightSum > 0 ? (sumY / luminanceWeightSum) / canvas.height : 0.5;
 
       let motionDiff = 0;
       if (prevFrameRef.current && prevFrameRef.current.length === data.length) {
         let diffSum = 0;
-        const step = 8; // sample pixels for performance
         let count = 0;
-        for (let i = 0; i < data.length; i += step * 4) {
+        // Sample every 8th pixel for motion calculation
+        const motionStepBytes = 8 * 4;
+        for (let i = 0; i < data.length; i += motionStepBytes) {
           const rDiff = Math.abs(data[i] - prevFrameRef.current[i]);
           const gDiff = Math.abs(data[i + 1] - prevFrameRef.current[i + 1]);
           const bDiff = Math.abs(data[i + 2] - prevFrameRef.current[i + 2]);
@@ -881,7 +904,11 @@ Converse naturally and speak in a human-like tone.`
         motionDiff = diffSum / count;
       }
 
-      prevFrameRef.current = new Uint8ClampedArray(data);
+      // In-place buffer copy to prevent garbage collection allocation overhead
+      if (!prevFrameRef.current || prevFrameRef.current.length !== data.length) {
+        prevFrameRef.current = new Uint8ClampedArray(data.length);
+      }
+      prevFrameRef.current.set(data);
 
       return { brightness: avgBrightness, motion: motionDiff, centroidX, centroidY };
     } catch (e) {
@@ -896,7 +923,7 @@ Converse naturally and speak in a human-like tone.`
       setPostureStatus("OFFLINE");
       setExpressionStatus("OFFLINE");
       setHeadStatus("OFFLINE");
-      setCameraBrightness(0);
+      setIsLowLight(false);
       return;
     }
 
@@ -929,7 +956,8 @@ Converse naturally and speak in a human-like tone.`
 
           // Measure average brightness
           const metrics = analyzeCameraFrame();
-          setCameraBrightness(metrics.brightness);
+          const lowLight = metrics.brightness < 15;
+          setIsLowLight(lowLight);
 
           // Lowered brightness threshold: 8 (was 15) — most cameras have ambient light
           if (metrics.brightness < 8) {
@@ -939,6 +967,12 @@ Converse naturally and speak in a human-like tone.`
               setPostureStatus("OFFLINE");
               setExpressionStatus("OFFLINE");
               setHeadStatus("OFFLINE");
+              setFaceBox({
+                left: "calc(50% - 65px)",
+                top: "calc(50% - 80px)",
+                width: "130px",
+                height: "160px"
+              });
             }
             return;
           }
@@ -953,6 +987,12 @@ Converse naturally and speak in a human-like tone.`
               setPostureStatus("OFFLINE");
               setExpressionStatus("OFFLINE");
               setHeadStatus("OFFLINE");
+              setFaceBox({
+                left: "calc(50% - 65px)",
+                top: "calc(50% - 80px)",
+                width: "130px",
+                height: "160px"
+              });
             }
             return;
           }
@@ -963,6 +1003,51 @@ Converse naturally and speak in a human-like tone.`
 
           // Only process metrics once face is stably detected (avoids single-frame noise)
           if (faceDetectedCountRef.current < FACE_DETECT_THRESHOLD) return;
+
+          // Compute dynamic face bounding box from all landmarks
+          const xs = landmarks.map((l: any) => l.x);
+          const ys = landmarks.map((l: any) => l.y);
+          const minX = Math.min(...xs);
+          const maxX = Math.max(...xs);
+          const minY = Math.min(...ys);
+          const maxY = Math.max(...ys);
+
+          // Add a 15% safety margin around the face box
+          const padX = (maxX - minX) * 0.15;
+          const padY = (maxY - minY) * 0.15;
+
+          const boxMinX = Math.max(0, minX - padX);
+          const boxMaxX = Math.min(1, maxX + padX);
+          const boxMinY = Math.max(0, minY - padY);
+          const boxMaxY = Math.min(1, maxY + padY);
+
+          // Mirror x coordinate because video is scale-x-[-1] (mirrored)
+          const leftPercent = (1 - boxMaxX) * 100;
+          const topPercent = boxMinY * 100;
+          const widthPercent = (boxMaxX - boxMinX) * 100;
+          const heightPercent = (boxMaxY - boxMinY) * 100;
+
+          // Apply a 0.8% dead-band filter to block sub-pixel camera jitter from triggering React renders
+          const lastLeft = parseFloat(faceBoxRef.current.left);
+          const lastTop = parseFloat(faceBoxRef.current.top);
+          if (
+            isNaN(lastLeft) ||
+            Math.abs(leftPercent - lastLeft) > 0.8 ||
+            Math.abs(topPercent - lastTop) > 0.8
+          ) {
+            faceBoxRef.current = {
+              left: `${leftPercent}%`,
+              top: `${topPercent}%`,
+              width: `${widthPercent}%`,
+              height: `${heightPercent}%`
+            };
+            setFaceBox({
+              left: `${leftPercent}%`,
+              top: `${topPercent}%`,
+              width: `${widthPercent}%`,
+              height: `${heightPercent}%`
+            });
+          }
 
           // We have real coordinates! Let's process them
           // Indices:
@@ -1135,7 +1220,8 @@ Converse naturally and speak in a human-like tone.`
       // Fallback: centroid-based checker with debounced OFFLINE transitions
       const runFallback = () => {
         const { brightness, motion, centroidX, centroidY } = analyzeCameraFrame();
-        setCameraBrightness(brightness);
+        const lowLight = brightness < 15;
+        setIsLowLight(lowLight);
 
         if (brightness < 8) {
           faceAbsentCountRef.current += 1;
@@ -1950,48 +2036,45 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
             {/* Dynamic Scanning Face Reticle */}
             {webcamActive && (
               <motion.div
-                className={`absolute border-2 border-dashed rounded-lg pointer-events-none z-10 ${cameraBrightness < 15
+                className={`absolute border-2 border-dashed rounded-lg pointer-events-none z-10 ${isLowLight
                     ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
                       ? "border-amber-400"
                       : "border-emerald-500"
                   }`}
                 animate={{
-                  x: ["110px", "115px", "105px", "112px", "110px"],
-                  y: ["50px", "55px", "45px", "52px", "50px"],
-                  width: ["130px", "132px", "128px", "130px"],
-                  height: ["160px", "158px", "162px", "160px"],
+                  left: faceBox.left,
+                  top: faceBox.top,
+                  width: faceBox.width,
+                  height: faceBox.height,
                 }}
                 transition={{
-                  duration: 6,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-                style={{
-                  left: 0,
-                  top: 0,
+                  type: "spring",
+                  stiffness: 120,
+                  damping: 18,
+                  mass: 0.7
                 }}
               >
                 {/* Bounding box corners */}
-                <div className={`absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 -mt-[2px] -ml-[2px] ${cameraBrightness < 15
+                <div className={`absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 -mt-[2px] -ml-[2px] ${isLowLight
                     ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
                       ? "border-amber-400"
                       : "border-emerald-500"
                   }`} />
-                <div className={`absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 -mt-[2px] -mr-[2px] ${cameraBrightness < 15
+                <div className={`absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 -mt-[2px] -mr-[2px] ${isLowLight
                     ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
                       ? "border-amber-400"
                       : "border-emerald-500"
                   }`} />
-                <div className={`absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 -mb-[2px] -ml-[2px] ${cameraBrightness < 15
+                <div className={`absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 -mb-[2px] -ml-[2px] ${isLowLight
                     ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
                       ? "border-amber-400"
                       : "border-emerald-500"
                   }`} />
-                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 -mb-[2px] -mr-[2px] ${cameraBrightness < 15
+                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 -mb-[2px] -mr-[2px] ${isLowLight
                     ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
                       ? "border-amber-400"
@@ -1999,13 +2082,13 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
                   }`} />
 
                 {/* ID Tag */}
-                <div className={`absolute -top-5 left-0 text-black text-[8px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap ${cameraBrightness < 15
+                <div className={`absolute -top-5 left-0 text-black text-[8px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap ${isLowLight
                     ? "bg-red-500 text-white"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
                       ? "bg-amber-400 text-brand-bg"
                       : "bg-emerald-500"
                   }`}>
-                  {cameraBrightness < 15
+                  {isLowLight
                     ? "LOCK LOST: LOW LIGHT"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE")
                       ? `[!] HEAD MOVED: ${headStatus}`

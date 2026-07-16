@@ -6,11 +6,8 @@ import crypto from "crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import Groq from "groq-sdk";
 import pdf from "pdf-parse/lib/pdf-parse.js";
-import dotenv from "dotenv";
 import fs from "fs";
 import mongoose from "mongoose";
-
-dotenv.config();
 
 // Cached lazy MongoDB connector — safe for Vercel serverless cold starts.
 // process.env.MONGODB_URI is read at call-time, not module-load time.
@@ -722,236 +719,12 @@ function encryptPortalPassword(plaintext: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUPPETEER-BASED PORTAL SCRAPER (Primary — bypasses Cloudflare)
+// PORTAL SCRAPER (Using direct raw HTTP requests)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Detect local Chrome or Edge executable for Puppeteer */
-function findChromiumExecutable(): string | null {
-  if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
-    return process.env.CHROME_PATH;
-  }
-  const candidates: string[] = [
-    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-    (process.env.LOCALAPPDATA || "") + "\\Google\\Chrome\\Application\\chrome.exe",
-    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/chromium",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  ];
-  for (const c of candidates) {
-    try { if (c && fs.existsSync(c)) return c; } catch { }
-  }
-  return null;
-}
-
-/** Scrape the Aditya portal using a real headless Chrome — bypasses Cloudflare */
-async function scrapeWithPuppeteer(rollNo: string, password: string, portal: string): Promise<any> {
-  // Dynamic import so the server still starts even if puppeteer-core is missing
-  let puppeteer: any;
-  try {
-    puppeteer = await import("puppeteer-core");
-  } catch {
-    throw new Error("puppeteer-core not available.");
-  }
-
-  const executablePath = findChromiumExecutable();
-  if (!executablePath) {
-    throw new Error("No local Chrome/Edge found. Cannot use browser scraper.");
-  }
-
-  console.log(`[Puppeteer] Launching Chrome: ${executablePath}`);
-  const browser = await puppeteer.launch({
-    executablePath,
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--window-size=1280,800",
-      "--disable-blink-features=AutomationControlled",
-    ],
-    ignoreHTTPSErrors: true,
-  });
-
-  const page = await browser.newPage();
-  try {
-    // Spoof automation detection so Cloudflare passes us through
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    );
-    await page.setExtraHTTPHeaders({ "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7" });
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-    });
-
-    const loginUrl = `https://info.aec.edu.in/${portal}/default.aspx`;
-    console.log(`[Puppeteer] Navigating to: ${loginUrl}`);
-    await page.goto(loginUrl, { waitUntil: "networkidle2", timeout: 30000 });
-
-    // Give Cloudflare JS challenge time to resolve (usually 3-5 seconds)
-    await new Promise(r => setTimeout(r, 4000));
-
-    const pageTitle = await page.title();
-    console.log(`[Puppeteer] Page title: "${pageTitle}"`);
-    if (pageTitle.toLowerCase().includes("just a moment") || pageTitle.toLowerCase().includes("attention required")) {
-      throw new Error("Cloudflare challenge active — portal is blocking headless access.");
-    }
-
-    const encryptedPwd = encryptPortalPassword(password);
-
-    if (portal === "aus") {
-      // ── AUS / Campus Connect login ──
-      console.log(`[Puppeteer] AUS portal: selecting Student radio...`);
-      await page.waitForSelector('input[type="radio"]', { timeout: 10000 }).catch(() => { });
-
-      const radioClicked = await page.evaluate(() => {
-        const radios = Array.from(document.querySelectorAll('input[type="radio"]')) as HTMLInputElement[];
-        const studentRadio = radios.find(r =>
-          r.value?.toLowerCase().includes("student") ||
-          r.id?.toLowerCase().includes("student") ||
-          r.name?.toLowerCase().includes("student")
-        );
-        if (studentRadio) { studentRadio.click(); return true; }
-        if (radios.length >= 2) { radios[1].click(); return true; }
-        return false;
-      });
-      console.log(`[Puppeteer] Student radio clicked: ${radioClicked}`);
-      await new Promise(r => setTimeout(r, 500));
-
-      // Fill roll number
-      const userIdFilled = await page.evaluate((val: string) => {
-        const candidates = [
-          document.querySelector<HTMLInputElement>("#txtUserId"),
-          document.querySelector<HTMLInputElement>('input[name="txtUserId"]'),
-          document.querySelector<HTMLInputElement>('input[placeholder*="Roll"]'),
-          document.querySelector<HTMLInputElement>('input[placeholder*="User"]'),
-          document.querySelector<HTMLInputElement>('input[type="text"]'),
-        ];
-        const f = candidates.find(x => x !== null) as HTMLInputElement | null;
-        if (f) { f.value = val; f.dispatchEvent(new Event("input", { bubbles: true })); f.dispatchEvent(new Event("change", { bubbles: true })); return true; }
-        return false;
-      }, rollNo);
-      console.log(`[Puppeteer] Roll number filled: ${userIdFilled}`);
-
-      // Fill visible password with plaintext (portal JS will encrypt it on submit via hdnpwd)
-      await page.evaluate((pwd: string) => {
-        const candidates = [
-          document.querySelector<HTMLInputElement>("#txtPassword"),
-          document.querySelector<HTMLInputElement>('input[name="txtPassword"]'),
-          document.querySelector<HTMLInputElement>('input[type="password"]'),
-        ];
-        const f = candidates.find(x => x !== null) as HTMLInputElement | null;
-        if (f) { f.value = pwd; f.dispatchEvent(new Event("input", { bubbles: true })); f.dispatchEvent(new Event("change", { bubbles: true })); }
-      }, password);
-
-      // Pre-set hidden encrypted password field so the server-side validation passes
-      await page.evaluate((enc: string) => {
-        const f = document.querySelector<HTMLInputElement>('input[name="hdnpwd"], #hdnpwd');
-        if (f) f.value = enc;
-      }, encryptedPwd);
-
-      // Click login button
-      const loginClicked = await page.evaluate(() => {
-        const candidates = [
-          document.querySelector<HTMLElement>("#btnLogin"),
-          document.querySelector<HTMLElement>('input[name="btnLogin"]'),
-          document.querySelector<HTMLElement>('button[id*="Login"]'),
-          document.querySelector<HTMLElement>('input[value="LOGIN"]'),
-          document.querySelector<HTMLElement>('input[type="submit"]'),
-        ];
-        const btn = candidates.find(x => x !== null) as HTMLElement | null;
-        if (btn) { btn.click(); return true; }
-        return false;
-      });
-      console.log(`[Puppeteer] Login button clicked: ${loginClicked}`);
-
-    } else {
-      // ── ACET portal login ──
-      console.log(`[Puppeteer] ACET portal: filling student login fields...`);
-      await page.evaluate((roll: string, pwd: string, enc: string) => {
-        const id = document.querySelector<HTMLInputElement>('#txtId2, input[name="txtId2"]');
-        const pw = document.querySelector<HTMLInputElement>('#txtPwd2, input[name="txtPwd2"]');
-        const hp = document.querySelector<HTMLInputElement>('#hdnpwd2, input[name="hdnpwd2"]');
-        if (id) id.value = roll;
-        if (pw) { pw.value = pwd; pw.dispatchEvent(new Event("input", { bubbles: true })); }
-        if (hp) hp.value = enc;
-      }, rollNo, password, encryptedPwd);
-      await page.evaluate(() => {
-        const btn = (document.querySelector<HTMLElement>('#imgBtn2, input[name="imgBtn2"]') ||
-          document.querySelector<HTMLElement>('input[type="image"]'));
-        if (btn) btn.click();
-      });
-    }
-
-    // Wait for portal to navigate to dashboard
-    console.log(`[Puppeteer] Waiting for post-login navigation...`);
-    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => { });
-    await new Promise(r => setTimeout(r, 2000));
-
-    const postLoginUrl = page.url();
-    const postLoginHtml = await page.content();
-    const lower = postLoginHtml.toLowerCase();
-    console.log(`[Puppeteer] Post-login URL: ${postLoginUrl}, hasLogout: ${lower.includes("lnklogout")}`);
-
-    if (!lower.includes("lnklogout") && !lower.includes("studentmaster") && !postLoginUrl.includes("StudentMaster")) {
-      const errorText = await page.evaluate(() => {
-        const el = document.querySelector(".alert, .error, span[style*='color:red'], span[style*='Color:Red']");
-        return el ? el.textContent?.trim() : null;
-      });
-      throw new Error(errorText
-        ? `Portal rejected login: ${errorText}`
-        : "Authentication failed — dashboard not loaded after login"
-      );
-    }
-
-    // Fetch student profile via AjaxPro using the authenticated browser session
-    console.log(`[Puppeteer] Login successful. Fetching profile via AJAX...`);
-    const ajaxUrl = `https://info.aec.edu.in/${portal}/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw`;
-    const ajaxBody = `RollNo=${encodeURIComponent(rollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
-
-    const profileHtml: string = await page.evaluate(async (url: string, body: string, referer: string) => {
-      const r = await fetch(url, {
-        method: "POST",
-        headers: {
-          "X-AjaxPro-Method": "ShowStudentProfileNew",
-          "Content-Type": "text/plain; charset=utf-8",
-          "Referer": referer,
-        },
-        body,
-        credentials: "include",
-      });
-      return r.text();
-    }, ajaxUrl, ajaxBody, `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx?scrid=17`);
-
-    console.log(`[Puppeteer] Profile AJAX length: ${profileHtml?.length}`);
-    if (!profileHtml || profileHtml.length < 50) {
-      throw new Error("Portal returned empty profile data after login.");
-    }
-
-    return parsePortalProfileHtml(profileHtml, rollNo, portal);
-
-  } finally {
-    await browser.close();
-    console.log(`[Puppeteer] Browser closed.`);
-  }
-}
-
-/**
- * Master scraper orchestrator.
- * 1st try: Puppeteer (real Chrome headless) — bypasses Cloudflare
- * 2nd try: Raw HTTP — works if Cloudflare not active
- */
 async function scrapePortalWithFallback(rollNo: string, password: string, portal: string): Promise<any> {
-  try {
-    console.log(`[Portal] Attempting Puppeteer scrape for ${rollNo} on ${portal}...`);
-    return await scrapeWithPuppeteer(rollNo, password, portal);
-  } catch (err: any) {
-    console.warn(`[Portal] Puppeteer failed (${err.message}), trying raw HTTP...`);
-    return await scrapeStudentProfileFromPortal(rollNo, password, portal);
-  }
+  console.log(`[Portal] Scraping student details via raw HTTP requests for ${rollNo} on ${portal}...`);
+  return await scrapeStudentProfileFromPortal(rollNo, password, portal);
 }
 
 // Raw HTTP client to interact with portal
@@ -1298,13 +1071,18 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
 
   try {
     let profile;
-    try {
-      console.log(`[Sync Scraper] Trying portal: ${portalToUse} for ${cleanRollNo}`);
+    if (selectedPortal) {
+      console.log(`[Sync Scraper] Strict portal mode: fetching ONLY from ${portalToUse} for ${cleanRollNo}`);
       profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
-    } catch (primaryErr: any) {
-      const fallback = portalToUse === primary ? secondary : primary;
-      console.warn(`[Sync Scraper] Portal ${portalToUse} failed, trying fallback portal: ${fallback} for ${cleanRollNo}`);
-      profile = await scrapePortalWithFallback(cleanRollNo, password, fallback);
+    } else {
+      try {
+        console.log(`[Sync Scraper] Trying preferred portal: ${portalToUse} for ${cleanRollNo}`);
+        profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
+      } catch (primaryErr: any) {
+        const fallback = portalToUse === primary ? secondary : primary;
+        console.warn(`[Sync Scraper] Preferred portal ${portalToUse} failed, trying fallback portal: ${fallback} for ${cleanRollNo}`);
+        profile = await scrapePortalWithFallback(cleanRollNo, password, fallback);
+      }
     }
     console.log(`[Sync Scraper] Profile sync successful for ${cleanRollNo}: Name="${profile.name}"`);
     res.json(profile);
@@ -1331,13 +1109,18 @@ app.post("/api/college/auth-sync", async (req: any, res) => {
 
   try {
     let profile;
-    try {
-      console.log(`[Auth Scraper] Trying portal: ${portalToUse} for ${cleanRollNo}`);
+    if (selectedPortal) {
+      console.log(`[Auth Scraper] Strict portal mode: fetching ONLY from ${portalToUse} for ${cleanRollNo}`);
       profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
-    } catch (primaryErr: any) {
-      const fallback = portalToUse === primary ? secondary : primary;
-      console.warn(`[Auth Scraper] Portal ${portalToUse} failed, trying fallback portal: ${fallback} for ${cleanRollNo}`);
-      profile = await scrapePortalWithFallback(cleanRollNo, password, fallback);
+    } else {
+      try {
+        console.log(`[Auth Scraper] Trying preferred portal: ${portalToUse} for ${cleanRollNo}`);
+        profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
+      } catch (primaryErr: any) {
+        const fallback = portalToUse === primary ? secondary : primary;
+        console.warn(`[Auth Scraper] Preferred portal ${portalToUse} failed, trying fallback portal: ${fallback} for ${cleanRollNo}`);
+        profile = await scrapePortalWithFallback(cleanRollNo, password, fallback);
+      }
     }
     console.log(`[Auth Scraper] Profile auth-sync successful for ${cleanRollNo}: Name="${profile.name}"`);
     res.json(profile);
@@ -1651,6 +1434,24 @@ Respond with STRICT JSON matching this schema (exactly 15 items in the array):
     if (!Array.isArray(questions) || questions.length < 2) {
       console.warn("LLM returned invalid or insufficient questions. Falling back to default list.");
       questions = DEFAULT_QUESTIONS;
+    } else {
+      // Pad to exactly 15 questions if the LLM generated fewer
+      if (questions.length < 15) {
+        console.warn(`LLM returned only ${questions.length} questions. Padding to 15 questions.`);
+        const paddedQuestions = [...questions];
+        for (let i = paddedQuestions.length; i < 15; i++) {
+          const defQ = DEFAULT_QUESTIONS[i] || DEFAULT_QUESTIONS[DEFAULT_QUESTIONS.length - 1];
+          paddedQuestions.push({
+            id: `question_${i + 1}`,
+            text: defQ.text,
+            category: defQ.category,
+            difficulty: defQ.difficulty
+          });
+        }
+        questions = paddedQuestions;
+      } else if (questions.length > 15) {
+        questions = questions.slice(0, 15);
+      }
     }
     res.json(questions);
   } catch (error: any) {
@@ -2337,6 +2138,8 @@ interface GDParticipant {
   joinedAt: number;
   socket?: WebSocket;
   lastActive?: number;
+  cameraEnabled?: boolean;
+  micMuted?: boolean;
 }
 
 interface GDTurn {
@@ -2369,6 +2172,17 @@ function sanitizeRoomCode(code: string) {
 }
 
 function createRoomStatePayload(room: GDRoom) {
+  const host = room.participants.find((p) => p.isHost);
+  const hostId = host?.id || null;
+
+  const otherParticipants = room.participants.filter((p) => p.id !== hostId);
+  const activeOthers = otherParticipants.filter((p) => p.cameraEnabled === true || p.micMuted === false);
+  
+  const activeStreamerIds = [
+    ...(hostId ? [hostId] : []),
+    ...activeOthers.slice(0, 5).map((p) => p.id)
+  ];
+
   return {
     type: "room_state",
     roomCode: room.code,
@@ -2381,7 +2195,10 @@ function createRoomStatePayload(room: GDRoom) {
       roll: p.roll,
       isHost: p.isHost,
       joinedAt: p.joinedAt,
+      cameraEnabled: p.cameraEnabled !== false,
+      micMuted: !!p.micMuted,
     })),
+    activeStreamerIds,
     dialogue: room.dialogue.map((turn) => ({
       id: turn.id,
       speakerId: turn.speakerId,
@@ -2390,7 +2207,7 @@ function createRoomStatePayload(room: GDRoom) {
       text: turn.text,
       timestamp: turn.timestamp,
     })),
-    hostId: room.participants.find((p) => p.isHost)?.id || null,
+    hostId,
   };
 }
 
@@ -2862,6 +2679,14 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
 
       if (message.type === "request_room_state") {
         ws.send(JSON.stringify(createRoomStatePayload(room)));
+        return;
+      }
+
+      if (message.type === "media_status") {
+        participant.cameraEnabled = message.cameraEnabled !== false;
+        participant.micMuted = !!message.micMuted;
+        await dbSaveRoom(room);
+        broadcastRoom(room, createRoomStatePayload(room));
         return;
       }
 
