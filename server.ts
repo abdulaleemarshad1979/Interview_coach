@@ -17,7 +17,7 @@ dotenv.config();
 let mongoConnecting: Promise<typeof mongoose> | null = null;
 async function connectDB() {
   // Diagnostic: always print which URI is being used so we can verify in Vercel logs
-  const ATLAS_URI = "mongodb+srv://abdulaleemarshadm:abdulaleemarshadm@cluster0.3vyxhxs.mongodb.net/interview-coach?retryWrites=true&w=majority";
+  const ATLAS_URI = "mongodb+srv://abdulaleemarshadm:jwGgAPz6NsJDC91b@cluster0.3vyxhxs.mongodb.net/interview-coach?retryWrites=true&w=majority";
   const uri = process.env.MONGODB_URI || ATLAS_URI;
   const isAtlas = uri.includes("mongodb+srv");
   console.log(`[DB] MONGODB_URI env present: ${!!process.env.MONGODB_URI}, isAtlas: ${isAtlas}, readyState: ${mongoose.connection.readyState}`);
