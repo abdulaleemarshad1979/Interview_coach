@@ -265,7 +265,8 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
 
     // Direct Google Gemini Live connection if key is present (allows low-latency client-side WebSockets in all environments)
     const directKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
-    if (directKey) {
+    const forceLocal = (import.meta as any).env?.VITE_FORCE_LOCAL_VOICE === "true";
+    if (directKey && !forceLocal) {
       console.log("Connecting directly to Google Gemini Live API from browser...");
       socketUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${directKey}`;
       setVoiceMode("direct");

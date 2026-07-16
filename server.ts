@@ -3104,8 +3104,9 @@ wss.on("connection", async (ws: WebSocket) => {
   console.log("WebSocket Client connected to Interview WebSocket");
   let geminiWs: WebSocket | null = null;
   const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+  const forceLocal = process.env.FORCE_LOCAL_VOICE === "true";
 
-  if (geminiKey) {
+  if (geminiKey && !forceLocal) {
     console.log("Gemini API Key detected. Initializing real-time voice-to-voice proxy...");
     try {
       const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${geminiKey}`;
