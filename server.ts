@@ -237,6 +237,39 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
 
     const result: any = await response.json();
     return result.message?.content || "";
+  } else if (provider === "openai" || provider === "litellm") {
+    const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+    const apiKey = process.env.OPENAI_API_KEY || "";
+    const model = process.env.OPENAI_MODEL || "gpt-4o";
+
+    const payload: any = {
+      model,
+      messages: options.messages,
+      stream: false,
+    };
+    if (options.jsonMode) {
+      payload.response_format = { type: "json_object" };
+    }
+    if (options.temperature !== undefined) {
+      payload.temperature = options.temperature;
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OpenAI/LiteLLM API error: ${response.status} - ${errorText}`);
+    }
+
+    const result: any = await response.json();
+    return result.choices[0]?.message?.content || "";
   } else {
     const groq = getGroqClient();
     const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
