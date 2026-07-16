@@ -1779,7 +1779,7 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
     if (currentQuestionIdx < interviewQuestions.length - 1) {
       setCurrentQuestionIdx((prev) => prev + 1);
     } else {
-      // Completed all 6 rounds! Trigger final report generation
+      // Completed all rounds! Trigger final report generation
       compileFinalReport(updatedFeedbacks);
     }
   };
@@ -1904,9 +1904,9 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
 
         {/* Dynamic Progress indicator */}
         <div className="flex items-center space-x-3">
-          <span className="text-xs font-mono text-gray-400">Round {currentQuestionIdx + 1} of 6</span>
+          <span className="text-xs font-mono text-gray-400">Round {currentQuestionIdx + 1} of {interviewQuestions.length}</span>
           <div className="flex space-x-1">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: interviewQuestions.length }).map((_, i) => (
               <div
                 key={i}
                 className={`w-3 h-1.5 rounded-full ${i < currentQuestionIdx
