@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { 
-  Camera, 
-  Mic, 
-  MicOff, 
-  Video, 
-  VideoOff, 
-  Play, 
-  Check, 
-  Award, 
-  Loader2, 
+import {
+  Camera,
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  Play,
+  Check,
+  Award,
+  Loader2,
   ArrowRight,
   TrendingUp,
   Volume2,
@@ -180,7 +180,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
             unlockAudioContextRef.current = ctx;
           }
           if (ctx.state === "suspended") {
-            ctx.resume().catch(() => {});
+            ctx.resume().catch(() => { });
           }
           this.audioCtx = ctx;
           this.onSpeakingChange = onSpeakingChange;
@@ -195,29 +195,29 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
             for (let i = 0; i < len; i++) {
               bytes[i] = binaryString.charCodeAt(i);
             }
-            
+
             const int16Array = new Int16Array(bytes.buffer);
             const float32Array = new Float32Array(int16Array.length);
             for (let i = 0; i < int16Array.length; i++) {
               float32Array[i] = int16Array[i] / 32768.0;
             }
-            
+
             const audioBuffer = this.audioCtx.createBuffer(1, float32Array.length, 24000);
             audioBuffer.getChannelData(0).set(float32Array);
-            
+
             const source = this.audioCtx.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(this.audioCtx.destination);
-            
+
             const currentTime = this.audioCtx.currentTime;
             if (this.nextPlayTime < currentTime) {
               this.nextPlayTime = currentTime;
             }
             source.start(this.nextPlayTime);
-            
+
             const duration = audioBuffer.duration;
             const delay = (this.nextPlayTime - currentTime) * 1000;
-            
+
             this.onSpeakingChange?.(true);
             const startTimer = setTimeout(() => {
               this.onSpeakingChange?.(true);
@@ -227,7 +227,7 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
                 this.onSpeakingChange?.(false);
               }
             }, delay + duration * 1000);
-            
+
             this.activeTimers.push(startTimer, endTimer);
             this.nextPlayTime += duration;
           } catch (err) {
@@ -311,7 +311,7 @@ Converse naturally and speak in a human-like tone.`
       ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
-          
+
           if (payload.type === "ready") {
             if (payload.status === "Live Voice-to-Voice Active") {
               setVoiceMode("proxy");
@@ -377,7 +377,7 @@ Converse naturally and speak in a human-like tone.`
       const audioCtx = new AudioContextClass({ sampleRate: 16000 });
       const source = audioCtx.createMediaStreamSource(stream);
       const scriptNode = audioCtx.createScriptProcessor(2048, 1, 1);
-      
+
       scriptNode.onaudioprocess = (e) => {
         if (!isRecordingRef.current) return;
         const inputData = e.inputBuffer.getChannelData(0);
@@ -385,10 +385,10 @@ Converse naturally and speak in a human-like tone.`
         for (let i = 0; i < inputData.length; i++) {
           pcm16[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
         }
-        
+
         const binary = String.fromCharCode(...new Uint8Array(pcm16.buffer));
         const base64 = btoa(binary);
-        
+
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
           if (socketRef.current.url.includes("generativelanguage.googleapis.com")) {
             socketRef.current.send(JSON.stringify({
@@ -412,7 +412,7 @@ Converse naturally and speak in a human-like tone.`
 
       source.connect(scriptNode);
       scriptNode.connect(audioCtx.destination);
-      
+
       micStreamerContextRef.current = audioCtx;
       micStreamerScriptNodeRef.current = scriptNode;
     } catch (err) {
@@ -605,14 +605,14 @@ Converse naturally and speak in a human-like tone.`
     }
 
     if (unlockAudioContextRef.current && unlockAudioContextRef.current.state === "suspended") {
-      unlockAudioContextRef.current.resume().catch(() => {});
+      unlockAudioContextRef.current.resume().catch(() => { });
     }
 
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       const voices = window.speechSynthesis.getVoices();
-      
+
       const premiumVoiceKeywords = ["google us english", "microsoft aria", "microsoft guy", "natural", "siri", "apple"];
       let selectedVoice: SpeechSynthesisVoice | null = null;
       for (const keyword of premiumVoiceKeywords) {
@@ -621,11 +621,11 @@ Converse naturally and speak in a human-like tone.`
       }
       if (!selectedVoice) selectedVoice = voices.find(v => (v.name.toLowerCase().includes("google") || v.name.toLowerCase().includes("microsoft")) && v.lang.startsWith("en")) || null;
       if (!selectedVoice) selectedVoice = voices.find(v => v.lang.startsWith("en")) || null;
-      
+
       if (selectedVoice) utterance.voice = selectedVoice;
       utterance.rate = 0.92;
       utterance.pitch = 0.95;
-      
+
       utterance.onstart = () => {
         setIsAISpeaking(true);
         ttsHeartbeatRef.current = setInterval(() => {
@@ -635,7 +635,7 @@ Converse naturally and speak in a human-like tone.`
       };
       utterance.onend = () => { setIsAISpeaking(false); if (ttsHeartbeatRef.current) { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; } };
       utterance.onerror = () => { setIsAISpeaking(false); if (ttsHeartbeatRef.current) { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; } };
-      
+
       // Bind to window to prevent garbage collection in Chrome mid-speech
       (window as any).activeUtterance = utterance;
       window.speechSynthesis.speak(utterance);
@@ -699,7 +699,7 @@ Converse naturally and speak in a human-like tone.`
       const activeQ = interviewQuestions[currentQuestionIdx];
       if (activeQ) {
         connectVoiceSocket();
-        
+
         // Always speak the question using Google Cloud TTS (natural Neural2/Journey voice)
         // The WebSocket handles real-time convo; TTS handles reliable question delivery
         const speakTimer = setTimeout(() => {
@@ -729,13 +729,13 @@ Converse naturally and speak in a human-like tone.`
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
-        } catch (e) {}
+        } catch (e) { }
       }
       if (micStreamerContextRef.current && micStreamerContextRef.current.state === "running") {
-        micStreamerContextRef.current.suspend().catch(() => {});
+        micStreamerContextRef.current.suspend().catch(() => { });
       }
       if (audioContextRef.current && audioContextRef.current.state === "running") {
-        audioContextRef.current.suspend().catch(() => {});
+        audioContextRef.current.suspend().catch(() => { });
       }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getAudioTracks().forEach(t => { t.enabled = false; });
@@ -746,10 +746,10 @@ Converse naturally and speak in a human-like tone.`
     } else {
       console.log("AI finished speaking. Resuming mic recording...");
       if (micStreamerContextRef.current && micStreamerContextRef.current.state === "suspended") {
-        micStreamerContextRef.current.resume().catch(() => {});
+        micStreamerContextRef.current.resume().catch(() => { });
       }
       if (audioContextRef.current && audioContextRef.current.state === "suspended") {
-        audioContextRef.current.resume().catch(() => {});
+        audioContextRef.current.resume().catch(() => { });
       }
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getAudioTracks().forEach(t => { t.enabled = true; });
@@ -760,7 +760,7 @@ Converse naturally and speak in a human-like tone.`
       if (isRecording && recognitionRef.current) {
         try {
           recognitionRef.current.start();
-        } catch (e) {}
+        } catch (e) { }
       }
       // Voice-to-voice mode: auto-start recording 600ms after AI finishes speaking
       if (voiceInterviewMode && !currentFeedback && !isRecording) {
@@ -924,7 +924,7 @@ Converse naturally and speak in a human-like tone.`
 
         faceMeshInstance.onResults((results: any) => {
           if (!active) return;
-          
+
           // Measure average brightness
           const metrics = analyzeCameraFrame();
           setCameraBrightness(metrics.brightness);
@@ -974,13 +974,13 @@ Converse naturally and speak in a human-like tone.`
           // Right eye socket: 263 (outer corner), 362 (inner corner)
           // Right pupil (iris center): 473
           // Mouth corners: 61, 291
-          
+
           const nose = landmarks[4] || landmarks[1];
           const chin = landmarks[152];
           const forehead = landmarks[10];
           const leftFace = landmarks[234];
           const rightFace = landmarks[454];
-          
+
           const leftEyeOuter = landmarks[33];
           const leftEyeInner = landmarks[133];
           const leftPupil = landmarks[468];
@@ -988,14 +988,14 @@ Converse naturally and speak in a human-like tone.`
           const rightEyeOuter = landmarks[263];
           const rightEyeInner = landmarks[362];
           const rightPupil = landmarks[473];
-          
+
           const mouthLeft = landmarks[61];
           const mouthRight = landmarks[291];
 
-          if (!nose || !chin || !forehead || !leftFace || !rightFace || 
-              !leftEyeOuter || !leftEyeInner || !leftPupil || 
-              !rightEyeOuter || !rightEyeInner || !rightPupil || 
-              !mouthLeft || !mouthRight) {
+          if (!nose || !chin || !forehead || !leftFace || !rightFace ||
+            !leftEyeOuter || !leftEyeInner || !leftPupil ||
+            !rightEyeOuter || !rightEyeInner || !rightPupil ||
+            !mouthLeft || !mouthRight) {
             return;
           }
 
@@ -1005,7 +1005,7 @@ Converse naturally and speak in a human-like tone.`
           // Yaw rotation (turn left/right)
           const noseRelX = (nose.x - Math.min(leftFace.x, rightFace.x)) / faceWidth;
           const smoothedYaw = pushAndAverage(yawHistoryRef, noseRelX, 10);
-          
+
           let headYaw: "CENTERED" | "TURNED LEFT" | "TURNED RIGHT" = "CENTERED";
           if (smoothedYaw < 0.40) {
             headYaw = "TURNED LEFT";
@@ -1016,7 +1016,7 @@ Converse naturally and speak in a human-like tone.`
           // Pitch rotation (tilt up/down)
           const noseRelY = (nose.y - forehead.y) / faceHeight;
           const smoothedPitch = pushAndAverage(pitchHistoryRef, noseRelY, 10);
-          
+
           let headPitch: "CENTERED" | "TILTED" = "CENTERED";
           if (smoothedPitch < 0.42 || smoothedPitch > 0.58) {
             headPitch = "TILTED";
@@ -1033,13 +1033,13 @@ Converse naturally and speak in a human-like tone.`
           // Gaze check using relative iris position in BOTH eye sockets
           const leftEyeRange = Math.abs(leftEyeOuter.x - leftEyeInner.x) || 0.01;
           const leftGaze = Math.abs(leftPupil.x - Math.min(leftEyeOuter.x, leftEyeInner.x)) / leftEyeRange;
-          
+
           const rightEyeRange = Math.abs(rightEyeOuter.x - rightEyeInner.x) || 0.01;
           const rightGaze = Math.abs(rightPupil.x - Math.min(rightEyeOuter.x, rightEyeInner.x)) / rightEyeRange;
-          
+
           const avgGaze = (leftGaze + rightGaze) / 2;
           const smoothedGaze = pushAndAverage(gazeHistoryRef, avgGaze, 12);
-          
+
           let currentGaze: "STABLE ENGAGED" | "LOOKING AWAY" | "DISTRACTED" = "STABLE ENGAGED";
           if (smoothedGaze < 0.32 || smoothedGaze > 0.68) {
             currentGaze = "DISTRACTED";
@@ -1051,17 +1051,17 @@ Converse naturally and speak in a human-like tone.`
           const mouthWidth = Math.abs(mouthRight.x - mouthLeft.x);
           const mouthRatio = mouthWidth / faceWidth;
           const smoothedMouth = pushAndAverage(mouthHistoryRef, mouthRatio, 10);
-          
+
           // Eyebrow furrow (Tension)
           const browDist = Math.abs(landmarks[285].x - landmarks[55].x) / faceWidth;
           const smoothedBrow = pushAndAverage(browHistoryRef, browDist, 10);
 
           let currentExpr: "CONFIDENT" | "NEUTRAL" | "SMILING" | "TENSE" = "CONFIDENT";
-          
+
           // Smile Detection (mouth ratio > 0.38 or mouth corners pulled up)
           const cornersY = (mouthLeft.y + mouthRight.y) / 2;
           const lipCenterY = (landmarks[0].y + landmarks[17].y) / 2;
-          
+
           if (smoothedMouth > 0.385 || cornersY < lipCenterY - 0.005) {
             currentExpr = "SMILING";
           } else if (smoothedBrow < 0.165 || smoothedMouth < 0.29) {
@@ -1074,7 +1074,7 @@ Converse naturally and speak in a human-like tone.`
           setPostureStatus(currentPosture);
           setEyeGazeStatus(currentGaze);
           setExpressionStatus(currentExpr);
-          
+
           let currentHeadStatus: "CENTERED" | "TURNED LEFT" | "TURNED RIGHT" | "TILTED" | "MOVING" | "OFFLINE" = "CENTERED";
           if (metrics.motion >= 15.0) {
             currentHeadStatus = "MOVING";
@@ -1186,13 +1186,13 @@ Converse naturally and speak in a human-like tone.`
         // Simulating talking expression and head nod
         const isUserSpeaking = micLevel > 15;
         let finalExpr: "CONFIDENT" | "NEUTRAL" | "SMILING" | "TENSE" = "CONFIDENT";
-        
+
         if (isUserSpeaking) {
           finalExpr = Math.random() < 0.7 ? "CONFIDENT" : "NEUTRAL";
         } else {
           finalExpr = Math.random() < 0.6 ? "CONFIDENT" : Math.random() < 0.75 ? "NEUTRAL" : "SMILING";
         }
-        
+
         setExpressionStatus(finalExpr);
         if (finalExpr === "CONFIDENT") setExpressionStats((prev) => ({ ...prev, confident: prev.confident + 1 }));
         else if (finalExpr === "NEUTRAL") setExpressionStats((prev) => ({ ...prev, neutral: prev.neutral + 1 }));
@@ -1245,7 +1245,7 @@ Converse naturally and speak in a human-like tone.`
       if (faceMeshInstance) {
         try {
           faceMeshInstance.close();
-        } catch {}
+        } catch { }
       }
     };
   }, [webcamActive, isRecording]);
@@ -1322,9 +1322,9 @@ Converse naturally and speak in a human-like tone.`
           // 1. Hands-Free Voice Commands check
           if (voiceInterviewMode) {
             if (
-              lowerText.includes("submit answer") || 
-              lowerText.includes("grade my answer") || 
-              lowerText.includes("finish response") || 
+              lowerText.includes("submit answer") ||
+              lowerText.includes("grade my answer") ||
+              lowerText.includes("finish response") ||
               lowerText.includes("end round")
             ) {
               console.log("Voice Command detected: Submitting answer...");
@@ -1332,8 +1332,8 @@ Converse naturally and speak in a human-like tone.`
               return;
             }
             if (
-              lowerText.includes("next question") || 
-              lowerText.includes("proceed") || 
+              lowerText.includes("next question") ||
+              lowerText.includes("proceed") ||
               lowerText.includes("go ahead")
             ) {
               console.log("Voice Command detected: Advancing to next question...");
@@ -1449,7 +1449,7 @@ Converse naturally and speak in a human-like tone.`
         if (!analyserRef.current) return;
         analyserRef.current.getByteFrequencyData(freqData);
         analyserRef.current.getByteTimeDomainData(timeData);
-        
+
         // 1. Calculate RMS for SNR / Clarity
         let sumSquares = 0;
         for (let i = 0; i < timeData.length; i++) {
@@ -1457,7 +1457,7 @@ Converse naturally and speak in a human-like tone.`
           sumSquares += val * val;
         }
         const rms = Math.sqrt(sumSquares / timeData.length);
-        
+
         if (rms < 0.015) {
           noiseRmsListRef.current.push(rms);
         } else if (rms > 0.035) {
@@ -1468,7 +1468,7 @@ Converse naturally and speak in a human-like tone.`
         const binSize = audioCtx.sampleRate / 512;
         const startBin = Math.floor(80 / binSize);
         const endBin = Math.ceil(300 / binSize);
-        
+
         let maxVal = -1;
         let dominantBin = -1;
         for (let i = startBin; i <= endBin; i++) {
@@ -1528,7 +1528,7 @@ Converse naturally and speak in a human-like tone.`
       cancelAnimationFrame(animationFrameRef.current);
     }
     if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current.close().catch(() => { });
       audioContextRef.current = null;
     }
   };
@@ -1550,7 +1550,7 @@ Converse naturally and speak in a human-like tone.`
       visualizerStreamRef.current = null;
     }
     if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current.close().catch(() => { });
       audioContextRef.current = null;
     }
     if (analyserRef.current) {
@@ -1602,7 +1602,7 @@ Converse naturally and speak in a human-like tone.`
       micStreamerScriptNodeRef.current = null;
     }
     if (micStreamerContextRef.current) {
-      micStreamerContextRef.current.close().catch(() => {});
+      micStreamerContextRef.current.close().catch(() => { });
       micStreamerContextRef.current = null;
     }
 
@@ -1614,8 +1614,8 @@ Converse naturally and speak in a human-like tone.`
     let clarityPercent = 85;
     if (finalSpeechRms.length > 0) {
       const avgSpeech = finalSpeechRms.reduce((a, b) => a + b, 0) / finalSpeechRms.length;
-      const avgNoise = finalNoiseRms.length > 0 
-        ? finalNoiseRms.reduce((a, b) => a + b, 0) / finalNoiseRms.length 
+      const avgNoise = finalNoiseRms.length > 0
+        ? finalNoiseRms.reduce((a, b) => a + b, 0) / finalNoiseRms.length
         : 0.002;
       const snr = 20 * Math.log10(avgSpeech / Math.max(0.001, avgNoise));
       clarityPercent = Math.min(100, Math.max(0, Math.round(((snr - 5) / 20) * 55 + 40)));
@@ -1641,7 +1641,7 @@ Converse naturally and speak in a human-like tone.`
       visualizerStreamRef.current = null;
     }
     if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current.close().catch(() => { });
       audioContextRef.current = null;
     }
     if (analyserRef.current) {
@@ -1683,7 +1683,7 @@ Converse naturally and speak in a human-like tone.`
 
       const response = await fetch(getApiUrl("/api/interview/submit-answer"), {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           ...(token ? { "Authorization": `Bearer ${token}` } : {})
         },
@@ -1713,7 +1713,7 @@ Converse naturally and speak in a human-like tone.`
     // Append completed feedback
     const updatedFeedbacks = [...feedbacks, currentFeedback];
     setFeedbacks(updatedFeedbacks);
-    
+
     // Reset states for the next round
     setCurrentFeedback(null);
     setTranscript("");
@@ -1722,7 +1722,7 @@ Converse naturally and speak in a human-like tone.`
     setConversationHistory([]);
     setAiTextAccumulated("");
     setAutoAdvanceCountdown(null);
-    
+
     // Reset visual metrics tracking stats for the next question
     setGazeStats({ stable: 0, lookingAway: 0, distracted: 0 });
     setPostureStats({ aligned: 0, slouching: 0, leaning: 0 });
@@ -1754,7 +1754,7 @@ Converse naturally and speak in a human-like tone.`
 
       const response = await fetch(getApiUrl("/api/interview/generate-report"), {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           ...(token ? { "Authorization": `Bearer ${token}` } : {})
         },
@@ -1860,15 +1860,14 @@ Converse naturally and speak in a human-like tone.`
           <span className="text-xs font-mono text-gray-400">Round {currentQuestionIdx + 1} of 6</span>
           <div className="flex space-x-1">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div 
-                key={i} 
-                className={`w-3 h-1.5 rounded-full ${
-                  i < currentQuestionIdx 
-                    ? "bg-brand-accent" 
-                    : i === currentQuestionIdx 
-                      ? "bg-brand-primary animate-pulse" 
+              <div
+                key={i}
+                className={`w-3 h-1.5 rounded-full ${i < currentQuestionIdx
+                    ? "bg-brand-accent"
+                    : i === currentQuestionIdx
+                      ? "bg-brand-primary animate-pulse"
                       : "bg-white/5"
-                }`} 
+                  }`}
               />
             ))}
           </div>
@@ -1880,11 +1879,11 @@ Converse naturally and speak in a human-like tone.`
         <div className="lg:col-span-5 space-y-6">
           {/* Simulated/Real Webcam Panel */}
           <div className="bg-black/90 border border-white/10 rounded-2xl overflow-hidden relative shadow-2xl">
-            <video 
+            <video
               ref={videoRef}
-              autoPlay 
-              playsInline 
-              muted 
+              autoPlay
+              playsInline
+              muted
               className={`w-full h-72 sm:h-80 object-cover transform scale-x-[-1] ${!webcamActive ? "opacity-0" : "opacity-100"} transition-opacity`}
             />
 
@@ -1903,14 +1902,13 @@ Converse naturally and speak in a human-like tone.`
 
             {/* Dynamic Scanning Face Reticle */}
             {webcamActive && (
-              <motion.div 
-                className={`absolute border-2 border-dashed rounded-lg pointer-events-none z-10 ${
-                  cameraBrightness < 15 
-                    ? "border-red-500" 
+              <motion.div
+                className={`absolute border-2 border-dashed rounded-lg pointer-events-none z-10 ${cameraBrightness < 15
+                    ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
-                      ? "border-amber-400" 
+                      ? "border-amber-400"
                       : "border-emerald-500"
-                }`}
+                  }`}
                 animate={{
                   x: ["110px", "115px", "105px", "112px", "110px"],
                   y: ["50px", "55px", "45px", "52px", "50px"],
@@ -1928,45 +1926,40 @@ Converse naturally and speak in a human-like tone.`
                 }}
               >
                 {/* Bounding box corners */}
-                <div className={`absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 -mt-[2px] -ml-[2px] ${
-                  cameraBrightness < 15 
-                    ? "border-red-500" 
+                <div className={`absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 -mt-[2px] -ml-[2px] ${cameraBrightness < 15
+                    ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
-                      ? "border-amber-400" 
+                      ? "border-amber-400"
                       : "border-emerald-500"
-                }`} />
-                <div className={`absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 -mt-[2px] -mr-[2px] ${
-                  cameraBrightness < 15 
-                    ? "border-red-500" 
+                  }`} />
+                <div className={`absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 -mt-[2px] -mr-[2px] ${cameraBrightness < 15
+                    ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
-                      ? "border-amber-400" 
+                      ? "border-amber-400"
                       : "border-emerald-500"
-                }`} />
-                <div className={`absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 -mb-[2px] -ml-[2px] ${
-                  cameraBrightness < 15 
-                    ? "border-red-500" 
+                  }`} />
+                <div className={`absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 -mb-[2px] -ml-[2px] ${cameraBrightness < 15
+                    ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
-                      ? "border-amber-400" 
+                      ? "border-amber-400"
                       : "border-emerald-500"
-                }`} />
-                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 -mb-[2px] -mr-[2px] ${
-                  cameraBrightness < 15 
-                    ? "border-red-500" 
+                  }`} />
+                <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 -mb-[2px] -mr-[2px] ${cameraBrightness < 15
+                    ? "border-red-500"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
-                      ? "border-amber-400" 
+                      ? "border-amber-400"
                       : "border-emerald-500"
-                }`} />
-                
+                  }`} />
+
                 {/* ID Tag */}
-                <div className={`absolute -top-5 left-0 text-black text-[8px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap ${
-                  cameraBrightness < 15 
-                    ? "bg-red-500 text-white" 
+                <div className={`absolute -top-5 left-0 text-black text-[8px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap ${cameraBrightness < 15
+                    ? "bg-red-500 text-white"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE") || (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
-                      ? "bg-amber-400 text-brand-bg" 
+                      ? "bg-amber-400 text-brand-bg"
                       : "bg-emerald-500"
-                }`}>
-                  {cameraBrightness < 15 
-                    ? "LOCK LOST: LOW LIGHT" 
+                  }`}>
+                  {cameraBrightness < 15
+                    ? "LOCK LOST: LOW LIGHT"
                     : (headStatus !== "CENTERED" && headStatus !== "OFFLINE")
                       ? `[!] HEAD MOVED: ${headStatus}`
                       : (eyeGazeStatus !== "STABLE ENGAGED" && eyeGazeStatus !== "OFFLINE")
@@ -2009,29 +2002,27 @@ Converse naturally and speak in a human-like tone.`
           <div className="bg-brand-card/25 border border-white/5 p-4 rounded-2xl flex items-center justify-between">
             <span className="text-xs font-mono text-gray-400">Sandbox Peripherals</span>
             <div className="flex space-x-3">
-              <button 
+              <button
                 onClick={toggleWebcam}
-                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                  webcamActive 
-                    ? "bg-white/5 border-white/10 text-white" 
+                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${webcamActive
+                    ? "bg-white/5 border-white/10 text-white"
                     : "bg-red-500/10 border-red-500/20 text-red-400"
-                }`}
+                  }`}
                 title="Toggle Gaze Tracking Camera"
               >
                 {webcamActive ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
               </button>
-              <button 
+              <button
                 onClick={toggleMic}
-                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                  micActive 
-                    ? "bg-white/5 border-white/10 text-white" 
+                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${micActive
+                    ? "bg-white/5 border-white/10 text-white"
                     : "bg-red-500/10 border-red-500/20 text-red-400"
-                }`}
+                  }`}
                 title="Toggle Mic capture"
               >
                 {micActive ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
               </button>
-              <button 
+              <button
                 onClick={() => {
                   const newMuted = !isVoiceMuted;
                   setIsVoiceMuted(newMuted);
@@ -2039,11 +2030,10 @@ Converse naturally and speak in a human-like tone.`
                     window.speechSynthesis.cancel();
                   }
                 }}
-                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                  !isVoiceMuted 
-                    ? "bg-white/5 border-white/10 text-white" 
+                className={`p-2.5 rounded-xl border transition-all cursor-pointer ${!isVoiceMuted
+                    ? "bg-white/5 border-white/10 text-white"
                     : "bg-red-500/10 border-red-500/20 text-red-400"
-                }`}
+                  }`}
                 title={isVoiceMuted ? "Unmute Coach Voice" : "Mute Coach Voice"}
               >
                 {isVoiceMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -2071,7 +2061,7 @@ Converse naturally and speak in a human-like tone.`
                     <span className="text-[10px] font-mono text-brand-primary uppercase tracking-wider">Evaluation Completed</span>
                     <h3 className="text-lg font-display font-bold text-white mt-0.5">Round {currentQuestionIdx + 1} score card</h3>
                   </div>
-                  
+
                   {/* Score circle */}
                   <div className="flex items-center space-x-2 bg-brand-primary/10 border border-brand-primary/20 rounded-full px-3.5 py-1">
                     <Award className="w-4 h-4 text-brand-primary" />
@@ -2131,8 +2121,8 @@ Converse naturally and speak in a human-like tone.`
                   className="w-full py-4 bg-linear-to-r from-brand-accent to-brand-primary text-brand-bg font-bold rounded-xl flex items-center justify-center space-x-2 neon-glow-btn cursor-pointer"
                 >
                   <span>
-                    {currentQuestionIdx < 5 
-                      ? `Proceed to Next Round ${autoAdvanceCountdown !== null ? `(Auto-advancing in ${autoAdvanceCountdown}s)` : ""}` 
+                    {currentQuestionIdx < 5
+                      ? `Proceed to Next Round ${autoAdvanceCountdown !== null ? `(Auto-advancing in ${autoAdvanceCountdown}s)` : ""}`
                       : `Finalize Assessment scorecard ${autoAdvanceCountdown !== null ? `(Auto-finalizing in ${autoAdvanceCountdown}s)` : ""}`}
                   </span>
                   <ArrowRight className="w-4 h-4 text-brand-bg" />
@@ -2235,7 +2225,7 @@ Converse naturally and speak in a human-like tone.`
                           </button>
                         </div>
                       ) : (
-                        <div 
+                        <div
                           onClick={startRecording}
                           className="py-8 bg-brand-bg border border-white/5 border-dashed rounded-xl flex flex-col items-center justify-center space-y-3 cursor-pointer hover:bg-brand-primary/5 transition-all duration-200 group"
                         >
