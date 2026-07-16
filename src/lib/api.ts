@@ -1,4 +1,3 @@
-import { supabase } from "./supabaseClient";
 
 export function getApiUrl(path: string): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
@@ -35,10 +34,9 @@ export function getWsUrl(path: string): string {
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   let token = null;
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    token = session?.access_token;
+    token = localStorage.getItem("auth_token");
   } catch (err) {
-    console.warn("Failed to retrieve supabase session for API fetch:", err);
+    console.warn("Failed to retrieve token for API fetch:", err);
   }
 
   const headers = new Headers(options.headers);

@@ -110,48 +110,7 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
             } catch {}
           }
 
-          if (assignedProctorId) {
-            return assignedProctorId === facultyProfile.facultyId;
-          }
-
-          const studentSection = (row.section || row.class_section || "").toLowerCase().trim();
-          
-          // Match branch and section cleanly
-          // Extract the section letter (e.g. "a" or "b") to prevent false matching "B.Tech" or "AI & DS" containing letter "a"
-          const extractSectionLetter = (secStr: string) => {
-            const match = secStr.match(/section\s+([a-z0-9]+)/i);
-            if (match) return match[1].toLowerCase().trim();
-            
-            // Search for standalone single characters or single letters
-            const words = secStr.split(/[\s\-]+/);
-            for (const word of words) {
-              if (word.length === 1 && /[a-z]/i.test(word)) {
-                return word.toLowerCase().trim();
-              }
-            }
-            return secStr.toLowerCase().trim();
-          };
-
-          const studentSecLetter = extractSectionLetter(studentSection);
-          const targetSecLetter = extractSectionLetter(targetSection);
-          
-          let sectionMatch = false;
-          if (studentSecLetter && targetSecLetter) {
-            sectionMatch = studentSecLetter === targetSecLetter || 
-                           studentSecLetter.includes(targetSecLetter) || 
-                           targetSecLetter.includes(studentSecLetter);
-          } else if (!studentSecLetter && !targetSecLetter) {
-            sectionMatch = true;
-          }
-
-          if (!sectionMatch) return false;
-
-          if (roll.startsWith(prefix)) {
-            const suffix = roll.substring(prefix.length);
-            const numVal = parseInt(suffix, 10);
-            return !isNaN(numVal) && numVal >= start && numVal <= end;
-          }
-          return false;
+          return assignedProctorId === facultyProfile.facultyId;
         }).map((row: any) => {
           const roll = row.roll_number || "Unknown";
           const name = row.name || row.student_name || `Student ${roll.slice(-2)}`;
