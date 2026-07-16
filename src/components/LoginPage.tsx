@@ -274,18 +274,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           setError("Please enter your Class Section.");
           return;
         }
-        if (!rollPrefix.trim()) {
-          setError("Please enter Roll Prefix.");
-          return;
-        }
-        if (!rollStart.trim() || isNaN(Number(rollStart))) {
-          setError("Please enter a valid start roll number range.");
-          return;
-        }
-        if (!rollEnd.trim() || isNaN(Number(rollEnd))) {
-          setError("Please enter a valid end roll number range.");
-          return;
-        }
       }
     }
 
@@ -327,9 +315,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               faculty_name: facultyName.trim(),
               department: department.trim(),
               class_section: classSection.trim(),
-              roll_prefix: rollPrefix.trim(),
-              roll_start: parseInt(rollStart, 10),
-              roll_end: parseInt(rollEnd, 10),
             };
 
         const { data, error: signUpError } = await supabase.auth.signUp({
@@ -662,48 +647,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                               icon={GraduationCap}
                               required
                             />
-                          </div>
-                          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200/60 flex flex-col gap-2.5">
-                            <span className="text-xs font-semibold text-slate-700 block">Supervised Student Roll Range</span>
-                            <div className="grid grid-cols-3 gap-2">
-                              <InputField
-                                label="Prefix"
-                                type="text"
-                                placeholder="e.g. 24P31A12"
-                                value={rollPrefix}
-                                onChange={(val) => {
-                                  setRollPrefix(val);
-                                  setError(null);
-                                }}
-                                disabled={loading}
-                                required
-                              />
-                              <InputField
-                                label="Start No"
-                                type="text"
-                                placeholder="1"
-                                value={rollStart}
-                                onChange={(val) => {
-                                  setRollStart(val);
-                                  setError(null);
-                                }}
-                                disabled={loading}
-                                required
-                              />
-                              <InputField
-                                label="End No"
-                                type="text"
-                                placeholder="30"
-                                value={rollEnd}
-                                onChange={(val) => {
-                                  setRollEnd(val);
-                                  setError(null);
-                                }}
-                                disabled={loading}
-                                required
-                              />
-                            </div>
-                          </div>
                         </>
                       )}
                     </motion.div>

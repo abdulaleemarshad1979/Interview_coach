@@ -73,47 +73,41 @@ const ProctorAssignmentSchema = new mongoose.Schema({
 const ProctorAssignment = mongoose.model("ProctorAssignment", ProctorAssignmentSchema);
 
 
-import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
+const UserSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  passwordHash: { type: String, required: true },
+  salt: { type: String, required: true },
+  user_metadata: { type: Object, default: {} },
+  created_at: { type: Date, default: Date.now }
+}, { minimize: false });
+
+const User = mongoose.model("User", UserSchema);
+
+const SessionSchema = new mongoose.Schema({
+  token: { type: String, required: true, unique: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  createdAt: { type: Date, default: Date.now, expires: "7d" }
+});
+
+const Session = mongoose.model("Session", SessionSchema);
+
+function generateSalt(): string {
+  return crypto.randomBytes(16).toString("hex");
+}
+
+function hashPassword(password: string, salt: string): string {
+  return crypto.pbkdf2Sync(password, salt, 1000, 64, "sha512").toString("hex");
+}
 
 // Polyfill global WebSocket for Node.js < 22 where native WebSocket is not available
 if (typeof globalThis.WebSocket === "undefined") {
   (globalThis as any).WebSocket = WebSocket;
 }
 
-// Lazy initialize Supabase client for backend authentication verification
-let supabaseInstance: any = null;
-
-function getSupabaseClient() {
-  if (!supabaseInstance) {
-    const rawUrl = process.env.SUPABASE_URL || "";
-    const rawKey = process.env.SUPABASE_ANON_KEY || "";
-
-    const url = rawUrl && !rawUrl.includes("your-project-id")
-      ? rawUrl
-      : process.env.VITE_SUPABASE_URL;
-
-    const key = rawKey && !rawKey.includes("your-anon-public-key")
-      ? rawKey
-      : process.env.VITE_SUPABASE_ANON_KEY;
-
-    if (!url || !key) {
-      console.warn("Supabase credentials not configured in environment variables. Middleware authorization will run in bypass mode.");
-      return null;
-    }
-    supabaseInstance = createClient(url, key);
-  }
-  return supabaseInstance;
-}
-
 async function requireAuth(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization;
-  const supabase = getSupabaseClient();
-
-  if (!supabase) {
-    // If Supabase is not configured yet, bypass token check to prevent app lockout during local development
-    return next();
-  }
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Access denied. Authentication token is required." });
@@ -122,11 +116,16 @@ async function requireAuth(req: any, res: any, next: any) {
   const token = authHeader.split(" ")[1];
 
   try {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) {
+    const session = await Session.findOne({ token }).populate("userId");
+    if (!session || !session.userId) {
       return res.status(401).json({ error: "Invalid or expired session. Please sign in again." });
     }
-    req.user = user;
+    const user = session.userId as any;
+    req.user = {
+      id: user._id.toString(),
+      email: user.email,
+      user_metadata: user.user_metadata
+    };
     next();
   } catch (err: any) {
     return res.status(401).json({ error: "Token verification failed: " + err.message });
@@ -202,9 +201,8 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
       messages: options.messages,
       stream: false,
     };
-    if (options.jsonMode) {
-      payload.format = "json";
-    }
+    // Note: Do not set payload.format = "json" for Ollama because it causes massive latency / 502 Bad Gateway timeouts on large models.
+    // parseLLMJson in server.ts is already robust and can parse JSON from text.
     if (options.temperature !== undefined) {
       payload.options = { temperature: options.temperature };
     }
@@ -266,7 +264,225 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 // Increase payload limit to handle base64-encoded PDF resumes
 app.use(express.json({ limit: "25mb" }));
 
-// Local mock auth has been deprecated. All authentication is handled directly on the client side via Supabase Auth.
+// 1b. MongoDB Authentication Endpoints
+
+app.post("/api/auth/signup", async (req, res) => {
+  try {
+    const { email, password, user_metadata } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required." });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      return res.status(400).json({ error: "User already registered" });
+    }
+
+    const salt = generateSalt();
+    const passwordHash = hashPassword(password, salt);
+
+    const user = new User({
+      email: normalizedEmail,
+      passwordHash,
+      salt,
+      user_metadata: user_metadata || {}
+    });
+    await user.save();
+
+    // If student profile, also upsert it in Profile collection to keep in sync
+    const rollNo = user_metadata?.roll_number || normalizedEmail.split("@")[0].toUpperCase();
+    const isFaculty = !!user_metadata?.is_faculty;
+    const isAdmin = !!user_metadata?.is_admin;
+
+    if (!isFaculty && !isAdmin) {
+      await Profile.findOneAndUpdate(
+        { id: rollNo },
+        {
+          id: rollNo,
+          roll_number: rollNo,
+          name: user_metadata?.student_name || user_metadata?.name || "",
+          student_name: user_metadata?.student_name || user_metadata?.name || "",
+          class_section: user_metadata?.class_section || "",
+          section: user_metadata?.class_section || "",
+          branch: user_metadata?.branch || "",
+          department: user_metadata?.department || "",
+          attendance: user_metadata?.attendance || 80,
+          college_assessments: user_metadata?.college_assessments || [],
+          is_synced: !!user_metadata?.is_synced,
+          profile_image: user_metadata?.profile_image || "",
+          is_faculty: false,
+          is_admin: false,
+          updated_at: new Date()
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    } else {
+      await Profile.findOneAndUpdate(
+        { id: user._id.toString() },
+        {
+          id: user._id.toString(),
+          name: user_metadata?.faculty_name || user_metadata?.name || "User",
+          student_name: user_metadata?.faculty_name || user_metadata?.name || "User",
+          branch: user_metadata?.department || "",
+          department: user_metadata?.department || "",
+          is_faculty: isFaculty,
+          is_admin: isAdmin,
+          updated_at: new Date()
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    }
+
+    // Generate session
+    const token = crypto.randomBytes(32).toString("hex");
+    const session = new Session({
+      token,
+      userId: user._id
+    });
+    await session.save();
+
+    res.status(201).json({
+      session: { access_token: token, user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata } },
+      user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata }
+    });
+  } catch (err: any) {
+    console.error("Signup error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required." });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user) {
+      return res.status(400).json({ error: "Invalid login credentials" });
+    }
+
+    const hash = hashPassword(password, user.salt);
+    if (hash !== user.passwordHash) {
+      return res.status(400).json({ error: "Invalid login credentials" });
+    }
+
+    // Generate session
+    const token = crypto.randomBytes(32).toString("hex");
+    const session = new Session({
+      token,
+      userId: user._id
+    });
+    await session.save();
+
+    res.json({
+      session: { access_token: token, user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata } },
+      user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata }
+    });
+  } catch (err: any) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/auth/me", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const token = authHeader.split(" ")[1];
+    const session = await Session.findOne({ token }).populate("userId");
+    if (!session || !session.userId) {
+      return res.status(401).json({ error: "Invalid session" });
+    }
+    const user = session.userId as any;
+    res.json({
+      user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/update-metadata", requireAuth, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+    const { data } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    user.user_metadata = {
+      ...(user.user_metadata || {}),
+      ...data
+    };
+    user.markModified("user_metadata");
+    await user.save();
+
+    // Keep corresponding Profile in sync
+    const rollNo = user.user_metadata?.roll_number || user.email.split("@")[0].toUpperCase();
+    const isFaculty = !!user.user_metadata?.is_faculty;
+    const isAdmin = !!user.user_metadata?.is_admin;
+
+    if (!isFaculty && !isAdmin) {
+      await Profile.findOneAndUpdate(
+        { id: rollNo },
+        {
+          name: user.user_metadata?.student_name || user.user_metadata?.name || "",
+          student_name: user.user_metadata?.student_name || user.user_metadata?.name || "",
+          class_section: user.user_metadata?.class_section || "",
+          section: user.user_metadata?.class_section || "",
+          branch: user.user_metadata?.branch || "",
+          department: user.user_metadata?.department || "",
+          attendance: user.user_metadata?.attendance || 80,
+          college_assessments: user.user_metadata?.college_assessments || [],
+          is_synced: !!user.user_metadata?.is_synced,
+          profile_image: user.user_metadata?.profile_image || "",
+          github_username: user.user_metadata?.github_username || "",
+          resume_file_name: user.user_metadata?.resume_file_name || "",
+          updated_at: new Date()
+        }
+      );
+    } else {
+      await Profile.findOneAndUpdate(
+        { id: userId },
+        {
+          name: user.user_metadata?.faculty_name || user.user_metadata?.name || "User",
+          student_name: user.user_metadata?.faculty_name || user.user_metadata?.name || "User",
+          branch: user.user_metadata?.department || "",
+          department: user.user_metadata?.department || "",
+          updated_at: new Date()
+        }
+      );
+    }
+
+    res.json({
+      user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata }
+    });
+  } catch (err: any) {
+    console.error("Update metadata error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/auth/logout", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.split(" ")[1];
+      await Session.deleteOne({ token });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // 1c. API Endpoint: Ping
 app.get("/api/ping", (req, res) => {
@@ -2008,6 +2224,7 @@ interface GDParticipant {
   isHost: boolean;
   joinedAt: number;
   socket?: WebSocket;
+  lastActive?: number;
 }
 
 interface GDTurn {
@@ -2151,18 +2368,31 @@ async function evaluateDiscussionRoom(room: GDRoom) {
   });
 
   const prompt = evaluateRoomPrompt(room);
-  const completionText = await getLLMCompletion({
-    messages: [
-      { role: "system", content: "You are a university soft skills assessor. Respond with strict JSON only." },
-      { role: "user", content: prompt }
-    ],
-    jsonMode: true,
-    purpose: "report"
-  });
-
-  try {
-    const defaultResult = {
-      participants: room.participants.map((p) => ({
+  
+  // 1. Establish the unified default fallback evaluation result
+  const defaultResult = {
+    participants: room.participants.map((p) => {
+      const roll = p.roll.trim().toUpperCase();
+      const wordsSpoken = speakerWordCounts.get(roll) || 0;
+      if (wordsSpoken === 0) {
+        return {
+          name: p.name,
+          roll: p.roll,
+          overallScore: 0,
+          criteria: {
+            participation: { score: 0, comments: "Candidate remained silent." },
+            listeningSkills: { score: 0, comments: "Candidate did not participate." },
+            argumentQuality: { score: 0, comments: "Candidate did not participate." },
+            teamCollaboration: { score: 0, comments: "Candidate did not participate." },
+            leadershipIndicators: { score: 0, comments: "Candidate did not participate." },
+            conflictHandling: { score: 0, comments: "Candidate did not participate." }
+          },
+          strengths: ["None (No participation)"],
+          improvements: ["Must actively speak and participate to earn credits"],
+          coachFeedback: "Zero spoken word count detected. Audio soft-skills and participation marks must reflect exactly zero."
+        };
+      }
+      return {
         name: p.name,
         roll: p.roll,
         overallScore: 80,
@@ -2177,9 +2407,21 @@ async function evaluateDiscussionRoom(room: GDRoom) {
         strengths: ["Clear response structure", "Good technical communication"],
         improvements: ["Elaborate on specific project architectures", "Avoid minor pacing inconsistencies"],
         coachFeedback: "Great conversational skills. Encourage to practice presenting arguments with STAR framework."
-      })),
-      overallVerdict: "All participants engaged in a respectful, balanced, and productive dialogue, demonstrating good teamwork and structured communication."
-    };
+      };
+    }),
+    overallVerdict: "All participants engaged in a respectful, balanced, and productive dialogue, demonstrating good teamwork and structured communication."
+  };
+
+  try {
+    // 2. Perform the AI completion call inside the try-catch block for absolute safety
+    const completionText = await getLLMCompletion({
+      messages: [
+        { role: "system", content: "You are a university soft skills assessor. Respond with strict JSON only." },
+        { role: "user", content: prompt }
+      ],
+      jsonMode: true,
+      purpose: "report"
+    });
 
     const rawResult = parseLLMJson(completionText, {});
     let participants = rawResult.participants;
@@ -2217,76 +2459,34 @@ async function evaluateDiscussionRoom(room: GDRoom) {
       overallVerdict: rawResult.overallVerdict || defaultResult.overallVerdict
     };
 
-    if (evalResult && Array.isArray(evalResult.participants)) {
-      evalResult.participants = evalResult.participants.map((p: any) => {
-        const roll = String(p.roll || "").trim().toUpperCase();
-        const wordsSpoken = speakerWordCounts.get(roll) || 0;
+    // Ensure zero word count candidates are strictly zeroed out
+    evalResult.participants = evalResult.participants.map((p: any) => {
+      const roll = String(p.roll || "").trim().toUpperCase();
+      const wordsSpoken = speakerWordCounts.get(roll) || 0;
 
-        if (wordsSpoken === 0) {
-          return {
-            ...p,
-            overallScore: 0,
-            criteria: {
-              participation: { score: 0, comments: "Candidate remained silent and did not speak during this discussion." },
-              listeningSkills: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
-              argumentQuality: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
-              teamCollaboration: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
-              leadershipIndicators: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
-              conflictHandling: { score: 0, comments: "Candidate did not participate or speak during this discussion." }
-            },
-            strengths: ["None (No participation)"],
-            improvements: ["Must actively speak and participate to earn credits"],
-            coachFeedback: "Zero spoken word count detected. Audio soft-skills and participation marks must reflect exactly zero."
-          };
-        }
-        return p;
-      });
-    }
+      if (wordsSpoken === 0) {
+        return {
+          ...p,
+          overallScore: 0,
+          criteria: {
+            participation: { score: 0, comments: "Candidate remained silent and did not speak during this discussion." },
+            listeningSkills: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
+            argumentQuality: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
+            teamCollaboration: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
+            leadershipIndicators: { score: 0, comments: "Candidate did not participate or speak during this discussion." },
+            conflictHandling: { score: 0, comments: "Candidate did not participate or speak during this discussion." }
+          },
+          strengths: ["None (No participation)"],
+          improvements: ["Must actively speak and participate to earn credits"],
+          coachFeedback: "Zero spoken word count detected. Audio soft-skills and participation marks must reflect exactly zero."
+        };
+      }
+      return p;
+    });
 
     return evalResult;
   } catch (err) {
-    console.error("Room evaluation JSON parse failed, returning fallback:", err, completionText);
-    const defaultResult = {
-      participants: room.participants.map((p) => {
-        const roll = p.roll.trim().toUpperCase();
-        const wordsSpoken = speakerWordCounts.get(roll) || 0;
-        if (wordsSpoken === 0) {
-          return {
-            name: p.name,
-            roll: p.roll,
-            overallScore: 0,
-            criteria: {
-              participation: { score: 0, comments: "Candidate remained silent." },
-              listeningSkills: { score: 0, comments: "Candidate did not participate." },
-              argumentQuality: { score: 0, comments: "Candidate did not participate." },
-              teamCollaboration: { score: 0, comments: "Candidate did not participate." },
-              leadershipIndicators: { score: 0, comments: "Candidate did not participate." },
-              conflictHandling: { score: 0, comments: "Candidate did not participate." }
-            },
-            strengths: ["None"],
-            improvements: ["Must actively speak to participate"],
-            coachFeedback: "Zero word count."
-          };
-        }
-        return {
-          name: p.name,
-          roll: p.roll,
-          overallScore: 80,
-          criteria: {
-            participation: { score: 4, comments: "Active participation." },
-            listeningSkills: { score: 4, comments: "Listened actively." },
-            argumentQuality: { score: 4, comments: "Logical arguments." },
-            teamCollaboration: { score: 4, comments: "Respectful collaboration." },
-            leadershipIndicators: { score: 3, comments: "Helpful flow guidance." },
-            conflictHandling: { score: 4, comments: "Maintained poise." }
-          },
-          strengths: ["Good presentation", "Polite tone"],
-          improvements: ["Elaborate on specific project details"],
-          coachFeedback: "Good soft skills dialogue."
-        };
-      }),
-      overallVerdict: "Discussion ended successfully with active engagement from participants."
-    };
+    console.error("Room evaluation AI call or parse failed, returning fallback:", err);
     return defaultResult;
   }
 }
@@ -2342,6 +2542,7 @@ async function dbSaveRoom(room: GDRoom): Promise<void> {
         roll: p.roll,
         isHost: p.isHost,
         joinedAt: p.joinedAt,
+        lastActive: p.lastActive || null,
       })),
       dialogue: room.dialogue,
       createdAt: room.createdAt,
@@ -2466,19 +2667,6 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
           socket: ws,
         };
 
-        // Cache socket reference locally so dbGetRoom can link active sockets
-        let localRoom = gdRooms.get(requestedCode);
-        if (!localRoom) {
-          localRoom = { ...room };
-          gdRooms.set(requestedCode, localRoom);
-        }
-        const localP = localRoom.participants.find((p) => p.id === participant.id);
-        if (localP) {
-          localP.socket = ws;
-        } else {
-          localRoom.participants.push({ ...participant, socket: ws });
-        }
-
         room.participants.push(participant);
         currentRoomCode = requestedCode;
         participantId = participant.id;
@@ -2588,7 +2776,31 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
   });
 
   ws.on("close", () => {
-    removeParticipantFromRoom();
+    // Wait for a grace period (e.g. 15 seconds) before removing
+    setTimeout(async () => {
+      try {
+        const room = await dbGetRoom(currentRoomCode || "");
+        if (!room) return;
+        const p = room.participants.find((lp) => lp.id === participantId);
+        if (!p) return;
+
+        // If the participant has an open WebSocket, they are active
+        if (p.socket && p.socket.readyState === WebSocket.OPEN) {
+          return;
+        }
+
+        // If the participant has polled recently (within the last 20 seconds), they are active
+        const inactiveTime = Date.now() - (p.lastActive || p.joinedAt);
+        if (inactiveTime < 20000) {
+          return;
+        }
+
+        // Otherwise, remove them
+        await removeParticipantFromRoom();
+      } catch (err) {
+        console.error("Error during participant socket close cleanup:", err);
+      }
+    }, 15000);
   });
 });
 
@@ -2680,6 +2892,10 @@ app.get("/api/gd-room/state", async (req, res) => {
       return res.status(403).json({ error: "Participant not found in room." });
     }
 
+    // Update lastActive timestamp on polling to prevent inactivity disconnect
+    participant.lastActive = Date.now();
+    await dbSaveRoom(room);
+
     res.json(createRoomStatePayload(room));
   } catch (err: any) {
     console.error("GD State HTTP Error:", err);
@@ -2698,6 +2914,7 @@ app.post("/api/gd-room/start", async (req, res) => {
       return res.status(403).json({ error: "Only the host can start the discussion." });
     }
 
+    participant.lastActive = Date.now();
     room.startedAt = Date.now();
     await dbSaveRoom(room);
     broadcastRoom(room, { type: "discussion_started", roomCode: room.code, startedAt: room.startedAt });
@@ -2721,6 +2938,7 @@ app.post("/api/gd-room/submit-turn", async (req, res) => {
     const participant = room.participants.find((p) => p.id === participantId);
     if (!participant) return res.status(403).json({ error: "Participant not found in room." });
 
+    participant.lastActive = Date.now();
     const turn: GDTurn = {
       id: `turn_${Math.random().toString(36).slice(2, 10)}`,
       speakerId: participant.id,
@@ -2791,47 +3009,26 @@ app.post("/api/gd-room/leave", async (req, res) => {
 
 app.get("/api/gd-room/diagnose", async (req, res) => {
   try {
-    const rawUrl = process.env.SUPABASE_URL || "";
-    const rawKey = process.env.SUPABASE_ANON_KEY || "";
-    const viteUrl = process.env.VITE_SUPABASE_URL || "";
-    const viteKey = process.env.VITE_SUPABASE_ANON_KEY || "";
-
-    const url = rawUrl && !rawUrl.includes("your-project-id")
-      ? rawUrl
-      : viteUrl;
-
-    const key = rawKey && !rawKey.includes("your-anon-public-key")
-      ? rawKey
-      : viteKey;
-
-    const hasCreds = Boolean(url && key);
-    const client = getSupabaseClient();
-    const isClientInit = client !== null;
-
+    const isMongoConnected = mongoose.connection.readyState === 1; // 1 = connected
     let dbTestStatus = "Not attempted";
     let dbTestError = null;
 
-    if (client) {
+    if (isMongoConnected) {
       try {
         const testCode = "TEST_" + Math.random().toString(36).substring(2, 6).toUpperCase();
-        const { error: writeError } = await client.from("group_discussion_rooms").upsert({
+        const testRoom = new GDRoom({
           code: testCode,
           topic: "Test Write Diagnostics",
           participants: [],
           dialogue: [],
-          created_at: Date.now(),
+          createdAt: Date.now()
         });
-
-        if (writeError) {
-          dbTestStatus = "Write Failed";
-          dbTestError = writeError;
-        } else {
-          dbTestStatus = "Write Success";
-          // Cleanup
-          await client.from("group_discussion_rooms").delete().eq("code", testCode);
-        }
+        await testRoom.save();
+        dbTestStatus = "Write Success";
+        // Cleanup
+        await GDRoom.deleteOne({ code: testCode });
       } catch (err: any) {
-        dbTestStatus = "Error throwing";
+        dbTestStatus = "Write Failed";
         dbTestError = err.message;
       }
     }
@@ -2840,15 +3037,12 @@ app.get("/api/gd-room/diagnose", async (req, res) => {
       env: {
         NODE_ENV: process.env.NODE_ENV || "not set",
         VERCEL: process.env.VERCEL || "not set",
-        hasSUPABASE_URL: Boolean(process.env.SUPABASE_URL),
-        hasSUPABASE_ANON_KEY: Boolean(process.env.SUPABASE_ANON_KEY),
-        hasVITE_SUPABASE_URL: Boolean(process.env.VITE_SUPABASE_URL),
-        hasVITE_SUPABASE_ANON_KEY: Boolean(process.env.VITE_SUPABASE_ANON_KEY),
-        resolvedUrl: url ? `${url.substring(0, 15)}...` : "none",
+        databaseType: "MongoDB",
+        mongoUriConfigured: Boolean(process.env.MONGODB_URI)
       },
-      supabaseClientInitialized: isClientInit,
+      mongoDbInitialized: isMongoConnected,
       dbTestStatus,
-      dbTestError,
+      dbTestError
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

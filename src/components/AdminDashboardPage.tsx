@@ -58,6 +58,11 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
   const [savingStudentId, setSavingStudentId] = useState<string | null>(null);
   const [assignFilter, setAssignFilter] = useState<"all" | "assigned" | "unassigned">("all");
 
+  // Bulk selection states
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [selectedProctorId, setSelectedProctorId] = useState("");
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+
   // Fetch all profiles from Supabase and parse them
   const loadData = async () => {
     setLoading(true);
@@ -217,80 +222,84 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
     }
   };
 
-  // Auto assign students to proctors based on roll prefixes and ranges
-  const handleAutoAssign = async () => {
-    setLoading(true);
+  // Bulk assign or unassign students to a proctor
+  const handleBulkAssign = async (proctorId: string) => {
+    if (selectedStudentIds.length === 0) return;
+    setBulkAssigning(true);
     setError(null);
     setSuccessMessage(null);
-    
-    let assignCount = 0;
+
+    const selectedProctor = proctors.find(p => p.id === proctorId);
+    const proctorName = selectedProctor ? selectedProctor.name : "";
+
     try {
-      const updatedStudents = students.map(student => {
-        // If already assigned, keep it
-        if (student.assignedProctorId) return student;
+      // Loop over selected student IDs and assign/unassign them
+      for (const studentId of selectedStudentIds) {
+        const student = students.find(s => s.id === studentId);
+        if (!student) continue;
 
-        // Find a matching proctor based on prefix & range
-        const matchingProctor = proctors.find(proctor => {
-          const prefix = (proctor.rollPrefix || "").toLowerCase().trim();
-          const roll = (student.roll_number || "").toLowerCase().trim();
-
-          if (roll.startsWith(prefix)) {
-            const suffix = roll.substring(prefix.length);
-            const numVal = parseInt(suffix, 10);
-            
-            const start = typeof proctor.rollStart === "number" ? proctor.rollStart : parseInt(String(proctor.rollStart), 10);
-            const end = typeof proctor.rollEnd === "number" ? proctor.rollEnd : parseInt(String(proctor.rollEnd), 10);
-
-            return !isNaN(numVal) && numVal >= start && numVal <= end;
-          }
-          return false;
-        });
-
-        if (matchingProctor) {
-          assignCount++;
-          // Save in LocalStorage
+        // 1. LocalStorage update
+        if (proctorId) {
           localStorage.setItem(`assigned_proctor_${student.roll_number}`, JSON.stringify({
-            proctorId: matchingProctor.id,
-            proctorName: matchingProctor.name
+            proctorId,
+            proctorName
           }));
+        } else {
+          localStorage.removeItem(`assigned_proctor_${student.roll_number}`);
+        }
 
-          // Background update in DB
-          apiFetch(`/api/profiles/${student.id}`, {
+        // 2. DB update
+        try {
+          await apiFetch(`/api/profiles/${studentId}`, {
             method: "PATCH",
             body: JSON.stringify({
-              assigned_proctor_id: matchingProctor.id,
-              assigned_proctor_name: matchingProctor.name
+              assigned_proctor_id: proctorId || null,
+              assigned_proctor_name: proctorName || null
             })
-          })
-          .then((res) => {
-            if (!res.ok) console.warn(`Auto-assign DB sync failed for ${student.roll_number}`);
-          })
-          .catch((err) => {
-            console.warn(`Auto-assign DB sync failed for ${student.roll_number}`, err);
           });
+        } catch (dbErr) {
+          console.warn(`Bulk assign DB update failed for ${student.roll_number}:`, dbErr);
+        }
+      }
 
+      // 3. Update local state
+      setStudents(prev => prev.map(s => {
+        if (selectedStudentIds.includes(s.id)) {
           return {
-            ...student,
-            assignedProctorId: matchingProctor.id,
-            assignedProctorName: matchingProctor.name
+            ...s,
+            assignedProctorId: proctorId || undefined,
+            assignedProctorName: proctorName || undefined
           };
         }
-        return student;
-      });
-
-      setStudents(updatedStudents);
+        return s;
+      }));
 
       // Recompute proctor student counts
       setProctors(prev => prev.map(p => {
-        const count = updatedStudents.filter(s => s.assignedProctorId === p.id).length;
+        const count = students.map(s => {
+          if (selectedStudentIds.includes(s.id)) {
+            return {
+              ...s,
+              assignedProctorId: proctorId || undefined
+            };
+          }
+          return s;
+        }).filter(s => s.assignedProctorId === p.id).length;
         return { ...p, studentCount: count };
       }));
 
-      setSuccessMessage(`Auto-assigned ${assignCount} students based on roll range matches!`);
+      setSuccessMessage(
+        proctorId 
+          ? `Successfully assigned ${selectedStudentIds.length} students to proctor ${proctorName}!` 
+          : `Successfully removed assignments for ${selectedStudentIds.length} students!`
+      );
+      setSelectedStudentIds([]);
+      setSelectedProctorId("");
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
-      setError(err.message || "Failed during auto-assignment execution.");
+      setError(err.message || "Failed during bulk assignment execution.");
     } finally {
-      setLoading(false);
+      setBulkAssigning(false);
     }
   };
 
@@ -338,14 +347,7 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
             Sync
           </Button>
 
-          <Button
-            onClick={handleAutoAssign}
-            disabled={loading || students.length === 0}
-            className="flex items-center gap-2 px-5 py-2.5 bg-linear-to-r from-brand-accent to-brand-primary text-white font-bold rounded-xl text-xs shadow-md hover:scale-[1.01] transition-transform cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            Auto Assign Range
-          </Button>
+          {/* Auto Assign Range removed */}
         </div>
       </div>
 
@@ -473,8 +475,8 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
                         {proctor.department}
                       </div>
                       <div>
-                        <span className="font-semibold text-slate-700 block">Roster Range</span>
-                        {proctor.rollPrefix} ({proctor.rollStart}-{proctor.rollEnd})
+                        <span className="font-semibold text-slate-700 block">Class Section</span>
+                        {proctor.classSection}
                       </div>
                     </div>
                   </div>
@@ -523,6 +525,65 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
               />
             </div>
 
+            {/* Bulk Action Toolbar */}
+            {selectedStudentIds.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-slate-100 border border-slate-200 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="bg-brand-primary text-white font-mono text-xs font-bold px-2 py-1 rounded-md">
+                    {selectedStudentIds.length}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-700">students selected for bulk action</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={selectedProctorId}
+                    onChange={(e) => setSelectedProctorId(e.target.value)}
+                    disabled={bulkAssigning}
+                    className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary/20 max-w-[200px]"
+                  >
+                    <option value="">-- Choose Proctor --</option>
+                    {proctors.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.department})
+                      </option>
+                    ))}
+                  </select>
+
+                  <Button
+                    onClick={() => handleBulkAssign(selectedProctorId)}
+                    disabled={bulkAssigning || !selectedProctorId}
+                    className="px-3.5 py-1.5 bg-brand-primary text-white font-bold rounded-lg text-xs hover:bg-brand-primary-hover shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    Assign Selected
+                  </Button>
+
+                  <Button
+                    onClick={() => handleBulkAssign("")}
+                    disabled={bulkAssigning}
+                    className="px-3.5 py-1.5 border border-red-200 text-red-600 font-bold rounded-lg text-xs hover:bg-red-50 cursor-pointer"
+                  >
+                    Unassign Selected
+                  </Button>
+
+                  <Button
+                    onClick={() => {
+                      setSelectedStudentIds([]);
+                      setSelectedProctorId("");
+                    }}
+                    disabled={bulkAssigning}
+                    className="px-3 py-1.5 text-slate-400 hover:text-slate-600 text-xs font-medium cursor-pointer"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+
             {/* Table of Students */}
             {filteredStudents.length === 0 ? (
               <div className="text-center py-16 text-slate-400 text-sm">
@@ -533,6 +594,20 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
                 <table className="w-full text-left text-slate-600 text-xs">
                   <thead className="bg-slate-50 text-[10px] font-mono text-slate-500 uppercase tracking-wider border-b border-slate-200">
                     <tr>
+                      <th className="px-5 py-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={filteredStudents.length > 0 && selectedStudentIds.length === filteredStudents.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedStudentIds(filteredStudents.map(s => s.id));
+                            } else {
+                              setSelectedStudentIds([]);
+                            }
+                          }}
+                          className="rounded border-slate-300 text-brand-primary focus:ring-brand-primary/20 cursor-pointer"
+                        />
+                      </th>
                       <th className="px-5 py-3">Roll Number</th>
                       <th className="px-5 py-3">Name</th>
                       <th className="px-5 py-3">Department & Section</th>
@@ -542,6 +617,20 @@ export default function AdminDashboardPage({ adminProfile, onNavigate }: AdminDa
                   <tbody className="divide-y divide-slate-100 font-sans">
                     {filteredStudents.map(student => (
                       <tr key={student.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-5 py-3.5 w-10">
+                          <input
+                            type="checkbox"
+                            checked={selectedStudentIds.includes(student.id)}
+                            onChange={() => {
+                              setSelectedStudentIds(prev =>
+                                prev.includes(student.id)
+                                  ? prev.filter(id => id !== student.id)
+                                  : [...prev, student.id]
+                              );
+                            }}
+                            className="rounded border-slate-300 text-brand-primary focus:ring-brand-primary/20 cursor-pointer"
+                          />
+                        </td>
                         <td className="px-5 py-3.5 font-mono font-bold text-slate-900">
                           {student.roll_number}
                         </td>
