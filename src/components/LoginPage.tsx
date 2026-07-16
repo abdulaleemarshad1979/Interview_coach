@@ -647,6 +647,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                               icon={GraduationCap}
                               required
                             />
+                          </div>
                         </>
                       )}
                     </motion.div>
