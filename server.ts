@@ -133,6 +133,7 @@ async function requireAuth(req: any, res: any, next: any) {
   const token = authHeader.split(" ")[1];
 
   try {
+    await connectDB();
     const session = await Session.findOne({ token }).populate("userId");
     if (!session || !session.userId) {
       return res.status(401).json({ error: "Invalid or expired session. Please sign in again." });
@@ -454,6 +455,7 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.get("/api/auth/me", async (req, res) => {
   try {
+    await connectDB();
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({ error: "Unauthorized" });
