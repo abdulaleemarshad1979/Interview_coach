@@ -14,7 +14,7 @@ import AdminDashboardPage from "./components/AdminDashboardPage";
 import { StudentProfile, FacultyProfile, AdminProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
 import { supabase } from "./lib/supabaseClient";
 import ProfilePage from "./components/ProfilePage";
-import { getApiUrl } from "./lib/api";
+import { getApiUrl, apiFetch } from "./lib/api";
 
 
 export default function App() {
@@ -92,26 +92,28 @@ export default function App() {
             }
           });
 
-          // Also upsert directly to public.profiles table
-          const sessionUser = session.data.session?.user;
+          // Also upsert directly to MongoDB profiles collection
+          const sessionUser = session?.user;
           if (sessionUser) {
-            await supabase.from("profiles").upsert({
-              id: sessionUser.id,
-              roll_number: mergedProfile.studentId,
-              name: mergedProfile.name,
-              student_name: mergedProfile.name,
-              class_section: mergedProfile.classSection,
-              section: mergedProfile.classSection,
-              department: mergedProfile.department,
-              branch: mergedProfile.department,
-              attendance: mergedProfile.attendance,
-              college_assessments: mergedProfile.collegeAssessments,
-              is_synced: mergedProfile.isSynced,
-              github_username: mergedProfile.githubUsername,
-              resume_file_name: mergedProfile.resumeFileName,
-              updated_at: new Date().toISOString(),
-              profile_image: mergedProfile.profileImage,
-              avatar_url: mergedProfile.profileImage
+            await apiFetch("/api/profiles/upsert", {
+              method: "POST",
+              body: JSON.stringify({
+                id: sessionUser.id,
+                roll_number: mergedProfile.studentId,
+                name: mergedProfile.name,
+                student_name: mergedProfile.name,
+                class_section: mergedProfile.classSection,
+                section: mergedProfile.classSection,
+                department: mergedProfile.department,
+                branch: mergedProfile.department,
+                attendance: mergedProfile.attendance,
+                college_assessments: mergedProfile.collegeAssessments,
+                is_synced: mergedProfile.isSynced,
+                github_username: mergedProfile.githubUsername,
+                resume_file_name: mergedProfile.resumeFileName,
+                profile_image: mergedProfile.profileImage,
+                avatar_url: mergedProfile.profileImage
+              })
             });
           }
         }
@@ -558,15 +560,17 @@ export default function App() {
         }
       });
 
-      // Also upsert directly to public.profiles table
+      // Also upsert directly to MongoDB profiles collection
       const session = await supabase.auth.getSession();
       const sessionUser = session.data.session?.user;
       if (sessionUser) {
-        await supabase.from("profiles").upsert({
-          id: sessionUser.id,
-          github_username: githubUser,
-          resume_file_name: fileName,
-          updated_at: new Date().toISOString()
+        await apiFetch("/api/profiles/upsert", {
+          method: "POST",
+          body: JSON.stringify({
+            id: sessionUser.id,
+            github_username: githubUser,
+            resume_file_name: fileName
+          })
         });
       }
     } catch (e) {
@@ -744,26 +748,28 @@ export default function App() {
                 }
               }).catch(e => console.error("Error saving updated profile to supabase metadata", e));
 
-              // Also upsert directly to public.profiles table
+              // Also upsert directly to MongoDB profiles collection
               supabase.auth.getSession().then(({ data: { session } }) => {
                 if (session?.user) {
-                  supabase.from("profiles").upsert({
-                    id: session.user.id,
-                    roll_number: updatedProfile.studentId,
-                    name: updatedProfile.name,
-                    student_name: updatedProfile.name,
-                    class_section: updatedProfile.classSection,
-                    section: updatedProfile.classSection,
-                    department: updatedProfile.department,
-                    branch: updatedProfile.department,
-                    attendance: updatedProfile.attendance,
-                    college_assessments: updatedProfile.collegeAssessments,
-                    is_synced: updatedProfile.isSynced,
-                    github_username: updatedProfile.githubUsername,
-                    resume_file_name: updatedProfile.resumeFileName,
-                    updated_at: new Date().toISOString()
-                  }).then(({ error }) => {
-                    if (error) console.error("Error upserting profile table:", error);
+                  apiFetch("/api/profiles/upsert", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      id: session.user.id,
+                      roll_number: updatedProfile.studentId,
+                      name: updatedProfile.name,
+                      student_name: updatedProfile.name,
+                      class_section: updatedProfile.classSection,
+                      section: updatedProfile.classSection,
+                      department: updatedProfile.department,
+                      branch: updatedProfile.department,
+                      attendance: updatedProfile.attendance,
+                      college_assessments: updatedProfile.collegeAssessments,
+                      is_synced: updatedProfile.isSynced,
+                      github_username: updatedProfile.githubUsername,
+                      resume_file_name: updatedProfile.resumeFileName
+                    })
+                  }).catch((err) => {
+                    console.error("Error upserting profile table to MongoDB:", err);
                   });
                 }
               });
