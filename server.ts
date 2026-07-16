@@ -16,10 +16,16 @@ dotenv.config();
 // process.env.MONGODB_URI is read at call-time, not module-load time.
 let mongoConnecting: Promise<typeof mongoose> | null = null;
 async function connectDB() {
-  if (mongoose.connection.readyState >= 1) return; // already connected / connecting
+  // Diagnostic: always print which URI is being used so we can verify in Vercel logs
+  const ATLAS_URI = "mongodb+srv://abdulaleemarshadm:abdulaleemarshadm@cluster0.3vyxhxs.mongodb.net/interview-coach?retryWrites=true&w=majority";
+  const uri = process.env.MONGODB_URI || ATLAS_URI;
+  const isAtlas = uri.includes("mongodb+srv");
+  console.log(`[DB] MONGODB_URI env present: ${!!process.env.MONGODB_URI}, isAtlas: ${isAtlas}, readyState: ${mongoose.connection.readyState}`);
+
+  if (mongoose.connection.readyState === 1) return; // already connected
   if (mongoConnecting) return mongoConnecting;      // reuse in-flight promise
-  const uri = process.env.MONGODB_URI || "mongodb://localhost:27017/interview-coach";
-  console.log("Connecting to MongoDB at:", uri);
+
+  console.log("Connecting to MongoDB at:", isAtlas ? uri.replace(/:([^@]+)@/, ":***@") : uri);
   mongoConnecting = mongoose.connect(uri).then((m) => {
     console.log("Connected successfully to MongoDB");
     mongoConnecting = null;
