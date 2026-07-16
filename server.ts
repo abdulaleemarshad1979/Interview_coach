@@ -73,8 +73,6 @@ const ProctorAssignmentSchema = new mongoose.Schema({
 const ProctorAssignment = mongoose.model("ProctorAssignment", ProctorAssignmentSchema);
 
 
-import crypto from "crypto";
-
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   passwordHash: { type: String, required: true },
@@ -1795,6 +1793,20 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
       presentationFeedback: rawEvaluation.presentationFeedback || defaultFeedback.presentationFeedback
     };
 
+    // Calculate a physical vocal confidence score based on DSP audio metrics
+    let vocalConfidence = 85; 
+    if (audioClarity !== undefined && pitchVariance !== undefined && speakingPace !== undefined) {
+      let baseConf = 100;
+      if (pitchVariance < 60) baseConf -= (60 - pitchVariance) * 0.5;
+      if (audioClarity < 75) baseConf -= (75 - audioClarity) * 0.8;
+      
+      const paceVal = typeof speakingPace === "number" ? speakingPace : 120;
+      if (paceVal < 100 || paceVal > 150) {
+        baseConf -= Math.min(25, Math.abs(130 - paceVal) * 0.3);
+      }
+      vocalConfidence = Math.min(100, Math.max(0, Math.round(baseConf)));
+    }
+
     const feedback = {
       questionId,
       questionText,
@@ -1806,7 +1818,11 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
       improvements: evaluation.improvements,
       speechFeedback: evaluation.speechFeedback,
       contentFeedback: evaluation.contentFeedback,
-      presentationFeedback: evaluation.presentationFeedback
+      presentationFeedback: evaluation.presentationFeedback,
+      vocalConfidence,
+      audioClarity: audioClarity !== undefined ? audioClarity : 85,
+      pitchVariance: pitchVariance !== undefined ? pitchVariance : 75,
+      speakingPace: speakingPace !== undefined ? speakingPace : 120
     };
 
     res.json(feedback);
@@ -1823,7 +1839,11 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
       improvements: ["Could practice presenting ideas with slightly faster pacing"],
       speechFeedback: "The response was fluent with low filler-word count.",
       contentFeedback: "The explanation showed solid baseline understanding.",
-      presentationFeedback: "Maintained standard pacing."
+      presentationFeedback: "Maintained standard pacing.",
+      vocalConfidence: 82,
+      audioClarity: 85,
+      pitchVariance: 75,
+      speakingPace: 120
     });
   }
 });

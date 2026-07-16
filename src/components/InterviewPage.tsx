@@ -2074,14 +2074,22 @@ Converse naturally and speak in a human-like tone.`
                   {/* Detailed commentary */}
                   <div>
                     <h5 className="text-xs font-mono text-gray-400 uppercase">Grade Details</h5>
-                    <div className="grid grid-cols-2 gap-4 mt-2">
-                      <div className="p-3 bg-brand-bg rounded-lg border border-white/5">
-                        <span className="text-[10px] text-gray-500 font-mono uppercase block">pacing metrics</span>
-                        <span className="text-white font-medium text-xs mt-0.5 block">{currentFeedback.pacing}</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
+                      <div className="p-2.5 bg-brand-bg rounded-lg border border-white/5">
+                        <span className="text-[9px] text-gray-500 font-mono uppercase block">vocal confidence</span>
+                        <span className="text-brand-primary font-bold text-xs mt-0.5 block">{currentFeedback.vocalConfidence || 85}%</span>
                       </div>
-                      <div className="p-3 bg-brand-bg rounded-lg border border-white/5">
-                        <span className="text-[10px] text-gray-500 font-mono uppercase block">filler words count</span>
-                        <span className="text-white font-medium text-xs mt-0.5 block">{currentFeedback.fillerWordCount} filler phrases</span>
+                      <div className="p-2.5 bg-brand-bg rounded-lg border border-white/5">
+                        <span className="text-[9px] text-gray-500 font-mono uppercase block">speaking pace</span>
+                        <span className="text-white font-medium text-xs mt-0.5 block">{currentFeedback.speakingPace || 120} WPM</span>
+                      </div>
+                      <div className="p-2.5 bg-brand-bg rounded-lg border border-white/5">
+                        <span className="text-[9px] text-gray-500 font-mono uppercase block">audio clarity</span>
+                        <span className="text-white font-medium text-xs mt-0.5 block">{currentFeedback.audioClarity || 85}%</span>
+                      </div>
+                      <div className="p-2.5 bg-brand-bg rounded-lg border border-white/5">
+                        <span className="text-[9px] text-gray-500 font-mono uppercase block">filler words</span>
+                        <span className="text-white font-medium text-xs mt-0.5 block">{currentFeedback.fillerWordCount} phrases</span>
                       </div>
                     </div>
                   </div>
