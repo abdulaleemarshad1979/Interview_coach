@@ -240,7 +240,15 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
   } else if (provider === "openai" || provider === "litellm") {
     const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
     const apiKey = process.env.OPENAI_API_KEY || "";
-    const model = process.env.OPENAI_MODEL || "gpt-4o";
+    
+    let model = process.env.OPENAI_MODEL || "gpt-4o";
+    if (options.purpose === "chat") {
+      model = process.env.OPENAI_MODEL_CHAT || process.env.OPENAI_MODEL || "gpt-4o";
+    } else if (options.purpose === "analyze") {
+      model = process.env.OPENAI_MODEL_ANALYZE || process.env.OPENAI_MODEL || "gpt-4o";
+    } else if (options.purpose === "report") {
+      model = process.env.OPENAI_MODEL_REPORT || process.env.OPENAI_MODEL || "gpt-4o";
+    }
 
     const payload: any = {
       model,
