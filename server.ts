@@ -12,10 +12,11 @@ import mongoose from "mongoose";
 // Cached lazy MongoDB connector — safe for Vercel serverless cold starts.
 // process.env.MONGODB_URI is read at call-time, not module-load time.
 let mongoConnecting: Promise<typeof mongoose> | null = null;
-async function connectDB() {
+async function connectDB(): Promise<typeof mongoose | void> {
   const uri = process.env.MONGODB_URI;
   if (!uri) {
-    throw new Error("MONGODB_URI is not configured.");
+    console.warn("[DB] MONGODB_URI not configured, skipping MongoDB connection");
+    return;
   }
   const isAtlas = uri.includes("mongodb+srv");
   console.log(`[DB] MONGODB_URI env present: true, isAtlas: ${isAtlas}, readyState: ${mongoose.connection.readyState}`);
@@ -24,7 +25,11 @@ async function connectDB() {
   if (mongoConnecting) return mongoConnecting;      // reuse in-flight promise
 
   console.log("Connecting to MongoDB...");
-  mongoConnecting = mongoose.connect(uri).then((m) => {
+  mongoConnecting = mongoose.connect(uri, {
+    maxPoolSize: 10,
+    serverSelectionTimeoutMS: 5000,
+    socketTimeoutMS: 45000,
+  }).then((m) => {
     console.log("Connected successfully to MongoDB");
     mongoConnecting = null;
     return m;
@@ -148,14 +153,14 @@ async function requireAuth(req: any, res: any, next: any) {
   }
 }
 
-// Lazy initialization of Groq client to prevent crashes on startup if key is missing
+// Lazy initialization of Groq client - returns null if key not configured (for non-Groq providers)
 let groqInstance: Groq | null = null;
 
-function getGroqClient(): Groq {
+function getGroqClient(): Groq | null {
   if (!groqInstance) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
-      throw new Error("GROQ_API_KEY is not configured. Please set it in your environment/secrets.");
+      return null;
     }
     groqInstance = new Groq({
       apiKey,
@@ -300,6 +305,9 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
     return result.choices[0]?.message?.content || "";
   } else {
     const groq = getGroqClient();
+    if (!groq) {
+      throw new Error("GROQ_API_KEY not configured and no other AI provider available.");
+    }
     const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
     const params: any = {
@@ -321,6 +329,14 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+// Global error handler for unhandled exceptions
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error("[Unhandled Error]", err);
+  if (!res.headersSent) {
+    res.status(500).json({ error: "Internal server error: " + err.message });
+  }
+});
 
 // Increase payload limit to handle base64-encoded PDF resumes
 app.use(express.json({ limit: "25mb" }));
@@ -1090,6 +1106,18 @@ function parsePortalProfileHtml(rawHtml: string, studentId: string, portal: stri
 // ponytail: 24h cache TTL — change here to tune
 const PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(errorMsg)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId!);
+  }
+}
+
 /** Return cached profile if it exists and is fresh (within TTL). Caller must be in try/catch. */
 async function getCachedProfile(rollNo: string) {
   const doc = await Profile.findOne({ roll_number: rollNo }).lean();
@@ -1101,7 +1129,7 @@ async function getCachedProfile(rollNo: string) {
 
 /** Scrape live, then upsert result into Mongo. Returns the scrape result shape. */
 async function scrapeAndStore(rollNo: string, password: string, portal: string) {
-  const profile = await scrapeStudentProfileFromPortal(rollNo, password, portal);
+  const profile = await withTimeout(scrapeStudentProfileFromPortal(rollNo, password, portal), 40000, `Portal scrape timeout for ${rollNo} on ${portal}`);
   try {
     await Profile.findOneAndUpdate(
       { roll_number: rollNo },
@@ -3689,7 +3717,16 @@ async function initServer() {
     });
   }
 
-  if (!process.env.VERCEL) {
+  // Global error handler for unhandled exceptions
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error("[Global Error Handler]", err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500).json({ error: "Internal server error", details: err.message });
+});
+
+if (!process.env.VERCEL) {
     server.listen(PORT, "localhost", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
