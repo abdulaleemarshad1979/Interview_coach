@@ -28,7 +28,7 @@ export default function App() {
   const [scorecardHistory, setScorecardHistory] = useState<Scorecard[]>([]);
 
   // Sync basic student details from college portal API using Roll Number
-  const syncCollegeProfile = async (rollNo: string, currentProfile: StudentProfile | null, force: boolean = false) => {
+  const syncCollegeProfile = async (rollNo: string, currentProfile: StudentProfile | null, force: boolean = false, password?: string) => {
     try {
       if (!force && currentProfile?.isSynced && currentProfile?.name) {
         console.log(`[Sync bypass] Profile is already synced for Roll No: ${rollNo}`);
@@ -45,7 +45,7 @@ export default function App() {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const portalPwd = localStorage.getItem("portal_pwd");
+      const portalPwd = password;
       let res;
 
       if (portalPwd) {
@@ -714,9 +714,8 @@ export default function App() {
             scorecard={scorecard}
             scorecardHistory={scorecardHistory}
             onSyncPortalDetails={async (password: string) => {
-              localStorage.setItem("portal_pwd", password);
               try {
-                await syncCollegeProfile(studentProfile.studentId, studentProfile, true);
+                await syncCollegeProfile(studentProfile.studentId, studentProfile, true, password);
                 const activeProfileStr = localStorage.getItem(`studentProfile_${studentProfile.studentId}`);
                 if (activeProfileStr) {
                   const activeProfile = JSON.parse(activeProfileStr);
@@ -797,7 +796,7 @@ export default function App() {
   };
 
   return (
-    <div id="main-app-container" className="min-h-screen bg-brand-bg text-gray-100 flex flex-col font-sans selection:bg-brand-primary selection:text-brand-bg relative antialiased">
+    <div id="main-app-container" className="min-h-screen bg-brand-bg text-slate-800 flex flex-col font-sans selection:bg-brand-primary selection:text-white relative antialiased">
       {/* Universal header navigation */}
       <Navbar
         studentProfile={studentProfile}

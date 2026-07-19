@@ -153,7 +153,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
               {studentProfile ? (
                 <button
                   onClick={() => onNavigate("profile")}
-                  className={`flex items-center space-x-2 bg-brand-card hover:bg-slate-800 border border-white/5 rounded-full pl-1.5 pr-3 py-1 text-xs font-mono text-gray-300 cursor-pointer hover:border-brand-primary/30 transition-all duration-200 group ${
+                  className={`flex items-center space-x-2 bg-brand-card hover:bg-slate-100 border border-slate-200 rounded-full pl-1.5 pr-3 py-1 text-xs font-mono text-slate-600 cursor-pointer hover:border-brand-primary/30 transition-all duration-200 group ${
                     currentView === "profile" ? "ring-2 ring-brand-primary/50" : ""
                   }`}
                   title="View & Sync College Profile"
@@ -162,14 +162,14 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
                     <img 
                       src={studentProfile.profileImage} 
                       alt="avatar" 
-                      className="w-5 h-5 rounded-full object-cover border border-white/10"
+                      className="w-5 h-5 rounded-full object-cover border border-slate-200"
                     />
                   ) : (
-                    <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-white/5 group-hover:border-brand-primary/20">
+                    <div className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 group-hover:border-brand-primary/20">
                       <User className="w-2.5 h-2.5 text-brand-primary" />
                     </div>
                   )}
-                  <span className="font-mono text-[11px] group-hover:text-white transition-colors">
+                  <span className="font-mono text-[11px] text-slate-600 group-hover:text-brand-primary transition-colors">
                     {studentProfile.name ? studentProfile.name.split(" ")[0] : studentProfile.studentId}
                   </span>
                 </button>
@@ -196,7 +196,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
               ) : null}
               <button
                 onClick={onLogout}
-                className="flex items-center space-x-1.5 bg-red-950/30 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 cursor-pointer"
+                className="flex items-center space-x-1.5 bg-red-50 border border-red-200 text-red-600 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 cursor-pointer"
                 id="btn-logout"
               >
                 <LogOut className="w-3.5 h-3.5" />

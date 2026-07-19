@@ -173,7 +173,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           // Save synced details to localStorage
           localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(profileToStore));
           localStorage.setItem("studentProfile", JSON.stringify(profileToStore));
-          localStorage.setItem("portal_pwd", password);
 
           // Update user metadata in Supabase
           await supabase.auth.updateUser({
@@ -237,7 +236,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             };
             localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(profileToStore));
             localStorage.setItem("studentProfile", JSON.stringify(profileToStore));
-            localStorage.setItem("portal_pwd", password);
             setTimeout(() => {
               onLoginSuccess(cleanRollNo, mappedEmail);
             }, 1000);

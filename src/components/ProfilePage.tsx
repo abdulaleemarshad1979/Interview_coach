@@ -261,30 +261,8 @@ export default function ProfilePage({
               <div className="flex items-center space-x-3 w-full sm:w-auto">
                 <button
                   type="button"
-                  onClick={async () => {
-                    const cachedPwd = localStorage.getItem("portal_pwd");
-                    if (cachedPwd) {
-                      setSyncing(true);
-                      setSyncSuccess(false);
-                      setSyncError(null);
-                      try {
-                        const success = await onSyncPortalDetails(cachedPwd);
-                        if (success) {
-                          setSyncSuccess(true);
-                          setTimeout(() => setSyncSuccess(false), 4000);
-                        } else {
-                          setSyncError("Auto-sync failed. Please enter password manually.");
-                          setIsSyncModalOpen(true);
-                        }
-                      } catch (err: any) {
-                        setSyncError(err.message || "Auto-sync failed.");
-                        setIsSyncModalOpen(true);
-                      } finally {
-                        setSyncing(false);
-                      }
-                    } else {
-                      setIsSyncModalOpen(true);
-                    }
+                  onClick={() => {
+                    setIsSyncModalOpen(true);
                   }}
                   disabled={syncing}
                   className="flex-1 sm:flex-none flex items-center justify-center space-x-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 font-bold px-4 py-3 rounded-xl text-xs hover:scale-[1.01] transition-all duration-200 cursor-pointer disabled:opacity-50"

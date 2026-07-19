@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { StudentProfile } from "../types";
 import Button from "./ui/Button";
-import { getApiUrl, getWsUrl } from "../lib/api";
+import { getApiUrl, getWsUrl, apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabaseClient";
 
 interface GroupDiscussionPageProps {
@@ -435,7 +435,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     let active = true;
     const poll = async () => {
       try {
-        const res = await fetch(getApiUrl(`/api/gd-room/state?roomCode=${joinedRoomCode}&participantId=${myParticipantId}&t=${Date.now()}`));
+        const res = await apiFetch(`/api/gd-room/state?roomCode=${joinedRoomCode}&participantId=${myParticipantId}&t=${Date.now()}`);
         if (!res.ok) {
           const data = await res.json();
           throw new Error(data.error || "Failed to fetch state");
@@ -475,9 +475,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
     if (isPollingMode) {
       try {
-        await fetch(getApiUrl("/api/gd-room/submit-turn"), {
+        await apiFetch("/api/gd-room/submit-turn", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             roomCode: joinedRoomCode,
             participantId: myParticipantId,
@@ -568,7 +567,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       setError(null);
 
       try {
-        const socket = new WebSocket(getWsUrl("/ws/gd-room"));
+        const token = localStorage.getItem("auth_token") || "";
+        const socket = new WebSocket(getWsUrl(`/ws/gd-room?token=${encodeURIComponent(token)}`));
         socketRef.current = socket;
 
         socket.onopen = () => {
@@ -755,9 +755,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       try {
         setConnectionLoading(true);
         setError(null); // Clear WebSocket errors since we are falling back to polling
-        const res = await fetch(getApiUrl("/api/gd-room/join"), {
+        const res = await apiFetch("/api/gd-room/join", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: participantName.trim(),
             roll: participantRoll.trim(),
@@ -791,9 +790,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     }
     if (isPollingMode) {
       try {
-        const res = await fetch(getApiUrl("/api/gd-room/start"), {
+        const res = await apiFetch("/api/gd-room/start", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId }),
         });
         if (!res.ok) {
@@ -821,9 +819,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     setError(null);
     if (isPollingMode) {
       try {
-        const res = await fetch(getApiUrl("/api/gd-room/submit-turn"), {
+        const res = await apiFetch("/api/gd-room/submit-turn", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId, text: currentText.trim() }),
         });
         if (!res.ok) {
@@ -848,9 +845,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     if (isPollingMode) {
       setConnectionLoading(true);
       try {
-        const res = await fetch(getApiUrl("/api/gd-room/end"), {
+        const res = await apiFetch("/api/gd-room/end", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId }),
         });
         const data = await res.json();
@@ -872,9 +868,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const leaveRoom = async () => {
     if (isPollingMode) {
       try {
-        await fetch(getApiUrl("/api/gd-room/leave"), {
+        await apiFetch("/api/gd-room/leave", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomCode: joinedRoomCode, participantId: myParticipantId }),
         });
       } catch (err) {

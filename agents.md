@@ -1,0 +1,1 @@
+Always use the agents folders and then in the skills use thoose skills and make the front end more neat and clean by using tailwind css.

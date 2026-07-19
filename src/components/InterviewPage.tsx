@@ -291,6 +291,10 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
       console.log("Connecting directly to Google Gemini Live API from browser...");
       socketUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${directKey}`;
       setVoiceMode("direct");
+    } else {
+      const token = localStorage.getItem("auth_token") || "";
+      const separator = socketUrl.includes("?") ? "&" : "?";
+      socketUrl = `${socketUrl}${separator}token=${encodeURIComponent(token)}`;
     }
 
     try {

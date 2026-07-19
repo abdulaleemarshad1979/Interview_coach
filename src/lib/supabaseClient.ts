@@ -237,13 +237,66 @@ class LocalAuthClient {
 class LocalStorageClient {
   from(bucket: string) {
     return {
-      upload: async (path: string, file: File, options?: any) => {
-        // Return mock success with empty path
-        return { data: { path }, error: null };
+      upload: async (filePath: string, file: File, options?: any) => {
+        try {
+          const token = localStorage.getItem("auth_token");
+          
+          // Read file as base64
+          const reader = new FileReader();
+          const base64Promise = new Promise<string>((resolve, reject) => {
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+          });
+          const base64Str = await base64Promise;
+          const pureBase64 = base64Str.split(",")[1];
+          
+          const res = await fetch(getApiUrl("/api/storage/upload"), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { "Authorization": `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              path: filePath,
+              fileBase64: pureBase64
+            })
+          });
+          
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return { data: null, error: { message: err.error || "Upload failed." } };
+          }
+          const data = await res.json();
+          return { data: { path: data.path }, error: null };
+        } catch (err: any) {
+          return { data: null, error: { message: err.message || "Failed to upload file." } };
+        }
       },
-      createSignedUrl: async (path: string, expiresIn: number) => {
-        // Return dummy URL to bypass signed URL downloads on the server
-        return { data: { signedUrl: "" }, error: null };
+      createSignedUrl: async (filePath: string, expiresIn: number) => {
+        try {
+          const token = localStorage.getItem("auth_token");
+          const res = await fetch(getApiUrl("/api/storage/signed-url"), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { "Authorization": `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              path: filePath,
+              expiresIn
+            })
+          });
+          
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return { data: null, error: { message: err.error || "Signed URL creation failed." } };
+          }
+          const data = await res.json();
+          return { data: { signedUrl: data.signedUrl }, error: null };
+        } catch (err: any) {
+          return { data: null, error: { message: err.message || "Failed to create signed URL." } };
+        }
       }
     };
   }
