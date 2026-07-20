@@ -127,9 +127,23 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
       setLoading(true);
       setError(null);
-      setSuccessMessage("Verifying credentials with Aditya Student Portal...");
+      setSuccessMessage("Signing in to your student portal...");
 
       try {
+        const mappedEmail = `${cleanRollNo.toLowerCase()}@aec.edu.in`;
+        const { data: existingAccount, error: existingAccountError } = await supabase.auth.signInWithPassword({
+          email: mappedEmail,
+          password,
+        });
+
+        if (!existingAccountError && existingAccount.user) {
+          localStorage.removeItem("portal_pwd");
+          onLoginSuccess(cleanRollNo, mappedEmail);
+          void syncOnLogin(cleanRollNo, password);
+          return;
+        }
+
+        setSuccessMessage("Verifying first-time credentials with Aditya Student Portal...");
         // 1. Verify credentials and sync details from college website scraper
         const syncRes = await fetch(getApiUrl("/api/college/auth-sync"), {
           method: "POST",
@@ -149,51 +163,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         const syncedProfile = await syncRes.json();
         setSuccessMessage("Credentials verified! Connecting to gateway...");
 
-        // 2. Map student credentials to Supabase
-        const mappedEmail = `${cleanRollNo.toLowerCase()}@aec.edu.in`;
-
-        // Try signing in
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: mappedEmail,
-          password: password,
-        });
-
-        if (!signInError && signInData.user) {
-          // User exists, signed in successfully!
-          setSuccessMessage("Successfully logged in! Fetching portal details...");
-          
-          const existingSection = signInData.user.user_metadata?.class_section;
-          const resolvedSection = existingSection || syncedProfile.classSection;
-
-          const profileToStore = {
-            ...syncedProfile,
-            classSection: resolvedSection
-          };
-
-          // Save synced details to localStorage
-          localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(profileToStore));
-          localStorage.setItem("studentProfile", JSON.stringify(profileToStore));
-          localStorage.setItem("portal_pwd", password);
-
-          // Update user metadata in Supabase
-          await supabase.auth.updateUser({
-            data: {
-              student_name: syncedProfile.name,
-              class_section: resolvedSection,
-              department: syncedProfile.department,
-              branch: syncedProfile.department,
-              academic_year: syncedProfile.academicYear,
-              attendance: syncedProfile.attendance,
-              profile_image: syncedProfile.profileImage,
-              is_synced: true
-            }
-          });
-
-          onLoginSuccess(cleanRollNo, mappedEmail);
-          return;
-        }
-
-        // If signIn failed (e.g. user does not exist), try signing up!
+        // If no app account exists yet, create one after the college portal verifies the student.
         setSuccessMessage("Creating new student account on the gateway...");
         const resolvedSection = studentSection || syncedProfile.classSection;
         const metaData = {
@@ -237,7 +207,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             };
             localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(profileToStore));
             localStorage.setItem("studentProfile", JSON.stringify(profileToStore));
-            localStorage.setItem("portal_pwd", password);
             setTimeout(() => {
               onLoginSuccess(cleanRollNo, mappedEmail);
             }, 1000);

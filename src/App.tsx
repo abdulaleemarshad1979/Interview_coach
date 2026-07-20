@@ -45,22 +45,8 @@ export default function App() {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const portalPwd = localStorage.getItem("portal_pwd");
-      let res;
-
-      if (portalPwd) {
-        console.log(`[Background Sync] Syncing profile details from college portal API for Roll No: ${rollNo}`);
-        res = await fetch(getApiUrl("/api/college/sync-portal"), {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ rollNo, password: portalPwd })
-        });
-      } else {
-        console.log(`[Fallback Sync] Syncing profile from college API (no password cached) for Roll No: ${rollNo}`);
-        res = await fetch(getApiUrl(`/api/college/student/${rollNo}`), {
-          headers
-        });
-      }
+      localStorage.removeItem("portal_pwd");
+      const res = await fetch(getApiUrl(`/api/college/student/${rollNo}`), { headers });
 
       if (res.ok) {
         const collegeData = await res.json();
@@ -117,9 +103,6 @@ export default function App() {
             });
           }
         }
-      } else if (res.status === 401) {
-        // Clear expired/invalid cached portal credentials
-        localStorage.removeItem("portal_pwd");
       }
     } catch (e) {
       console.error("Failed to sync profile from college database", e);

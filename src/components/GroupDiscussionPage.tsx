@@ -150,6 +150,11 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const [remoteStreams, setRemoteStreams] = useState<{[peerId: string]: MediaStream}>({});
   const peerConnectionsRef = useRef<{[peerId: string]: RTCPeerConnection}>({});
   const iceQueuesRef = useRef<Record<string, RTCIceCandidateInit[]>>({});
+  const pollingModeRef = useRef(false);
+  const joinedRoomCodeRef = useRef<string | null>(null);
+  const participantIdRef = useRef<string | null>(null);
+  const shouldReconnectSocketRef = useRef(true);
+  const processedSignalIdsRef = useRef(new Set<string>());
 
   // Dynamically calculate grid layout classes based on the number of participants who are active streamers
   const totalFeeds = 1 + participants.filter((p) => p.id !== myParticipantId && activeStreamerIds.includes(p.id)).length;
@@ -186,6 +191,12 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const isRecordingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    pollingModeRef.current = isPollingMode;
+    joinedRoomCodeRef.current = joinedRoomCode;
+    participantIdRef.current = myParticipantId;
+  }, [isPollingMode, joinedRoomCode, myParticipantId]);
 
   // Load Proctor assigned tasks automatically
   useEffect(() => {
@@ -255,11 +266,6 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     if (!myParticipantId) return;
     participants.forEach(p => {
       if (p.id !== myParticipantId && !peerConnectionsRef.current[p.id]) {
-        // Only connect if either the target peer is an active streamer, or we are one
-        const isTargetStreamer = activeStreamerIds.includes(p.id);
-        const amIStreamer = activeStreamerIds.includes(myParticipantId);
-        if (!isTargetStreamer && !amIStreamer) return;
-
         // GLARE CONTROL: Only initiate offer if myParticipantId is lexicographically smaller than the peer ID
         if (myParticipantId < p.id) {
           const pc = createPeerConnection(p.id, stream);
@@ -381,14 +387,14 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
   // Broadcast local camera and mic toggles to the room
   useEffect(() => {
-    if (step === "discussion" && myParticipantId && socketConnected) {
+    if (step === "discussion" && myParticipantId && (socketConnected || isPollingMode)) {
       sendSocketMessage({
         type: "media_status",
         cameraEnabled,
         micMuted
       });
     }
-  }, [cameraEnabled, micMuted, step, myParticipantId, socketConnected]);
+  }, [cameraEnabled, micMuted, step, myParticipantId, socketConnected, isPollingMode]);
 
   // Triggers WebRTC connections when participants list changes
   useEffect(() => {
@@ -428,6 +434,35 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     };
   }, []);
 
+  const processIncomingSignal = async (senderId: string, signal: any) => {
+    const stream = mediaStreamRef.current;
+    if (!senderId || !signal) return;
+    if (!stream) throw new Error("Local media is not ready yet.");
+
+    let pc = peerConnectionsRef.current[senderId];
+    if (!pc) pc = createPeerConnection(senderId, stream);
+
+    if (signal.sdp) {
+      await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+      const queue = iceQueuesRef.current[senderId] || [];
+      while (queue.length > 0) {
+        const candidate = queue.shift();
+        if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+      if (signal.sdp.type === "offer") {
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendSocketMessage({ type: "signal", targetId: senderId, signal: { sdp: pc.localDescription } });
+      }
+    } else if (signal.candidate) {
+      if (pc.remoteDescription?.type) {
+        await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+      } else {
+        (iceQueuesRef.current[senderId] ||= []).push(signal.candidate);
+      }
+    }
+  };
+
   // HTTP Polling loop to get room state when in polling mode (e.g. Vercel serverless)
   useEffect(() => {
     if (!isPollingMode || !joinedRoomCode || !myParticipantId || step !== "discussion") return;
@@ -449,7 +484,31 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         setParticipants(state.participants || []);
         setDialogue(state.dialogue || []);
         setHostId(state.hostId || null);
+        setActiveStreamerIds(state.activeStreamerIds || []);
         setRoomStarted(Boolean(state.startedAt));
+        const newSignals = (state.signals || []).filter((signal: any) => !processedSignalIdsRef.current.has(signal.id));
+        for (const signal of newSignals) {
+          try {
+            await processIncomingSignal(signal.senderId, signal.signal);
+            processedSignalIdsRef.current.add(signal.id);
+          } catch (signalError) {
+            console.error("Failed to process call signal:", signalError);
+          }
+        }
+        const processedIds = newSignals
+          .map((signal: any) => signal.id)
+          .filter((id: string) => processedSignalIdsRef.current.has(id));
+        if (processedIds.length > 0) {
+          await fetch(getApiUrl("/api/gd-room/signal-ack"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              roomCode: joinedRoomCode,
+              participantId: myParticipantId,
+              signalIds: processedIds
+            })
+          });
+        }
         if (state.evaluation) {
           setEvaluation(state.evaluation);
           setStep("results");
@@ -461,7 +520,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     };
 
     poll(); // run immediately
-    const interval = setInterval(poll, 2500); // poll every 2.5 seconds
+    const interval = setInterval(poll, 1000);
 
     return () => {
       active = false;
@@ -620,65 +679,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
             }
 
             if (message.type === "signal") {
-              const senderId = message.senderId;
-              const signal = message.signal;
-
-              if (senderId && signal) {
-                const stream = mediaStreamRef.current;
-                if (stream) {
-                  // Only establish connection if sender is streamer, or we are
-                  const isSenderStreamer = activeStreamerIds.includes(senderId);
-                  const amIStreamer = myParticipantId ? activeStreamerIds.includes(myParticipantId) : false;
-                  if (!isSenderStreamer && !amIStreamer) {
-                    console.log("Ignoring signal: neither peer is an active streamer.");
-                    return;
-                  }
-
-                  let pc = peerConnectionsRef.current[senderId];
-                  if (!pc) {
-                    pc = createPeerConnection(senderId, stream);
-                  }
-
-                  if (signal.sdp) {
-                    pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
-                      .then(() => {
-                        // Drain queued ICE candidates
-                        const queue = iceQueuesRef.current[senderId] || [];
-                        while (queue.length > 0) {
-                          const cand = queue.shift();
-                          if (cand) {
-                            pc.addIceCandidate(new RTCIceCandidate(cand))
-                              .catch(e => console.error("Error processing queued candidate:", e));
-                          }
-                        }
-
-                        if (signal.sdp.type === "offer") {
-                          return pc.createAnswer()
-                            .then(answer => pc.setLocalDescription(answer))
-                            .then(() => {
-                              sendSocketMessage({
-                                type: "signal",
-                                targetId: senderId,
-                                signal: { sdp: pc.localDescription }
-                              });
-                            });
-                        }
-                      })
-                      .catch(e => console.error("Error setting SDP:", e));
-                  } else if (signal.candidate) {
-                    if (pc.remoteDescription && pc.remoteDescription.type) {
-                      pc.addIceCandidate(new RTCIceCandidate(signal.candidate))
-                        .catch(e => console.error("Error adding ICE candidate:", e));
-                    } else {
-                      if (!iceQueuesRef.current[senderId]) {
-                        iceQueuesRef.current[senderId] = [];
-                      }
-                      iceQueuesRef.current[senderId].push(signal.candidate);
-                      console.log(`Queued ICE candidate for ${senderId} until SDP is set.`);
-                    }
-                  }
-                }
-              }
+              processIncomingSignal(message.senderId, message.signal)
+                .catch(e => console.error("Error processing WebRTC signal:", e));
             }
           } catch (e) {
             console.error("Invalid socket message:", e, event.data);
@@ -688,6 +690,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         socket.onclose = () => {
           setSocketConnected(false);
           setConnectionLoading(false);
+          if (!shouldReconnectSocketRef.current) return;
           setReceiveLog((prev) => [...prev, "Socket closed. Reconnecting in 3s..."]);
           setTimeout(() => {
             // Only attempt reconnect if the discussion step is still active
@@ -711,6 +714,19 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   };
 
   const sendSocketMessage = (payload: any) => {
+    if (pollingModeRef.current) {
+      const endpoint = payload.type === "signal" ? "/api/gd-room/signal" : "/api/gd-room/media-status";
+      fetch(getApiUrl(endpoint), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...payload,
+          roomCode: joinedRoomCodeRef.current,
+          participantId: participantIdRef.current
+        })
+      }).catch((err) => console.error("Room relay failed:", err));
+      return;
+    }
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       setError("Socket is not connected. Please connect or refresh the page.");
       return;
@@ -737,6 +753,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     }
 
     setError(null);
+    shouldReconnectSocketRef.current = true;
     try {
       // Try WebSocket connection first
       await connectToRoomSocket();
@@ -751,6 +768,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       setStep("discussion");
     } catch (err) {
       console.warn("WebSocket room connection failed, falling back to HTTP Polling...", err);
+      shouldReconnectSocketRef.current = false;
+      socketRef.current?.close();
       // Fallback: HTTP Polling mode!
       try {
         setConnectionLoading(true);
@@ -774,6 +793,9 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         setMyParticipantId(data.participantId);
         setIsHost(Boolean(data.isHost));
         setIsPollingMode(true);
+        pollingModeRef.current = true;
+        joinedRoomCodeRef.current = data.roomCode;
+        participantIdRef.current = data.participantId;
         setStep("discussion");
         setReceiveLog((prev) => [...prev, "Connected to room via HTTP Polling mode (WebSockets not available)."]);
       } catch (httpErr: any) {
@@ -870,6 +892,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   };
 
   const leaveRoom = async () => {
+    shouldReconnectSocketRef.current = false;
     if (isPollingMode) {
       try {
         await fetch(getApiUrl("/api/gd-room/leave"), {
@@ -881,6 +904,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         console.error("Error leaving room:", err);
       }
       setIsPollingMode(false);
+      pollingModeRef.current = false;
       setMyParticipantId(null);
     } else {
       if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {

@@ -13,9 +13,10 @@ import mongoose from "mongoose";
 // process.env.MONGODB_URI is read at call-time, not module-load time.
 let mongoConnecting: Promise<typeof mongoose> | null = null;
 async function connectDB() {
-  // Diagnostic: always print which URI is being used so we can verify in Vercel logs
-  const ATLAS_URI = "mongodb+srv://abdulaleemarshadm:jwGgAPz6NsJDC91b@cluster0.3vyxhxs.mongodb.net/interview-coach?retryWrites=true&w=majority";
-  const uri = process.env.MONGODB_URI || ATLAS_URI;
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    throw new Error("MONGODB_URI is not configured.");
+  }
   const isAtlas = uri.includes("mongodb+srv");
   console.log(`[DB] MONGODB_URI env present: ${!!process.env.MONGODB_URI}, isAtlas: ${isAtlas}, readyState: ${mongoose.connection.readyState}`);
 
@@ -66,6 +67,7 @@ const GDRoomSchema = new mongoose.Schema({
   topic: { type: String, required: true },
   participants: { type: Array, default: [] },
   dialogue: { type: Array, default: [] },
+  signals: { type: Array, default: [] },
   createdAt: { type: Number, required: true },
   startedAt: { type: Number },
   evaluation: { type: Object }
@@ -186,6 +188,19 @@ function parseLLMJson(text: string, defaultValue: any): any {
     }
     return defaultValue;
   }
+}
+
+function clampScore(value: unknown, fallback = 0, max = 100): number {
+  const score = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return Math.round(Math.min(max, Math.max(0, score)));
+}
+
+function candidateLevelForScore(score: number): string {
+  if (score >= 93) return "Excellent Candidate";
+  if (score >= 85) return "Strong Candidate";
+  if (score >= 73) return "Interview Ready";
+  if (score >= 60) return "Developing";
+  return "Beginner";
 }
 
 interface CompletionOptions {
@@ -1337,6 +1352,9 @@ Respond with STRICT JSON matching this schema:
 app.post("/api/interview/generate-questions", requireAuth, async (req: any, res) => {
   try {
     const { analysisResult, interviewType } = req.body;
+    const previousQuestions = Array.isArray(req.user?.user_metadata?.interview_questions)
+      ? req.user.user_metadata.interview_questions.map((q: any) => String(q?.text || "")).filter(Boolean)
+      : [];
 
     if (!analysisResult) {
       res.status(400).json({ error: "Analysis result is required to generate tailored questions." });
@@ -1361,6 +1379,7 @@ Based on the candidate's profile:
 
 Generate exactly 15 interview questions. IMPORTANT: Start with very simple, easy, friendly questions (ice-breakers) and GRADUALLY increase difficulty. The first 5 questions must be basic and comfortable so the candidate warms up. Do NOT start with complex or multi-part questions.
 CRITICAL: You must ONLY ask about projects/skills that are explicitly mentioned in the Parsed Resume or GitHub Repos. Do NOT invent or reference anything not in the profile.
+Do not repeat any of these questions from the candidate's previous interview: ${JSON.stringify(previousQuestions)}
 
 The 15 questions must follow this exact progression:
 1. Ice-Breaker / Introduction (Easy) — A very simple, friendly greeting + ask the candidate to introduce themselves in 1-2 sentences.
@@ -1453,7 +1472,27 @@ Respond with STRICT JSON matching this schema (exactly 15 items in the array):
         questions = questions.slice(0, 15);
       }
     }
-    res.json(questions);
+    const seen = new Set(previousQuestions.map((text: string) => text.trim().toLowerCase().replace(/\s+/g, " ")));
+    const cleanQuestions = questions.filter((question: any) => {
+      const normalized = String(question?.text || "").trim().toLowerCase().replace(/\s+/g, " ");
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+    for (let i = cleanQuestions.length; i < 15; i++) {
+      const fallback = DEFAULT_QUESTIONS[i] || DEFAULT_QUESTIONS[i % DEFAULT_QUESTIONS.length];
+      cleanQuestions.push({
+        ...fallback,
+        id: `question_${i + 1}_${entropySeed}`,
+        text: `${fallback.text} Focus on a different example than you used in earlier interviews.`
+      });
+    }
+    res.json(cleanQuestions.slice(0, 15).map((question: any, index: number) => ({
+      id: String(question.id || `question_${index + 1}_${entropySeed}`),
+      text: String(question.text || DEFAULT_QUESTIONS[index].text).trim(),
+      category: String(question.category || DEFAULT_QUESTIONS[index].category),
+      difficulty: String(question.difficulty || DEFAULT_QUESTIONS[index].difficulty)
+    })));
   } catch (error: any) {
     console.error("Generate Questions Error, using default fallback list:", error);
     const DEFAULT_QUESTIONS = [
@@ -1632,8 +1671,9 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
       presentationFeedback: "Please provide a more complete answer so presentation skills can be fairly assessed."
     };
 
+    const scoreCap = wordCount < 10 ? 25 : wordCount <= 30 ? 45 : wordCount < 50 ? 70 : 100;
     const evaluation = {
-      score: typeof rawEvaluation.score === "number" ? rawEvaluation.score : defaultFeedback.score,
+      score: clampScore(rawEvaluation.score, defaultFeedback.score, scoreCap),
       strengths: Array.isArray(rawEvaluation.strengths) ? rawEvaluation.strengths : defaultFeedback.strengths,
       improvements: Array.isArray(rawEvaluation.improvements) ? rawEvaluation.improvements : defaultFeedback.improvements,
       speechFeedback: rawEvaluation.speechFeedback || defaultFeedback.speechFeedback,
@@ -1680,7 +1720,7 @@ RULE: Absolutely do not judge or infer personal, physical, medical, emotional, o
       questionId,
       questionText,
       transcript,
-      score: 40,
+      score: transcript.trim().split(/\s+/).filter(Boolean).length < 10 ? 15 : 40,
       pacing: "Unknown",
       fillerWordCount: 0,
       strengths: ["Attempted to respond"],
@@ -1886,9 +1926,15 @@ Respond with STRICT JSON matching this schema:
       ...(rawReport.categoryScores || {})
     };
 
+    const answerScores = answerFeedbacks
+      .map((feedback: any) => Number(feedback?.score))
+      .filter((score: number) => Number.isFinite(score));
+    const overallScore = answerScores.length
+      ? clampScore(answerScores.reduce((sum: number, score: number) => sum + score, 0) / answerScores.length)
+      : clampScore(rawReport.overallScore, defaultReport.overallScore);
     const cleanReport = {
-      overallScore: typeof rawReport.overallScore === "number" ? rawReport.overallScore : defaultReport.overallScore,
-      candidateLevel: rawReport.candidateLevel || defaultReport.candidateLevel,
+      overallScore,
+      candidateLevel: candidateLevelForScore(overallScore),
       categoryScores: cleanCategoryScores,
       strengths: Array.isArray(rawReport.strengths) && rawReport.strengths.length > 0 ? rawReport.strengths : defaultReport.strengths,
       weaknesses: Array.isArray(rawReport.weaknesses) && rawReport.weaknesses.length > 0 ? rawReport.weaknesses : defaultReport.weaknesses,
@@ -2151,11 +2197,20 @@ interface GDTurn {
   timestamp: number;
 }
 
+interface GDSignal {
+  id: string;
+  senderId: string;
+  targetId: string;
+  signal: any;
+  createdAt: number;
+}
+
 interface GDRoom {
   code: string;
   topic: string;
   participants: GDParticipant[];
   dialogue: GDTurn[];
+  signals?: GDSignal[];
   createdAt: number;
   startedAt?: number;
   evaluation?: any;
@@ -2171,17 +2226,11 @@ function sanitizeRoomCode(code: string) {
   return String(code || "").trim().toUpperCase();
 }
 
-function createRoomStatePayload(room: GDRoom) {
+function createRoomStatePayload(room: GDRoom, participantId?: string) {
   const host = room.participants.find((p) => p.isHost);
   const hostId = host?.id || null;
 
-  const otherParticipants = room.participants.filter((p) => p.id !== hostId);
-  const activeOthers = otherParticipants.filter((p) => p.cameraEnabled === true || p.micMuted === false);
-  
-  const activeStreamerIds = [
-    ...(hostId ? [hostId] : []),
-    ...activeOthers.slice(0, 5).map((p) => p.id)
-  ];
+  const activeStreamerIds = room.participants.map((p) => p.id);
 
   return {
     type: "room_state",
@@ -2207,6 +2256,9 @@ function createRoomStatePayload(room: GDRoom) {
       text: turn.text,
       timestamp: turn.timestamp,
     })),
+    signals: participantId
+      ? (room.signals || []).filter((signal) => signal.targetId === participantId)
+      : [],
     hostId,
   };
 }
@@ -2321,17 +2373,19 @@ async function evaluateDiscussionRoom(room: GDRoom) {
           coachFeedback: "Zero spoken word count detected. Audio soft-skills and participation marks must reflect exactly zero."
         };
       }
+      const baselineScore = Math.min(80, 20 + wordsSpoken);
+      const criterionScore = Math.max(1, Math.ceil(baselineScore / 20));
       return {
         name: p.name,
         roll: p.roll,
-        overallScore: 80,
+        overallScore: baselineScore,
         criteria: {
-          participation: { score: 4, comments: "Contributed points to the discussion." },
-          listeningSkills: { score: 4, comments: "Listened actively and built upon statements." },
-          argumentQuality: { score: 4, comments: "Structured thoughts logically." },
-          teamCollaboration: { score: 4, comments: "Respectful and friendly tone." },
-          leadershipIndicators: { score: 3, comments: "Helped direct the discussion flow." },
-          conflictHandling: { score: 4, comments: "Maintained a calm, constructive posture." }
+          participation: { score: criterionScore, comments: "Contributed points to the discussion." },
+          listeningSkills: { score: criterionScore, comments: "Listened actively and built upon statements." },
+          argumentQuality: { score: criterionScore, comments: "Structured thoughts logically." },
+          teamCollaboration: { score: criterionScore, comments: "Respectful and friendly tone." },
+          leadershipIndicators: { score: criterionScore, comments: "Helped direct the discussion flow." },
+          conflictHandling: { score: criterionScore, comments: "Maintained a calm, constructive posture." }
         },
         strengths: ["Clear response structure", "Good technical communication"],
         improvements: ["Elaborate on specific project architectures", "Avoid minor pacing inconsistencies"],
@@ -2410,7 +2464,13 @@ async function evaluateDiscussionRoom(room: GDRoom) {
           coachFeedback: "Zero spoken word count detected. Audio soft-skills and participation marks must reflect exactly zero."
         };
       }
-      return p;
+      const scoreCap = wordsSpoken < 10 ? 25 : wordsSpoken < 30 ? 50 : 100;
+      const criterionCap = Math.max(1, Math.ceil(scoreCap / 20));
+      const criteria = Object.fromEntries(Object.entries(p.criteria || {}).map(([key, value]: [string, any]) => [
+        key,
+        { ...value, score: clampScore(value?.score, 1, criterionCap) }
+      ]));
+      return { ...p, overallScore: clampScore(p.overallScore, 40, scoreCap), criteria };
     });
 
     return evalResult;
@@ -2426,6 +2486,7 @@ async function dbGetRoom(code: string): Promise<GDRoom | null> {
   let room: GDRoom | null = null;
 
   try {
+    await connectDB();
     const data = await GDRoom.findOne({ code });
     if (data) {
       room = {
@@ -2433,6 +2494,7 @@ async function dbGetRoom(code: string): Promise<GDRoom | null> {
         topic: data.topic,
         participants: data.participants || [],
         dialogue: data.dialogue || [],
+        signals: data.signals || [],
         createdAt: Number(data.createdAt),
         startedAt: data.startedAt ? Number(data.startedAt) : undefined,
         evaluation: data.evaluation || undefined,
@@ -2462,6 +2524,7 @@ async function dbGetRoom(code: string): Promise<GDRoom | null> {
 
 async function dbSaveRoom(room: GDRoom): Promise<void> {
   try {
+    await connectDB();
     const payload = {
       code: room.code,
       topic: room.topic,
@@ -2472,8 +2535,11 @@ async function dbSaveRoom(room: GDRoom): Promise<void> {
         isHost: p.isHost,
         joinedAt: p.joinedAt,
         lastActive: p.lastActive || null,
+        cameraEnabled: p.cameraEnabled !== false,
+        micMuted: !!p.micMuted,
       })),
       dialogue: room.dialogue,
+      signals: room.signals || [],
       createdAt: room.createdAt,
       startedAt: room.startedAt || null,
       evaluation: room.evaluation || null,
@@ -2493,6 +2559,7 @@ async function dbSaveRoom(room: GDRoom): Promise<void> {
 
 async function dbDeleteRoom(code: string): Promise<void> {
   try {
+    await connectDB();
     await GDRoom.deleteOne({ code });
   } catch (err) {
     console.error("MongoDB Delete Room failed:", err);
@@ -2564,6 +2631,7 @@ gdWss.on("connection", async (ws: WebSocket, request: any) => {
             topic,
             participants: [participant],
             dialogue: [],
+            signals: [],
             createdAt: Date.now(),
           };
 
@@ -2775,6 +2843,7 @@ app.post("/api/gd-room/join", async (req, res) => {
         topic,
         participants: [participant],
         dialogue: [],
+        signals: [],
         createdAt: Date.now(),
       };
 
@@ -2833,7 +2902,7 @@ app.get("/api/gd-room/state", async (req, res) => {
     participant.lastActive = Date.now();
     await dbSaveRoom(room);
 
-    res.json(createRoomStatePayload(room));
+    res.json(createRoomStatePayload(room, participantId));
   } catch (err: any) {
     console.error("GD State HTTP Error:", err);
     res.status(500).json({ error: "Failed to get room state." });
@@ -2892,6 +2961,68 @@ app.post("/api/gd-room/submit-turn", async (req, res) => {
   } catch (err: any) {
     console.error("GD Submit Turn HTTP Error:", err);
     res.status(500).json({ error: "Failed to submit turn." });
+  }
+});
+
+app.post("/api/gd-room/signal", async (req, res) => {
+  try {
+    const { roomCode, participantId, targetId, signal } = req.body;
+    const room = await dbGetRoom(sanitizeRoomCode(roomCode));
+    if (!room) return res.status(404).json({ error: "Room not found." });
+    if (!room.participants.some((p) => p.id === participantId) || !room.participants.some((p) => p.id === targetId)) {
+      return res.status(403).json({ error: "Participant not found in room." });
+    }
+
+    const now = Date.now();
+    room.signals = (room.signals || []).filter((item) => now - item.createdAt < 60_000).slice(-200);
+    room.signals.push({
+      id: `sig_${crypto.randomBytes(8).toString("hex")}`,
+      senderId: participantId,
+      targetId,
+      signal,
+      createdAt: now,
+    });
+    await dbSaveRoom(room);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("GD Signal HTTP Error:", err);
+    res.status(500).json({ error: "Failed to relay call signal." });
+  }
+});
+
+app.post("/api/gd-room/signal-ack", async (req, res) => {
+  try {
+    const { roomCode, participantId, signalIds } = req.body;
+    const room = await dbGetRoom(sanitizeRoomCode(roomCode));
+    if (!room) return res.status(404).json({ error: "Room not found." });
+    if (!room.participants.some((p) => p.id === participantId)) {
+      return res.status(403).json({ error: "Participant not found in room." });
+    }
+    const acknowledged = new Set(Array.isArray(signalIds) ? signalIds.map(String) : []);
+    room.signals = (room.signals || []).filter((signal) => signal.targetId !== participantId || !acknowledged.has(signal.id));
+    await dbSaveRoom(room);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("GD Signal Ack HTTP Error:", err);
+    res.status(500).json({ error: "Failed to acknowledge call signal." });
+  }
+});
+
+app.post("/api/gd-room/media-status", async (req, res) => {
+  try {
+    const { roomCode, participantId, cameraEnabled, micMuted } = req.body;
+    const room = await dbGetRoom(sanitizeRoomCode(roomCode));
+    if (!room) return res.status(404).json({ error: "Room not found." });
+    const participant = room.participants.find((p) => p.id === participantId);
+    if (!participant) return res.status(403).json({ error: "Participant not found in room." });
+    participant.cameraEnabled = cameraEnabled !== false;
+    participant.micMuted = !!micMuted;
+    participant.lastActive = Date.now();
+    await dbSaveRoom(room);
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("GD Media Status HTTP Error:", err);
+    res.status(500).json({ error: "Failed to update media status." });
   }
 });
 
