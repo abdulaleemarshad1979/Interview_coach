@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: interview-coach-deployment
+  namespace: default
+  labels:
+    app: interview-coach
+spec:
+  replicas: 3 # High Availability: 3 active pod replicas
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0 # Zero downtime deployments!
+  selector:
+    matchLabels:
+      app: interview-coach
+  template:
+    metadata:
+      labels:
+        app: interview-coach
+    spec:
+      containers:
+        - name: interview-coach
+          image: ghcr.io/abdulaleemarshad1979/interview-coach:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - secretRef:
+                name: interview-coach-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1536Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: interview-coach-service
+  namespace: default
+spec:
+  type: ClusterIP
+  selector:
+    app: interview-coach
+  ports:
+    - port: 80
+      targetPort: 3000
+      name: http
+
+---
+# HorizontalPodAutoscaler — Automatically scales pods from 3 up to 25 replicas under student load
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: interview-coach-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: interview-coach-deployment
+  minReplicas: 3
+  maxReplicas: 25
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+
+---
+# Kubernetes Ingress with WebSocket Support & Automatic HTTPS via Cert-Manager
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: interview-coach-ingress
+  namespace: default
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/websocket-services: "interview-coach-service"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  tls:
+    - hosts:
+        - interview-coach.yourdomain.com
+      secretName: interview-coach-tls
+  rules:
+    - host: interview-coach.yourdomain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: interview-coach-service
+                port:
+                  number: 80
