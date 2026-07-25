@@ -27,6 +27,7 @@ import { StudentProfile } from "../types";
 import Button from "./ui/Button";
 import { getApiUrl, getWsUrl } from "../lib/api";
 import { supabase } from "../lib/supabaseClient";
+import { speakNaturalAI } from "../lib/naturalVoice";
 
 interface GroupDiscussionPageProps {
   studentProfile: StudentProfile;
@@ -88,9 +89,6 @@ const PRESET_TOPICS = [
   "Is the gig economy beneficial for young professionals starting their careers?"
 ];
 
-
-
-// Helper to generate a dynamic avatar color based on the participant's roll number
 const getAvatarColor = (roll: string) => {
   const colors = [
     "bg-emerald-500", "bg-blue-500", "bg-indigo-500", "bg-purple-500",
@@ -108,7 +106,6 @@ const getAvatarColor = (roll: string) => {
 
 export default function GroupDiscussionPage({ studentProfile, onNavigate }: GroupDiscussionPageProps) {
   const [step, setStep] = useState<"setup" | "discussion" | "results">("setup");
-
   const [roomCode, setRoomCode] = useState("");
   const [mode, setMode] = useState<"create" | "join">("create");
   const [topic, setTopic] = useState(PRESET_TOPICS[0]);
@@ -572,8 +569,10 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
           interim += e.results[i][0].transcript;
         }
       }
-      if (finalTranscript) {
-        setCurrentText((prev) => (prev + " " + finalTranscript).trim());
+      if (finalTranscript && finalTranscript.trim()) {
+        const spokenChunk = finalTranscript.trim();
+        submitSpeechTurn(spokenChunk);
+        setCurrentText("");
         setInterimText("");
       } else {
         setInterimText(interim);
@@ -666,12 +665,16 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
             if (message.type === "discussion_started") {
               setRoomStarted(true);
               setReceiveLog((prev) => [...prev, "Discussion started."]);
+              speakNaturalAI("The group discussion has started. Please begin sharing your views on the topic.");
             }
 
             if (message.type === "evaluation_result") {
               setEvaluation(message.evaluation);
               setStep("results");
               setReceiveLog((prev) => [...prev, "Evaluation received."]);
+              if (message.evaluation?.overallVerdict) {
+                speakNaturalAI(`Group discussion evaluation is ready. ${message.evaluation.overallVerdict}`);
+              }
             }
 
             if (message.type === "error") {

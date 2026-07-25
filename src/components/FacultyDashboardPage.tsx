@@ -468,21 +468,14 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
               <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-brand-primary animate-spin" />
               <span>Querying database profiles...</span>
             </div>
-          ) : students.length === 0 ? (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-600 rounded-xl text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">No Students Registered:</span> There are currently no registered student accounts in section <span className="font-semibold uppercase">"{facultyProfile.classSection}"</span> that match your roll range bounds ({facultyProfile.rollPrefix}{facultyProfile.rollStart} - {facultyProfile.rollEnd}) in the database. When students register using the gateway, they will appear here.
-              </div>
-            </div>
-          ) : (
+          ) : students.length > 0 ? (
             <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 rounded-xl text-xs flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
               <div>
                 <span className="font-bold">Live Synced Roster:</span> Showing {students.length} student profiles directly fetched from your Supabase database.
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Filters and search block */}
           <div className="flex flex-col sm:flex-row gap-3">

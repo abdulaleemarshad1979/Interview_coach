@@ -23,6 +23,7 @@ import {
 import { InterviewQuestion, AnswerFeedback, StudentProfile, FullAnalysisResult, Scorecard } from "../types";
 import { supabase } from "../lib/supabaseClient";
 import { getApiUrl, getWsUrl } from "../lib/api";
+import { speakNaturalAI, stopNaturalSpeech } from "../lib/naturalVoice";
 
 interface InterviewPageProps {
   studentProfile: StudentProfile;
@@ -467,214 +468,14 @@ Converse naturally and speak in a human-like tone.`
     }
   };
 
-  // Natural voice TTS — uses Gemini's built-in TTS (same API key, genuinely natural voices)
-  // Voice quality ladder: Gemini TTS → Google Cloud TTS → Browser SpeechSynthesis
+  // Natural voice TTS via speakNaturalAI helper (Gemini Audio -> Google Neural2/Journey -> Curated Natural Voices)
   const speakText = async (text: string) => {
     if (isVoiceMuted) return;
-
-    const geminiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
-
-    // Clear any existing keep-alive heartbeat
-    if (ttsHeartbeatRef.current) {
-      clearInterval(ttsHeartbeatRef.current);
-      ttsHeartbeatRef.current = null;
-    }
-
-    // ─── Tier 1: Gemini 2.5 Flash TTS (most natural, same API key) ─────────────
-    if (geminiKey) {
-      try {
-        setIsAISpeaking(true);
-
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text }] }],
-              generationConfig: {
-                responseModalities: ["AUDIO"],
-                speechConfig: {
-                  voiceConfig: {
-                    prebuiltVoiceConfig: {
-                      // Aoede = warm female, Kore = confident female, Charon = deep male
-                      voiceName: "Aoede"
-                    }
-                  }
-                }
-              }
-            })
-          }
-        );
-
-        if (res.ok) {
-          const data = await res.json();
-          const audioBase64 = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          const mimeType = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.mimeType || "audio/wav";
-
-          if (audioBase64) {
-            let audioCtx = unlockAudioContextRef.current;
-            if (!audioCtx) {
-              const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-              audioCtx = new AudioContextClass({ sampleRate: 24000 });
-              unlockAudioContextRef.current = audioCtx;
-            }
-            if (audioCtx.state === "suspended") await audioCtx.resume();
-
-            const binaryStr = atob(audioBase64);
-            const bytes = new Uint8Array(binaryStr.length);
-            for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-
-            let audioBuffer: AudioBuffer;
-            if (mimeType.includes("pcm") || mimeType.includes("l16")) {
-              // Raw PCM int16 → float32
-              const int16 = new Int16Array(bytes.buffer);
-              const float32 = new Float32Array(int16.length);
-              for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
-              audioBuffer = audioCtx.createBuffer(1, float32.length, 24000);
-              audioBuffer.getChannelData(0).set(float32);
-            } else {
-              audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
-            }
-
-            const source = audioCtx.createBufferSource();
-            activeAudioSourceRef.current = source;
-            source.buffer = audioBuffer;
-            source.connect(audioCtx.destination);
-            source.onended = () => {
-              setIsAISpeaking(false);
-              if (activeAudioSourceRef.current === source) {
-                activeAudioSourceRef.current = null;
-              }
-            };
-            source.start(0);
-            console.log("[TTS] Playing via Gemini 2.5 Flash TTS — Aoede voice");
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn("[TTS] Gemini TTS failed, trying Google Cloud TTS:", err);
-        setIsAISpeaking(false);
-      }
-    }
-
-    // ─── Tier 2: Google Cloud TTS REST API (Neural2/Journey voices) ─────────────
-    if (geminiKey) {
-      try {
-        setIsAISpeaking(true);
-        const voiceCandidates = [
-          { name: "en-US-Journey-F", ssmlGender: "FEMALE" },
-          { name: "en-US-Neural2-F", ssmlGender: "FEMALE" },
-          { name: "en-US-Wavenet-F", ssmlGender: "FEMALE" },
-        ];
-
-        for (const voice of voiceCandidates) {
-          try {
-            const res = await fetch(
-              `https://texttospeech.googleapis.com/v1/text:synthesize?key=${geminiKey}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  input: { text },
-                  voice: { languageCode: "en-US", name: voice.name, ssmlGender: voice.ssmlGender },
-                  audioConfig: {
-                    audioEncoding: "MP3",
-                    speakingRate: 0.97,
-                    pitch: -1.0,
-                    volumeGainDb: 1.0,
-                    effectsProfileId: ["headphone-class-device"],
-                  },
-                })
-              }
-            );
-
-            if (res.ok) {
-              const data = await res.json();
-              if (data.audioContent) {
-                let audioCtx = unlockAudioContextRef.current;
-                if (!audioCtx) {
-                  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-                  audioCtx = new AudioContextClass();
-                  unlockAudioContextRef.current = audioCtx;
-                }
-                if (audioCtx.state === "suspended") await audioCtx.resume();
-
-                const binaryStr = atob(data.audioContent);
-                const bytes = new Uint8Array(binaryStr.length);
-                for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-
-                const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
-                const source = audioCtx.createBufferSource();
-                activeAudioSourceRef.current = source;
-                source.buffer = audioBuffer;
-                source.connect(audioCtx.destination);
-                source.onended = () => {
-                  setIsAISpeaking(false);
-                  if (activeAudioSourceRef.current === source) {
-                    activeAudioSourceRef.current = null;
-                  }
-                };
-                source.start(0);
-                console.log(`[TTS] Playing via Google Cloud TTS — ${voice.name}`);
-                return;
-              }
-            }
-          } catch { /* try next */ }
-        }
-      } catch (err) {
-        console.warn("[TTS] Google Cloud TTS also failed:", err);
-        setIsAISpeaking(false);
-      }
-    }
-
-    // ─── Tier 3: Browser SpeechSynthesis fallback ────────────────────────────────
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
-
-    if (!audioUnlockedRef.current) {
-      setShowTapToHear(true);
-      return;
-    }
-
-    if (unlockAudioContextRef.current && unlockAudioContextRef.current.state === "suspended") {
-      unlockAudioContextRef.current.resume().catch(() => { });
-    }
-
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      const voices = window.speechSynthesis.getVoices();
-
-      const premiumVoiceKeywords = ["google us english", "microsoft aria", "microsoft guy", "natural", "siri", "apple"];
-      let selectedVoice: SpeechSynthesisVoice | null = null;
-      for (const keyword of premiumVoiceKeywords) {
-        selectedVoice = voices.find(v => v.name.toLowerCase().includes(keyword) && v.lang.startsWith("en")) || null;
-        if (selectedVoice) break;
-      }
-      if (!selectedVoice) selectedVoice = voices.find(v => (v.name.toLowerCase().includes("google") || v.name.toLowerCase().includes("microsoft")) && v.lang.startsWith("en")) || null;
-      if (!selectedVoice) selectedVoice = voices.find(v => v.lang.startsWith("en")) || null;
-
-      if (selectedVoice) utterance.voice = selectedVoice;
-      utterance.rate = 0.92;
-      utterance.pitch = 0.95;
-
-      utterance.onstart = () => {
-        setIsAISpeaking(true);
-        ttsHeartbeatRef.current = setInterval(() => {
-          if (window.speechSynthesis.speaking) { window.speechSynthesis.pause(); window.speechSynthesis.resume(); }
-          else { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; }
-        }, 14000);
-      };
-      utterance.onend = () => { setIsAISpeaking(false); if (ttsHeartbeatRef.current) { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; } };
-      utterance.onerror = () => { setIsAISpeaking(false); if (ttsHeartbeatRef.current) { clearInterval(ttsHeartbeatRef.current); ttsHeartbeatRef.current = null; } };
-
-      // Bind to window to prevent garbage collection in Chrome mid-speech
-      (window as any).activeUtterance = utterance;
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.error("Browser TTS error:", e);
-      setIsAISpeaking(false);
-    }
+    speakNaturalAI(
+      text,
+      () => setIsAISpeaking(true),
+      () => setIsAISpeaking(false)
+    );
   };
 
 
