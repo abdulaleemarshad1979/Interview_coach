@@ -9,6 +9,9 @@
     "start": "node --max-http-header-size=163840 dist/server.cjs",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "docker:build": "docker build -t interview-coach:latest .",
+    "docker:up": "docker-compose up -d --build",
+    "docker:down": "docker-compose down",
     "db:list": "tsx --env-file=.env scripts/db-admin.ts list",
     "db:clear": "tsx --env-file=.env scripts/db-admin.ts clear"
   },

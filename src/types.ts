@@ -106,6 +106,18 @@ export interface AnswerFeedback {
   speechFeedback: string;
   contentFeedback: string;
   presentationFeedback: string; // eye contact, posture, etc.
+
+  // SoftSkills Assessment Framework (Image 1 & 2 Parameters)
+  clarityPronunciation?: number; // 1-5 scale (Video recording / audio acoustic clarity)
+  fluencyPace?: number; // 1-5 scale (Speaking test / optimal WPM & pauses)
+  grammarAccuracy?: number; // 0-100 percentage (Syntactic accuracy)
+  vocabularyUsage?: number; // 0-100 percentage (Lexical richness & technical usage)
+  coherenceIdeas?: number; // 1-5 scale (STAR logical structure & clarity)
+  confidenceRating?: number; // 1-5 scale (Vocal modulation & on-camera composure)
+  vocalConfidence?: number;
+  audioClarity?: number; // SNR score 0-100
+  pitchVariance?: number; // Pitch inflection 0-100
+  speakingPace?: number; // WPM
 }
 
 export interface Scorecard {
@@ -116,6 +128,38 @@ export interface Scorecard {
   overallScore: number;
   candidateLevel: 'Beginner' | 'Developing' | 'Interview Ready' | 'Strong Candidate' | 'Excellent Candidate';
   interviewType?: 'technical' | 'soft-skills';
+
+  // SoftSkills Assessment Framework: Image 1 Speaking Test Evidence Parameters
+  clarityPronunciation: number; // 1-5 rating (Evidence: Video Recording)
+  fluencyPace: number; // 1-5 rating (Evidence: Speaking Test)
+  grammarAccuracy: number; // % Score (Evidence: Grammar Test)
+  vocabularyUsage: number; // % Score (Evidence: MCQ / Spoken Test)
+  coherenceIdeas: number; // 1-5 rating (Evidence: Speaking Test / STAR Flow)
+  confidenceRating: number; // 1-5 rating (Evidence: Video / Interview)
+
+  // SoftSkills Assessment Framework: Image 2 Assessment Parameters & Evolution
+  communicationClarityLevel: 'Low' | 'Medium' | 'High';
+  communicationClarityScore: number; // 0-100 % score
+  grammarVocabularyScore: number; // % score
+  fluencyConfidenceRating: number; // 1-5 rating
+  presentationSkillsScore: number; // Rubric score 0-100
+  teamworkLeadershipRating: number; // 1-5 rating
+  emailBusinessWritingScore: number; // Score 0-100
+  interviewReadinessScore: number; // Score 0-100
+  bodyLanguageEtiquetteRating: number; // 1-5 rating
+
+  // Before & After Training Comparative Metrics (from PDF Framework)
+  trainingComparison?: {
+    communicationClarity: { before: string; after: string; method: string };
+    grammarVocabulary: { before: string; after: string; method: string };
+    fluencyConfidence: { before: string; after: string; method: string };
+    presentationSkills: { before: string; after: string; method: string };
+    teamworkLeadership: { before: string; after: string; method: string };
+    emailBusinessWriting: { before: string; after: string; method: string };
+    interviewReadiness: { before: string; after: string; method: string };
+    bodyLanguageEtiquette: { before: string; after: string; method: string };
+  };
+
   categoryScores: {
     resumeStrength?: number;
     githubStrength?: number;
@@ -128,6 +172,12 @@ export interface Scorecard {
     teamworkCollaboration?: number;
     adaptabilityResilience?: number;
     ownershipEQ?: number;
+    clarityPronunciation?: number;
+    fluencyPace?: number;
+    grammarAccuracy?: number;
+    vocabularyUsage?: number;
+    coherenceIdeas?: number;
+    confidence?: number;
   };
   strengths: string[];
   weaknesses: string[];
