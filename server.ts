@@ -1539,10 +1539,11 @@ app.post("/api/interview/submit-answer", requireAuth, async (req: any, res) => {
   try {
     const { gazeStats, postureStats, expressionStats, headStats, audioClarity, pitchVariance, speakingPace } = req.body;
 
-    if (!questionText || !transcript) {
-      res.status(400).json({ error: "Question text and response transcript are required." });
+    if (!questionText) {
+      res.status(400).json({ error: "Question text is required." });
       return;
     }
+    const cleanTranscript = String(transcript || "").trim() || "Spoken response was too brief or audio was not detected clearly.";
 
     const provider = process.env.AI_PROVIDER || "groq";
     if (provider === "groq") {
