@@ -16,7 +16,6 @@ import {
   Video,
   FileText,
   Users,
-  Mail,
   ShieldCheck,
   CheckCircle2,
   Building2,
@@ -134,13 +133,6 @@ export default function ReportPage({ scorecard, onNavigate }: ReportPageProps) {
       score: (scorecard.teamworkLeadershipRating || 4) * 20
     },
     {
-      parameter: "Email / Business Writing",
-      before: scorecard.trainingComparison.emailBusinessWriting.before,
-      after: scorecard.trainingComparison.emailBusinessWriting.after,
-      method: scorecard.trainingComparison.emailBusinessWriting.method,
-      score: scorecard.emailBusinessWritingScore || 88
-    },
-    {
       parameter: "Interview Readiness",
       before: scorecard.trainingComparison.interviewReadiness.before,
       after: scorecard.trainingComparison.interviewReadiness.after,
@@ -160,7 +152,6 @@ export default function ReportPage({ scorecard, onNavigate }: ReportPageProps) {
     { parameter: "Fluency & Confidence", before: "3.2 / 5", after: "4.8 / 5", method: "Mock Interview Rubric, AI Speech Analysis, GD participation", score: 96 },
     { parameter: "Presentation Skills", before: "68 / 100", after: "86 / 100", method: "Individual Presentation Evaluation, PPT rubric, Peer Review", score: 86 },
     { parameter: "Teamwork & Leadership", before: "3.0 / 5", after: "4.5 / 5", method: "Group Activity Assessment, GD Observation, Behavioural Rubric", score: 90 },
-    { parameter: "Email / Business Writing", before: "70 / 100", after: "88 / 100", method: "Email Writing Test, Case Writing Task, Writing Evaluation", score: 88 },
     { parameter: "Interview Readiness", before: "65 / 100", after: "89 / 100", method: "Structured Mock Interview, HR Rubrics, Situation-based Q&A", score: 89 },
     { parameter: "Body Language & Etiquette", before: "3.2 / 5", after: "4.8 / 5", method: "Video Observation, Mock Interview Rubric, Classroom Behaviour Checklist", score: 96 }
   ];

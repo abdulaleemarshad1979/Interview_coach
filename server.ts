@@ -2036,7 +2036,6 @@ Respond with STRICT JSON matching this schema:
     const fluencyConfidenceRating = clampScore(Math.round((fluencyPace + confidenceRating) / 2), 4, 5);
     const presentationSkillsScore = clampScore(Math.round((overallScore + communicationClarityScore) / 2), 75, 100);
     const teamworkLeadershipRating = clampScore(Math.round((cleanCategoryScores.teamworkCollaboration || 85) / 20), 4, 5);
-    const emailBusinessWritingScore = clampScore(Math.round(grammarVocabularyScore * 0.95 + 4), 78, 100);
     const interviewReadinessScore = overallScore;
     const bodyLanguageEtiquetteRating = clampScore(Math.round(confidenceRating), 4, 5);
 
@@ -2046,7 +2045,6 @@ Respond with STRICT JSON matching this schema:
       fluencyConfidence: { before: "3.2 / 5", after: `${fluencyConfidenceRating} / 5`, method: "Mock Interview Rubric, AI Speech Analysis, GD participation" },
       presentationSkills: { before: "70 / 100", after: `${presentationSkillsScore} / 100`, method: "Individual Presentation Evaluation, PPT rubric, Peer Review" },
       teamworkLeadership: { before: "3.5 / 5", after: `${teamworkLeadershipRating} / 5`, method: "Group Activity Assessment, GD Observation, Behavioural Rubric" },
-      emailBusinessWriting: { before: "72 / 100", after: `${emailBusinessWritingScore} / 100`, method: "Email Writing Test, Case Writing Task, Writing Evaluation" },
       interviewReadiness: { before: "68 / 100", after: `${interviewReadinessScore} / 100`, method: "Structured Mock Interview, HR Rubrics, Situation-based Q&A" },
       bodyLanguageEtiquette: { before: "3.4 / 5", after: `${bodyLanguageEtiquetteRating} / 5`, method: "Video Observation, Mock Interview Rubric, Classroom Behaviour Checklist" }
     };
@@ -2066,7 +2064,6 @@ Respond with STRICT JSON matching this schema:
       fluencyConfidenceRating,
       presentationSkillsScore,
       teamworkLeadershipRating,
-      emailBusinessWritingScore,
       interviewReadinessScore,
       bodyLanguageEtiquetteRating,
       trainingComparison,
@@ -2118,7 +2115,6 @@ Respond with STRICT JSON matching this schema:
       fluencyConfidenceRating: 5,
       presentationSkillsScore: 86,
       teamworkLeadershipRating: 4,
-      emailBusinessWritingScore: 88,
       interviewReadinessScore: 84,
       bodyLanguageEtiquetteRating: 5,
       trainingComparison: {
@@ -2127,7 +2123,6 @@ Respond with STRICT JSON matching this schema:
         fluencyConfidence: { before: "3.2 / 5", after: "5 / 5", method: "Mock Interview Rubric, AI Speech Analysis, GD participation" },
         presentationSkills: { before: "70 / 100", after: "86 / 100", method: "Individual Presentation Evaluation, PPT rubric, Peer Review" },
         teamworkLeadership: { before: "3.5 / 5", after: "4 / 5", method: "Group Activity Assessment, GD Observation, Behavioural Rubric" },
-        emailBusinessWriting: { before: "72 / 100", after: "88 / 100", method: "Email Writing Test, Case Writing Task, Writing Evaluation" },
         interviewReadiness: { before: "68 / 100", after: "84 / 100", method: "Structured Mock Interview, HR Rubrics, Situation-based Q&A" },
         bodyLanguageEtiquette: { before: "3.4 / 5", after: "5 / 5", method: "Video Observation, Mock Interview Rubric, Classroom Behaviour Checklist" }
       },

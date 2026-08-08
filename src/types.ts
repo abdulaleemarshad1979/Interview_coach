@@ -160,7 +160,6 @@ export interface Scorecard {
   fluencyConfidenceRating: number; // 1-5 rating
   presentationSkillsScore: number; // Rubric score 0-100
   teamworkLeadershipRating: number; // 1-5 rating
-  emailBusinessWritingScore: number; // Score 0-100
   interviewReadinessScore: number; // Score 0-100
   bodyLanguageEtiquetteRating: number; // 1-5 rating
 
@@ -171,7 +170,6 @@ export interface Scorecard {
     fluencyConfidence: { before: string; after: string; method: string };
     presentationSkills: { before: string; after: string; method: string };
     teamworkLeadership: { before: string; after: string; method: string };
-    emailBusinessWriting: { before: string; after: string; method: string };
     interviewReadiness: { before: string; after: string; method: string };
     bodyLanguageEtiquette: { before: string; after: string; method: string };
   };

@@ -596,7 +596,6 @@ export default function InterviewPage({
         fluencyConfidenceRating: 5,
         presentationSkillsScore: 86,
         teamworkLeadershipRating: 4,
-        emailBusinessWritingScore: 88,
         interviewReadinessScore: 86,
         bodyLanguageEtiquetteRating: 5,
         trainingComparison: {
@@ -605,7 +604,6 @@ export default function InterviewPage({
           fluencyConfidence: { before: "3.2 / 5", after: "5 / 5", method: "Mock Interview Rubric, AI Speech Analysis, GD participation" },
           presentationSkills: { before: "70 / 100", after: "86 / 100", method: "Individual Presentation Evaluation, PPT rubric, Peer Review" },
           teamworkLeadership: { before: "3.5 / 5", after: "4 / 5", method: "Group Activity Assessment, GD Observation, Behavioural Rubric" },
-          emailBusinessWriting: { before: "72 / 100", after: "88 / 100", method: "Email Writing Test, Case Writing Task, Writing Evaluation" },
           interviewReadiness: { before: "68 / 100", after: "86 / 100", method: "Structured Mock Interview, HR Rubrics, Situation-based Q&A" },
           bodyLanguageEtiquette: { before: "3.4 / 5", after: "5 / 5", method: "Video Observation, Mock Interview Rubric, Classroom Behaviour Checklist" }
         },
