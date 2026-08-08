@@ -1,7 +1,59 @@
-// Natural AI Voice Engine — Tiered pipeline: Gemini Audio -> Google Neural2/Journey -> Curated Browser Natural Voices
+// Natural AI Voice Engine — Tiered pipeline:
+// Local Piper (DGX, on-prem GPU) -> Gemini Audio -> Google Neural2/Journey -> Curated Browser Natural Voices
+
+import { getApiUrl } from "./api";
 
 let activeAudioSource: AudioBufferSourceNode | null = null;
 let activeAudioContext: AudioContext | null = null;
+
+// Cache whether the local TTS backend is reachable so we don't eat a
+// network round trip on every single utterance once we know it's down.
+let localTtsAvailable: boolean | null = null;
+
+async function tryLocalTTS(text: string, onStart?: () => void, onEnd?: () => void): Promise<boolean> {
+  if (localTtsAvailable === false) return false;
+
+  try {
+    const res = await fetch(getApiUrl("/api/local-tts/speak"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!res.ok) {
+      localTtsAvailable = false;
+      return false;
+    }
+
+    localTtsAvailable = true;
+    const arrayBuf = await res.arrayBuffer();
+
+    onStart?.();
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!activeAudioContext || activeAudioContext.state === "closed") {
+      activeAudioContext = new AudioCtx();
+    }
+    if (activeAudioContext.state === "suspended") {
+      await activeAudioContext.resume();
+    }
+
+    const audioBuffer = await activeAudioContext.decodeAudioData(arrayBuf);
+    const source = activeAudioContext.createBufferSource();
+    activeAudioSource = source;
+    source.buffer = audioBuffer;
+    source.connect(activeAudioContext.destination);
+    source.onended = () => {
+      if (activeAudioSource === source) activeAudioSource = null;
+      onEnd?.();
+    };
+    source.start(0);
+    return true;
+  } catch (e) {
+    console.warn("[NaturalVoice] Local Piper TTS unreachable, falling back to cloud/browser...", e);
+    localTtsAvailable = false;
+    return false;
+  }
+}
 
 export async function stopNaturalSpeech() {
   if (activeAudioSource) {
@@ -24,6 +76,10 @@ export async function speakNaturalAI(
 ): Promise<void> {
   if (!text || !text.trim()) return;
   await stopNaturalSpeech();
+
+  // Tier 0: Local Piper TTS running on the DGX box. No internet, no API key.
+  const usedLocal = await tryLocalTTS(text, onStart, onEnd);
+  if (usedLocal) return;
 
   const geminiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
 

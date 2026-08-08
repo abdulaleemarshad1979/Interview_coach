@@ -189,6 +189,14 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const analyserRef = useRef<AnalyserNode | null>(null);
   const isRecordingRef = useRef<boolean>(false);
 
+  // Local (DGX) speech-to-text: replaces browser webkitSpeechRecognition,
+  // which silently produces nothing whenever outbound access to Google's
+  // speech servers is blocked. null = not checked yet, true/false = known.
+  const localSttAvailableRef = useRef<boolean | null>(null);
+  const sttRecorderRef = useRef<MediaRecorder | null>(null);
+  const sttLoopActiveRef = useRef(false);
+  const pendingSignalsRef = useRef<Array<{ senderId: string; signal: any }>>([]);
+
   useEffect(() => {
     pollingModeRef.current = isPollingMode;
     joinedRoomCodeRef.current = joinedRoomCode;
@@ -219,13 +227,26 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       return peerConnectionsRef.current[peerId];
     }
 
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" }
-      ]
-    });
+    const turnServerUrl = (import.meta as any).env?.VITE_TURN_SERVER_URL || "";
+    const turnUsername = (import.meta as any).env?.VITE_TURN_USERNAME || "";
+    const turnPassword = (import.meta as any).env?.VITE_TURN_PASSWORD || "";
+
+    const iceServers: RTCIceServer[] = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:global.stun.twilio.com:3478" }
+    ];
+
+    if (turnServerUrl) {
+      iceServers.push({
+        urls: turnServerUrl,
+        username: turnUsername,
+        credential: turnPassword
+      });
+    }
+
+    const pc = new RTCPeerConnection({ iceServers });
 
     peerConnectionsRef.current[peerId] = pc;
     iceQueuesRef.current[peerId] = []; // Initialize candidate queue
@@ -248,7 +269,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
     // When remote track arrives, save the stream
     pc.ontrack = (event) => {
-      const [remoteStream] = event.streams;
+      const remoteStream = event.streams[0] || new MediaStream([event.track]);
       setRemoteStreams(prev => ({
         ...prev,
         [peerId]: remoteStream
@@ -281,32 +302,6 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     });
   };
 
-  // Dynamic WebRTC connection clean-up and creation for active streamers
-  useEffect(() => {
-    if (!myParticipantId) return;
-    const activeStreamersSet = new Set(activeStreamerIds);
-    const amIStreamer = activeStreamersSet.has(myParticipantId);
-
-    // Close connections that are no longer active streamers on either side
-    Object.keys(peerConnectionsRef.current).forEach(peerId => {
-      const isPeerStreamer = activeStreamersSet.has(peerId);
-      if (!isPeerStreamer && !amIStreamer) {
-        peerConnectionsRef.current[peerId]?.close();
-        delete peerConnectionsRef.current[peerId];
-        setRemoteStreams(prev => {
-          const updated = { ...prev };
-          delete updated[peerId];
-          return updated;
-        });
-      }
-    });
-
-    // Connect to newly activated streamers
-    if (localStream) {
-      initializeWebRTC(localStream);
-    }
-  }, [activeStreamerIds, localStream]);
-
   // Cleanup peer connections for participants who left
   useEffect(() => {
     const activeIds = new Set(participants.map(p => p.id));
@@ -323,6 +318,18 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     });
   }, [participants]);
 
+  const drainPendingSignals = async () => {
+    const pending = [...pendingSignalsRef.current];
+    pendingSignalsRef.current = [];
+    for (const item of pending) {
+      try {
+        await processIncomingSignal(item.senderId, item.signal);
+      } catch (err) {
+        console.error("Error draining pending WebRTC signal:", err);
+      }
+    }
+  };
+
   // Request Webcam & Mic streams and initialize WebRTC
   useEffect(() => {
     if (step === "discussion") {
@@ -336,6 +343,9 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
           // Set initial track states
           stream.getAudioTracks().forEach(t => t.enabled = !micMuted);
           stream.getVideoTracks().forEach(t => t.enabled = cameraEnabled);
+
+          // Drain any signals queued while waiting for user Media access
+          drainPendingSignals();
 
           // Connect WebRTC peers
           initializeWebRTC(stream);
@@ -414,8 +424,10 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   }, [dialogue]);
 
   useEffect(() => {
+    checkLocalSttAvailability();
     setupSpeechRecognition();
     return () => {
+      stopLocalSttLoop();
       cleanupAudioStreams();
       if (localStream) {
         localStream.getTracks().forEach(t => t.stop());
@@ -432,9 +444,13 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   }, []);
 
   const processIncomingSignal = async (senderId: string, signal: any) => {
-    const stream = mediaStreamRef.current;
     if (!senderId || !signal) return;
-    if (!stream) throw new Error("Local media is not ready yet.");
+    const stream = mediaStreamRef.current;
+    if (!stream) {
+      // Local media stream not ready yet — queue signal to process when media finishes loading
+      pendingSignalsRef.current.push({ senderId, signal });
+      return;
+    }
 
     let pc = peerConnectionsRef.current[senderId];
     if (!pc) pc = createPeerConnection(senderId, stream);
@@ -444,7 +460,13 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       const queue = iceQueuesRef.current[senderId] || [];
       while (queue.length > 0) {
         const candidate = queue.shift();
-        if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        if (candidate) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (e) {
+            console.error("Error adding queued ICE candidate:", e);
+          }
+        }
       }
       if (signal.sdp.type === "offer") {
         const answer = await pc.createAnswer();
@@ -452,8 +474,12 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         sendSocketMessage({ type: "signal", targetId: senderId, signal: { sdp: pc.localDescription } });
       }
     } else if (signal.candidate) {
-      if (pc.remoteDescription?.type) {
-        await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+      if (pc.remoteDescription && pc.remoteDescription.type) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+        } catch (e) {
+          console.error("Error adding ICE candidate:", e);
+        }
       } else {
         (iceQueuesRef.current[senderId] ||= []).push(signal.candidate);
       }
@@ -546,6 +572,121 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     } else {
       sendSocketMessage({ type: "submit_turn", text: text.trim() });
     }
+  };
+
+  // Check once whether the local (DGX) STT service is configured and
+  // reachable through the server proxy. If so, Group Discussion records
+  // short audio segments and sends them there instead of relying on the
+  // browser's cloud-dependent webkitSpeechRecognition.
+  const checkLocalSttAvailability = async (): Promise<boolean> => {
+    if (localSttAvailableRef.current !== null) return localSttAvailableRef.current;
+    try {
+      const res = await fetch(getApiUrl("/api/local-voice/status"));
+      if (!res.ok) throw new Error("status check failed");
+      const data = await res.json();
+      localSttAvailableRef.current = Boolean(data.sttConfigured && data.sttHealthy);
+    } catch {
+      localSttAvailableRef.current = false;
+    }
+    if (!localSttAvailableRef.current) {
+      console.warn("[GD] Local STT not available, falling back to browser speech recognition (requires outbound internet).");
+    }
+    return localSttAvailableRef.current;
+  };
+
+  const sendChunkToLocalStt = async (blob: Blob) => {
+    try {
+      const arrayBuf = await blob.arrayBuffer();
+      let binary = "";
+      const bytes = new Uint8Array(arrayBuf);
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      const base64 = btoa(binary);
+
+      const res = await fetch(getApiUrl("/api/local-stt/transcribe"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio: base64, mimeType: blob.type || "audio/webm" }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const text = (data?.text || "").trim();
+      if (text) {
+        submitSpeechTurn(text);
+      }
+    } catch (e) {
+      console.error("[GD] Local STT chunk failed:", e);
+    }
+  };
+
+  // Records short (~3s) self-contained clips from the local WebRTC stream
+  // and sends each one to the DGX Whisper service. Runs continuously while
+  // the mic is unmuted and the discussion is active.
+  const startLocalSttLoop = (stream: MediaStream) => {
+    if (sttLoopActiveRef.current) return;
+    sttLoopActiveRef.current = true;
+    setIsRecording(true);
+    isRecordingRef.current = true;
+
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "audio/webm";
+
+    const runCycle = () => {
+      if (!sttLoopActiveRef.current) return;
+
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, { mimeType });
+      } catch (e) {
+        console.error("[GD] MediaRecorder init failed, stopping local STT loop:", e);
+        sttLoopActiveRef.current = false;
+        setIsRecording(false);
+        isRecordingRef.current = false;
+        return;
+      }
+
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        if (blob.size > 2000) {
+          sendChunkToLocalStt(blob);
+        }
+        if (sttLoopActiveRef.current) {
+          runCycle();
+        }
+      };
+
+      sttRecorderRef.current = recorder;
+      recorder.start();
+      setTimeout(() => {
+        if (recorder.state !== "inactive") {
+          try {
+            recorder.stop();
+          } catch { /* already stopped */ }
+        }
+      }, 3000);
+    };
+
+    runCycle();
+  };
+
+  const stopLocalSttLoop = () => {
+    sttLoopActiveRef.current = false;
+    setIsRecording(false);
+    isRecordingRef.current = false;
+    setInterimText("");
+    if (sttRecorderRef.current && sttRecorderRef.current.state !== "inactive") {
+      try {
+        sttRecorderRef.current.stop();
+      } catch { /* already stopped */ }
+    }
+    sttRecorderRef.current = null;
   };
 
   const setupSpeechRecognition = () => {
@@ -926,25 +1067,34 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     setReceiveLog([]);
   };
 
-  const startVoiceCapture = () => {
+  const startVoiceCapture = async () => {
     setError(null);
-    setIsRecording(true);
-    isRecordingRef.current = true;
     setInterimText("");
 
+    const stream = mediaStreamRef.current;
+    const useLocal = stream ? await checkLocalSttAvailability() : false;
+
+    if (useLocal && stream) {
+      startLocalSttLoop(stream);
+      return;
+    }
+
+    // Fallback: browser Web Speech API (needs outbound internet to Google).
+    setIsRecording(true);
+    isRecordingRef.current = true;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
       } catch (e) {
         console.error("Speech recognition start failed:", e);
       }
+    } else {
+      setError("No speech recognition available: the local DGX STT service isn't reachable and this browser has no built-in speech recognition. Ask your admin to start local-voice/stt_server.py, or use manual keyboard mode.");
     }
   };
 
   const stopVoiceCapture = () => {
-    setIsRecording(false);
-    isRecordingRef.current = false;
-    setInterimText("");
+    stopLocalSttLoop();
     setMicLevel(0);
 
     if (recognitionRef.current) {
@@ -1508,7 +1658,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
               {/* Real Participants Cards */}
               {participants
-                .filter((p) => p.id !== myParticipantId && activeStreamerIds.includes(p.id))
+                .filter((p) => p.id !== myParticipantId)
                 .map((peer) => {
                   const isSpeaking = speakingPeerId === peer.id;
                   const avatarColor = getAvatarColor(peer.roll);

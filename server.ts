@@ -149,18 +149,20 @@ async function requireAuth(req: any, res: any, next: any) {
   }
 }
 
-// Lazy initialization of Groq client to prevent crashes on startup if key is missing
+// Lazy initialization of Groq client with dynamic key tracking
 let groqInstance: Groq | null = null;
+let currentGroqApiKey: string | null = null;
 
 function getGroqClient(): Groq {
-  if (!groqInstance) {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) {
-      throw new Error("GROQ_API_KEY is not configured. Please set it in your environment/secrets.");
-    }
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY is not configured. Please set it in your environment/secrets.");
+  }
+  if (!groqInstance || currentGroqApiKey !== apiKey) {
     groqInstance = new Groq({
       apiKey,
     });
+    currentGroqApiKey = apiKey;
   }
   return groqInstance;
 }
@@ -270,18 +272,19 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
     const result: any = await response.json();
     return result.message?.content || "";
   } else if (provider === "openai" || provider === "litellm") {
-    const baseUrl = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
-    const apiKey = process.env.OPENAI_API_KEY || "";
+    const baseUrl = process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
+    const apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || "";
 
-    let model = process.env.OPENAI_MODEL || "gpt-4o";
+    const defaultModel = process.env.AI_MODEL || process.env.OPENAI_MODEL || "interview-coach";
+    let model = defaultModel;
     if (options.purpose === "chat") {
-      model = process.env.OPENAI_MODEL_CHAT || process.env.OPENAI_MODEL || "gpt-4o";
+      model = process.env.OPENAI_MODEL_CHAT || defaultModel;
     } else if (options.purpose === "analyze") {
-      model = process.env.OPENAI_MODEL_ANALYZE || process.env.OPENAI_MODEL || "gpt-4o";
+      model = process.env.OPENAI_MODEL_ANALYZE || defaultModel;
     } else if (options.purpose === "questions") {
-      model = process.env.OPENAI_MODEL_QUESTIONS || process.env.OPENAI_MODEL || "gpt-4o";
+      model = process.env.OPENAI_MODEL_QUESTIONS || defaultModel;
     } else if (options.purpose === "report") {
-      model = process.env.OPENAI_MODEL_REPORT || process.env.OPENAI_MODEL || "gpt-4o";
+      model = process.env.OPENAI_MODEL_REPORT || defaultModel;
     }
 
     const payload: any = {
@@ -314,7 +317,17 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
     return result.choices[0]?.message?.content || "";
   } else {
     const groq = getGroqClient();
-    const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+    const defaultModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+    let model = defaultModel;
+    if (options.purpose === "chat") {
+      model = process.env.GROQ_MODEL_CHAT || defaultModel;
+    } else if (options.purpose === "analyze") {
+      model = process.env.GROQ_MODEL_ANALYZE || defaultModel;
+    } else if (options.purpose === "questions") {
+      model = process.env.GROQ_MODEL_QUESTIONS || defaultModel;
+    } else if (options.purpose === "report") {
+      model = process.env.GROQ_MODEL_REPORT || defaultModel;
+    }
 
     const params: any = {
       messages: options.messages,
@@ -3117,6 +3130,96 @@ app.get("/api/gd-room/diagnose", async (req, res) => {
   }
 });
 
+// --- Local Speech-to-Speech proxy (DGX / on-prem GPU) ---
+// Proxy requests to local Python microservices (local-voice/stt_server.py & local-voice/tts_server.py)
+const LOCAL_STT_URL = process.env.LOCAL_STT_URL || "";
+const LOCAL_TTS_URL = process.env.LOCAL_TTS_URL || "";
+
+app.get("/api/local-voice/status", async (_req, res) => {
+  const status = { sttConfigured: Boolean(LOCAL_STT_URL), ttsConfigured: Boolean(LOCAL_TTS_URL), sttHealthy: false, ttsHealthy: false };
+  try {
+    if (LOCAL_STT_URL) {
+      const healthUrl = LOCAL_STT_URL.replace(/\/transcribe\/?$/, "/health");
+      const r = await fetch(healthUrl, { signal: AbortSignal.timeout(2000) });
+      status.sttHealthy = r.ok;
+    }
+  } catch { /* leave false */ }
+  try {
+    if (LOCAL_TTS_URL) {
+      const healthUrl = LOCAL_TTS_URL.replace(/\/speak\/?$/, "/health");
+      const r = await fetch(healthUrl, { signal: AbortSignal.timeout(2000) });
+      status.ttsHealthy = r.ok;
+    }
+  } catch { /* leave false */ }
+  res.json(status);
+});
+
+// Accepts { audio: "<base64 webm/wav>", mimeType?: string } and forwards it
+// as multipart/form-data to the local Whisper service, returning { text }.
+app.post("/api/local-stt/transcribe", async (req, res) => {
+  if (!LOCAL_STT_URL) {
+    return res.status(503).json({ error: "LOCAL_STT_URL is not configured on the server." });
+  }
+  try {
+    const { audio, mimeType } = req.body || {};
+    if (!audio || typeof audio !== "string") {
+      return res.status(400).json({ error: "audio (base64 string) is required." });
+    }
+
+    const buffer = Buffer.from(audio, "base64");
+    if (buffer.length < 500) {
+      return res.json({ text: "" }); // too short to be real speech, skip GPU pass
+    }
+
+    const ext = (mimeType || "").includes("wav") ? "wav" : "webm";
+    const form = new FormData();
+    form.append("audio", new Blob([buffer], { type: mimeType || "audio/webm" }), `chunk.${ext}`);
+
+    const upstream = await fetch(LOCAL_STT_URL, { method: "POST", body: form, signal: AbortSignal.timeout(20000) });
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => "");
+      return res.status(502).json({ error: `Local STT service error (${upstream.status}): ${errText}` });
+    }
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err: any) {
+    console.error("[local-stt] proxy failed:", err);
+    res.status(502).json({ error: "Local STT service unreachable: " + err.message });
+  }
+});
+
+// Accepts { text: string, speed?: number } and forwards to the local Piper
+// service, returning raw audio/wav bytes.
+app.post("/api/local-tts/speak", async (req, res) => {
+  if (!LOCAL_TTS_URL) {
+    return res.status(503).json({ error: "LOCAL_TTS_URL is not configured on the server." });
+  }
+  try {
+    const { text, speed } = req.body || {};
+    if (!text || typeof text !== "string" || !text.trim()) {
+      return res.status(400).json({ error: "text is required." });
+    }
+
+    const upstream = await fetch(LOCAL_TTS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.trim().slice(0, 2000), speed: speed || 1.0 }),
+      signal: AbortSignal.timeout(20000)
+    });
+
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => "");
+      return res.status(502).json({ error: `Local TTS service error (${upstream.status}): ${errText}` });
+    }
+
+    const arrayBuf = await upstream.arrayBuffer();
+    res.set("Content-Type", "audio/wav");
+    res.send(Buffer.from(arrayBuf));
+  } catch (err: any) {
+    console.error("[local-tts] proxy failed:", err);
+    res.status(502).json({ error: "Local TTS service unreachable: " + err.message });
+  }
+});
 
 // 6. WebSocket Server Setup for Groq Fallback gateway
 // Standard Serverless environments like Vercel do not support WebSockets, but we retain it
