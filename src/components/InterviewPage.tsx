@@ -26,7 +26,11 @@ import {
   Building2,
   Briefcase,
   Layers,
-  ChevronDown
+  Edit3,
+  CheckCheck,
+  MessageSquare,
+  Flame,
+  Volume1
 } from "lucide-react";
 import { InterviewQuestion, AnswerFeedback, StudentProfile, FullAnalysisResult, Scorecard, CompanyPlacementDrive } from "../types";
 import { supabase } from "../lib/supabaseClient";
@@ -80,6 +84,7 @@ export default function InterviewPage({
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
+  const [isManualEdit, setIsManualEdit] = useState(false);
   const [isSpeechSupported, setIsSpeechSupported] = useState(true);
   const [webcamActive, setWebcamActive] = useState(false);
   const [micActive, setMicActive] = useState(true);
@@ -166,7 +171,6 @@ export default function InterviewPage({
           setCurrentQuestionIdx(0);
           setCurrentFeedback(null);
           setFeedbacks([]);
-          // Greet with company context
           speakQuestion(`Welcome to your mock interview for ${drive.companyName}, targeting the ${drive.roleTitle} position. Let's begin round one: ${customQ[0].text}`);
           return;
         }
@@ -258,14 +262,14 @@ export default function InterviewPage({
         }
 
         // Voice Activity Detection (VAD) turn-taking
-        if (wordCount >= 15 && !isPausedToThink) {
+        if (wordCount >= 12 && !isPausedToThink) {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
             if (isRecordingRef.current && transcriptAccumulatedRef.current.trim().length > 20) {
               console.log("[VAD] Conversational pause detected. Auto-submitting spoken answer...");
               handleSubmittingAnswer();
             }
-          }, 2500);
+          }, 3000);
         }
       };
 
@@ -511,6 +515,7 @@ export default function InterviewPage({
     setInterimTranscript("");
     transcriptAccumulatedRef.current = "";
     setSecondsElapsed(0);
+    setIsManualEdit(false);
 
     const nextIdx = currentQuestionIdx + 1;
     const totalRounds = Math.min(6, questionsList.length || 6);
@@ -671,6 +676,8 @@ export default function InterviewPage({
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
+
+  const wordCount = (transcript || interimTranscript).split(/\s+/).filter(Boolean).length;
 
   return (
     <div id="interview-page" className="max-w-7xl mx-auto px-6 py-8 space-y-8 text-left">
@@ -1075,60 +1082,118 @@ export default function InterviewPage({
                   )}
                 </div>
 
-                {/* Live Acoustic Telemetry & Voice Listener */}
-                <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-5">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping inline-block" />
-                      <span className="text-xs font-mono uppercase text-emerald-400 font-bold">
-                        Live Audio Listener Active
-                      </span>
+                {/* LIVE SPOKEN WORDS / DICTATION MONITOR CARD */}
+                <div className="bg-brand-card/35 border-2 border-brand-primary/30 p-6 rounded-2xl space-y-5 shadow-lg relative overflow-hidden">
+                  {/* Top Status Header */}
+                  <div className="flex items-center justify-between border-b border-white/10 pb-3 flex-wrap gap-2">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="relative flex items-center justify-center">
+                        <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping absolute" />
+                        <span className="w-3 h-3 rounded-full bg-emerald-400 inline-block" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>What You Are Saying (Live Voice-to-Text)</span>
+                        </h4>
+                      </div>
                     </div>
-                    <span className="text-xs font-mono text-gray-400 font-bold">
-                      {formatTimer(secondsElapsed)}
-                    </span>
+
+                    <div className="flex items-center space-x-3 text-xs font-mono">
+                      <span className="text-gray-400 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10">
+                        Words: <strong className="text-brand-primary">{wordCount}</strong>
+                      </span>
+                      <span className="text-gray-400 bg-white/5 px-2.5 py-1 rounded-lg border border-white/10 font-bold text-emerald-400">
+                        {formatTimer(secondsElapsed)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsManualEdit(!isManualEdit)}
+                        className="p-1.5 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors cursor-pointer"
+                        title={isManualEdit ? "Switch to Live Speech View" : "Edit Spoken Words Manually"}
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-brand-primary" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Acoustic Telemetry Metrics */}
                   <div className="grid grid-cols-3 gap-3 text-center">
-                    <div className="p-3 bg-brand-bg rounded-xl border border-white/5 space-y-0.5">
-                      <span className="text-[9px] text-gray-500 font-mono uppercase block">Audio Clarity (SNR)</span>
+                    <div className="p-2.5 bg-brand-bg rounded-xl border border-white/5 space-y-0.5">
+                      <span className="text-[9px] text-gray-400 font-mono uppercase block">Clarity SNR</span>
                       <span className="text-brand-primary font-bold text-sm block">{audioClarity}%</span>
                     </div>
 
-                    <div className="p-3 bg-brand-bg rounded-xl border border-white/5 space-y-0.5">
-                      <span className="text-[9px] text-gray-500 font-mono uppercase block">Speaking Pace</span>
+                    <div className="p-2.5 bg-brand-bg rounded-xl border border-white/5 space-y-0.5">
+                      <span className="text-[9px] text-gray-400 font-mono uppercase block">Speaking Pace</span>
                       <span className="text-emerald-400 font-bold text-sm block">{speakingPace} WPM</span>
                     </div>
 
-                    <div className="p-3 bg-brand-bg rounded-xl border border-white/5 space-y-0.5">
-                      <span className="text-[9px] text-gray-500 font-mono uppercase block">Pitch Inflection</span>
+                    <div className="p-2.5 bg-brand-bg rounded-xl border border-white/5 space-y-0.5">
+                      <span className="text-[9px] text-gray-400 font-mono uppercase block">Pitch Inflection</span>
                       <span className="text-cyan-400 font-bold text-sm block">{pitchVariance}%</span>
                     </div>
                   </div>
 
-                  {/* Real-Time Spoken Words Feed */}
-                  <div className="p-4 bg-black/40 border border-white/10 rounded-xl min-h-[95px] max-h-44 overflow-y-auto text-xs text-gray-200 leading-relaxed font-sans text-left space-y-1">
-                    <div className="flex justify-between items-center text-[10px] font-mono text-gray-500 uppercase border-b border-white/5 pb-1 mb-1">
-                      <span>Real-Time Spoken Transcript</span>
-                      <span className="text-emerald-400">● Mic Active</span>
-                    </div>
-
-                    {transcript || interimTranscript ? (
-                      <p className="text-xs text-gray-100 leading-relaxed">
-                        {transcript}{" "}
-                        {interimTranscript && (
-                          <span className="text-brand-primary font-semibold bg-brand-primary/10 px-1 py-0.5 rounded animate-pulse">
-                            {interimTranscript}
-                          </span>
-                        )}
-                      </p>
+                  {/* LIVE SPOKEN TRANSCRIPT BUBBLE / EDIT AREA */}
+                  <div className="p-4 bg-slate-950/80 border border-brand-primary/20 rounded-xl min-h-[120px] max-h-56 overflow-y-auto text-left shadow-inner">
+                    {isManualEdit ? (
+                      <textarea
+                        value={transcript}
+                        onChange={(e) => {
+                          setTranscript(e.target.value);
+                          transcriptAccumulatedRef.current = e.target.value;
+                        }}
+                        placeholder="Type or adjust your spoken answer here..."
+                        className="w-full h-28 bg-transparent text-white text-sm focus:outline-hidden resize-none leading-relaxed font-sans"
+                      />
+                    ) : transcript || interimTranscript ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-1.5 text-[10px] font-mono text-emerald-400 font-semibold mb-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                          <span>SPEECH RECOGNIZED IN REAL-TIME:</span>
+                        </div>
+                        <p className="text-sm sm:text-base font-sans font-medium text-slate-100 leading-relaxed tracking-normal">
+                          "{transcript}{" "}
+                          {interimTranscript && (
+                            <span className="text-cyan-300 font-semibold underline decoration-cyan-400/50 underline-offset-2 animate-pulse">
+                              {interimTranscript}
+                            </span>
+                          )}
+                          "
+                          <span className="inline-block w-2 h-4 bg-brand-primary ml-1.5 animate-pulse align-middle" />
+                        </p>
+                      </div>
                     ) : (
-                      <p className="text-gray-500 italic flex items-center space-x-2 pt-2">
-                        <Mic className="w-4 h-4 text-brand-primary animate-pulse inline mr-1" />
-                        <span>Speak naturally into your microphone. Pause for 2.5s when finished to auto-grade.</span>
-                      </p>
+                      <div className="flex flex-col items-center justify-center py-6 text-center space-y-2 text-gray-400">
+                        <div className="flex items-center space-x-2">
+                          <Mic className="w-5 h-5 text-brand-primary animate-bounce" />
+                          <span className="text-sm font-semibold text-white">Listening to your voice...</span>
+                        </div>
+                        <p className="text-xs text-gray-400 max-w-sm leading-relaxed">
+                          Speak naturally into your microphone. Your spoken words will instantly appear in bold text here in real time.
+                        </p>
+                      </div>
                     )}
+                  </div>
+
+                  {/* Audio Equalizer Sound Wave Animation */}
+                  <div className="flex items-center justify-between px-2 pt-1">
+                    <div className="flex items-center space-x-1">
+                      {[40, 70, 95, 60, 85, 50, 90, 75, 60, 45, 80, 65].map((h, i) => (
+                        <span
+                          key={i}
+                          className="w-1 bg-linear-to-t from-cyan-400 to-emerald-400 rounded-full transition-all duration-75"
+                          style={{
+                            height: isRecording ? `${Math.max(4, Math.min(22, (h * (micLevel || 30)) / 100))}px` : "4px",
+                            opacity: isRecording ? 1 : 0.2
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {isRecording ? "Live Acoustic Stream 🟢" : "Mic Standby ⏸️"}
+                    </span>
                   </div>
 
                   {/* Error Notification */}
