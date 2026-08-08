@@ -2,6 +2,20 @@
  * Shared Type Definitions for Interview Coach
  */
 
+export interface CompanyPlacementDrive {
+  id: string;
+  companyName: string;
+  roleTitle: string;
+  driveType: "Campus Placement" | "Off-Campus Drive" | "Technical HR" | "Soft Skills & Communication" | "System Design";
+  description?: string;
+  materialText?: string;
+  requiredSkills: string[];
+  sampleQuestions?: string[];
+  createdByFacultyName?: string;
+  createdAt?: string;
+  assignedSection?: string;
+}
+
 export interface StudentProfile {
   studentId: string;
   githubUsername?: string;
@@ -28,6 +42,8 @@ export interface StudentProfile {
   assignedByProctorName?: string;
   assignedProctorId?: string;
   assignedProctorName?: string;
+
+  assignedCompanyDrive?: CompanyPlacementDrive;
 }
 
 
@@ -189,6 +205,8 @@ export interface Scorecard {
     explanation: string;
   }>;
   finalVerdict: string;
+  companyDriveName?: string;
+  companyRoleTitle?: string;
 }
 
 export interface FacultyProfile {
@@ -201,11 +219,14 @@ export interface FacultyProfile {
   rollStart: number;
   rollEnd: number;
   isFaculty: boolean;
+  companyDrives?: CompanyPlacementDrive[];
   assignedInterviews?: Array<{
     id: string;
     studentId: string;
     topic: string;
     difficulty: string;
+    companyName?: string;
+    roleTitle?: string;
     assignedAt: string;
     completed: boolean;
     score?: number;

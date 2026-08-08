@@ -11,9 +11,12 @@ import {
   ArrowRight,
   TrendingUp,
   FileCheck2,
-  Calendar
+  Calendar,
+  Building2,
+  Briefcase,
+  Sparkles
 } from "lucide-react";
-import { StudentProfile, Scorecard, FullAnalysisResult } from "../types";
+import { StudentProfile, Scorecard, FullAnalysisResult, CompanyPlacementDrive } from "../types";
 
 interface DashboardPageProps {
   studentProfile: StudentProfile;
@@ -35,8 +38,34 @@ export default function DashboardPage({ studentProfile, scorecard, analysisResul
     return studentProfile.assignedProctorName || studentProfile.assignedByProctorName;
   })();
 
+  // Resolve assigned company drive
+  const assignedDrive: CompanyPlacementDrive | null = (() => {
+    if (studentProfile.assignedCompanyDrive) return studentProfile.assignedCompanyDrive;
+    const stored = localStorage.getItem(`assigned_company_drive_${studentProfile.studentId}`);
+    if (stored) {
+      try { return JSON.parse(stored); } catch {}
+    }
+    const storedInterview = localStorage.getItem(`assignedInterview_${studentProfile.studentId}`);
+    if (storedInterview) {
+      try {
+        const parsed = JSON.parse(storedInterview);
+        if (parsed.companyName) {
+          return {
+            id: "drive_assigned",
+            companyName: parsed.companyName,
+            roleTitle: parsed.roleTitle || "Full Stack SDE",
+            driveType: "Campus Placement",
+            description: `Campus Placement Drive for ${parsed.companyName} assessing communication clarity and technical depth.`,
+            requiredSkills: ["Communication Clarity", "STAR Problem Solving"]
+          };
+        }
+      } catch {}
+    }
+    return null;
+  })();
+
   return (
-    <div id="dashboard-page" className="max-w-7xl mx-auto px-6 py-10 space-y-10">
+    <div id="dashboard-page" className="max-w-7xl mx-auto px-6 py-10 space-y-10 text-left">
       {/* Welcome Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-white/5 pb-8">
         <div>
@@ -131,16 +160,48 @@ export default function DashboardPage({ studentProfile, scorecard, analysisResul
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left Column: Active State or Report Logs */}
         <div className="lg:col-span-8 space-y-8">
+          {/* ASSIGNED COMPANY PLACEMENT DRIVE HIGHLIGHT CARD */}
+          {assignedDrive && (
+            <div className="bg-linear-to-r from-amber-500/10 to-brand-primary/10 border border-amber-500/20 p-6 rounded-2xl space-y-4 shadow-sm text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <Building2 className="w-4 h-4 text-amber-500" />
+                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-amber-400">
+                      Assigned Campus Placement Drive
+                    </span>
+                  </div>
+                  <h3 className="text-xl font-display font-bold text-white mt-1">
+                    {assignedDrive.companyName} &bull; <span className="text-brand-primary">{assignedDrive.roleTitle}</span>
+                  </h3>
+                  <p className="text-xs text-gray-300 mt-1 leading-relaxed max-w-xl">
+                    {assignedDrive.description || "Official placement drive assessing technical depth, communication clarity, and STAR problem solving."}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => onNavigate("interview")}
+                  className="inline-flex items-center justify-center space-x-2 bg-linear-to-r from-brand-accent to-brand-primary text-brand-bg font-bold px-5 py-3 rounded-xl text-xs shadow-md transition-all cursor-pointer neon-glow-btn whitespace-nowrap"
+                >
+                  <Play className="w-3.5 h-3.5 fill-brand-bg text-brand-bg" />
+                  <span>Start {assignedDrive.companyName} Mock</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {scorecard ? (
             <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-6">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-display font-bold text-white">Latest Performance Assessment</h3>
-                  <p className="text-xs text-gray-400 font-mono uppercase mt-0.5">Recorded Report Timeline</p>
+                  <p className="text-xs text-gray-400 font-mono uppercase mt-0.5">
+                    {scorecard.companyDriveName ? `Company: ${scorecard.companyDriveName} (${scorecard.companyRoleTitle || "SDE"})` : "Recorded Report Timeline"}
+                  </p>
                 </div>
                 <button
                   onClick={() => onNavigate("report")}
-                  className="flex items-center space-x-1.5 text-xs text-brand-primary hover:underline font-mono uppercase"
+                  className="flex items-center space-x-1.5 text-xs text-brand-primary hover:underline font-mono uppercase cursor-pointer"
                 >
                   <span>Read Full Report</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -151,7 +212,6 @@ export default function DashboardPage({ studentProfile, scorecard, analysisResul
               <div className="p-5 bg-brand-bg border border-white/5 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-6 items-center">
                 <div className="sm:col-span-4 flex flex-col items-center">
                   <div className="relative w-24 h-24 flex items-center justify-center">
-                    {/* SVG Progress Ring */}
                     <svg className="w-full h-full transform -rotate-90">
                       <circle
                         cx="48"
@@ -205,7 +265,7 @@ export default function DashboardPage({ studentProfile, scorecard, analysisResul
               </div>
               <button
                 onClick={() => onNavigate("analyze")}
-                className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-medium text-sm rounded-xl transition-all inline-flex items-center space-x-2 border border-white/5"
+                className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-medium text-sm rounded-xl transition-all inline-flex items-center space-x-2 border border-white/5 cursor-pointer"
               >
                 <span>Setup Your Profile</span>
                 <ArrowRight className="w-4 h-4" />
@@ -229,105 +289,29 @@ export default function DashboardPage({ studentProfile, scorecard, analysisResul
               </button>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Collaborate with a peer to debate or discuss academic and professional topics. Speak using your microphone (or type directly to bypass mic issues). Submit for AI evaluation based on the official University Soft Skills Assessment rubric, and receive individual grades and coach recommendations.
+              Collaborate with a peer to debate or discuss academic and professional topics. Speak using your microphone. Submit for AI evaluation based on the official University Soft Skills Assessment rubric.
             </p>
-          </div>
-
-          {/* Guidelines roadmap card */}
-          <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-6">
-            <div>
-              <h3 className="text-lg font-display font-bold text-white">The Mock Interview Roadmap</h3>
-              <p className="text-xs text-gray-400 font-mono uppercase mt-0.5">Step-by-Step Training Program</p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              <div className="space-y-3 p-4 bg-brand-bg/50 rounded-xl border border-white/5">
-                <span className="font-mono text-brand-primary text-xs font-bold bg-brand-primary/5 border border-brand-primary/10 px-2.5 py-1 rounded">01</span>
-                <h5 className="font-display font-semibold text-white text-sm">Portfolio Scan</h5>
-                <p className="text-xs text-gray-400 leading-relaxed">We sync with GitHub and extract skills from your resume to compile your baseline developer context.</p>
-              </div>
-              <div className="space-y-3 p-4 bg-brand-bg/50 rounded-xl border border-white/5">
-                <span className="font-mono text-brand-primary text-xs font-bold bg-brand-primary/5 border border-brand-primary/10 px-2.5 py-1 rounded">02</span>
-                <h5 className="font-display font-semibold text-white text-sm">Adaptive Q&A</h5>
-                <p className="text-xs text-gray-400 leading-relaxed">Gemini generates 6 custom questions grading you from warm-up basics up to core architectural tradeoffs.</p>
-              </div>
-              <div className="space-y-3 p-4 bg-brand-bg/50 rounded-xl border border-white/5">
-                <span className="font-mono text-brand-primary text-xs font-bold bg-brand-primary/5 border border-brand-primary/10 px-2.5 py-1 rounded">03</span>
-                <h5 className="font-display font-semibold text-white text-sm">Score Assessment</h5>
-                <p className="text-xs text-gray-400 leading-relaxed">Receive instant grades on vocabulary, pacing, filler-word counters, and technical depth metrics.</p>
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* Right Column: Active Profile Meta info */}
+        {/* Right Column: Key Guidance */}
         <div className="lg:col-span-4 space-y-6">
-          <div className="bg-brand-card/25 border border-white/5 p-5 rounded-2xl space-y-5">
-            <h4 className="text-xs font-mono text-gray-400 uppercase tracking-wider pb-3 border-b border-white/5">
-              Active Integration Profile
-            </h4>
-
-            {analysisResult ? (
-              <div className="space-y-4">
-                <div>
-                  <span className="text-[10px] font-mono text-gray-500 uppercase">Audited Student Name</span>
-                  <div className="text-sm font-semibold text-white mt-0.5">{analysisResult.parsedResume.name || "Student User"}</div>
-                </div>
-
-                <div>
-                  <span className="text-[10px] font-mono text-gray-500 uppercase">GitHub Anchor</span>
-                  <div className="text-sm font-mono text-brand-primary mt-0.5">@{studentProfile.githubUsername}</div>
-                </div>
-
-                <div>
-                  <span className="text-[10px] font-mono text-gray-500 uppercase">Verified Skill Profile</span>
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {analysisResult.parsedResume.skills.slice(0, 6).map((sk, idx) => (
-                      <span key={idx} className="px-2 py-0.5 bg-white/5 text-[10px] text-gray-300 rounded font-mono truncate max-w-[150px]">
-                        {sk}
-                      </span>
-                    ))}
-                    {analysisResult.parsedResume.skills.length > 6 && (
-                      <span className="px-2 py-0.5 bg-white/5 text-[10px] text-gray-500 rounded font-mono">
-                        +{analysisResult.parsedResume.skills.length - 6} more
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    onClick={() => onNavigate("analyze")}
-                    className="w-full py-2.5 bg-white/5 hover:bg-white/10 text-white font-medium text-xs rounded-xl border border-white/5 transition-all text-center uppercase font-mono tracking-wider"
-                  >
-                    Recalibrate Profile
-                  </button>
-                </div>
+          <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-4">
+            <h4 className="text-sm font-display font-bold text-white">SoftSkills Assessment Rubric</h4>
+            <div className="space-y-3 text-xs text-gray-300">
+              <div className="p-3 bg-brand-bg rounded-xl border border-white/5 space-y-1">
+                <span className="font-mono text-brand-primary text-[10px] uppercase font-bold block">1. Speaking Test (2-3 min)</span>
+                <p className="text-gray-400">Evaluates clarity, pronunciation, fluency, grammar accuracy, and vocabulary richness.</p>
               </div>
-            ) : (
-              <div className="py-6 text-center space-y-3">
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  No active portfolio connected.
-                </p>
-                <button
-                  onClick={() => onNavigate("analyze")}
-                  className="px-4 py-2 bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary font-semibold text-xs rounded-xl border border-brand-primary/20 transition-all uppercase font-mono"
-                >
-                  Configure Profile
-                </button>
+              <div className="p-3 bg-brand-bg rounded-xl border border-white/5 space-y-1">
+                <span className="font-mono text-emerald-400 text-[10px] uppercase font-bold block">2. STAR Methodology</span>
+                <p className="text-gray-400">Situation, Task, Action, and Result structured response re-engineering.</p>
               </div>
-            )}
-          </div>
-
-          {/* Career Resource Center Card */}
-          <div className="bg-brand-card/25 border border-white/5 p-5 rounded-2xl space-y-3">
-            <h5 className="font-display font-semibold text-white text-sm flex items-center">
-              <FileCheck2 className="w-4 h-4 text-brand-primary mr-2" />
-              Evaluation Disclaimer
-            </h5>
-            <p className="text-xs text-gray-400 leading-relaxed">
-              Coach provides presentation and technical alignment feedback. We do not evaluate personal characteristics, emotional status, or private psychological traits. Scoring is purely performance-centric.
-            </p>
+              <div className="p-3 bg-brand-bg rounded-xl border border-white/5 space-y-1">
+                <span className="font-mono text-cyan-400 text-[10px] uppercase font-bold block">3. Company Placement Kits</span>
+                <p className="text-gray-400">Dynamically connected by faculty to match target corporate hiring rounds.</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

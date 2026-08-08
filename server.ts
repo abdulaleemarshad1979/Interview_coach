@@ -1365,18 +1365,13 @@ Respond with STRICT JSON matching this schema:
   }
 });
 
-// 3. API Endpoint: Generate 15 Adaptive Interview Questions
+// 3. API Endpoint: Generate 15 Adaptive Interview Questions (Profile + Company Placement Drives)
 app.post("/api/interview/generate-questions", requireAuth, async (req: any, res) => {
   try {
-    const { analysisResult, interviewType } = req.body;
+    const { analysisResult, interviewType, companyName, roleTitle, driveType, materialText, customQuestions } = req.body;
     const previousQuestions = Array.isArray(req.user?.user_metadata?.interview_questions)
       ? req.user.user_metadata.interview_questions.map((q: any) => String(q?.text || "")).filter(Boolean)
       : [];
-
-    if (!analysisResult) {
-      res.status(400).json({ error: "Analysis result is required to generate tailored questions." });
-      return;
-    }
 
     const provider = process.env.AI_PROVIDER || "groq";
     if (provider === "groq") {
@@ -1388,15 +1383,37 @@ app.post("/api/interview/generate-questions", requireAuth, async (req: any, res)
       }
     }
 
-    const prompt = `You are a professional mock interviewer compiling a personalized, adaptive interview plan.
+    const companyContext = companyName ? `
+Target Company / Placement Drive:
+- Company Name: ${companyName}
+- Target Job Role / Track: ${roleTitle || "Full Stack SDE / Systems Engineer"}
+- Drive Assessment Type: ${driveType || "Campus Placement Drive"}
+- Company Hiring Material / Job Description / Specs:
+"""
+${materialText || `Standard campus recruitment guidelines for ${companyName} assessing communication clarity, STAR format problem solving, technical depth, and behavioral culture fit.`}
+"""
+Please tailor the 15 questions specifically to test the skills, tech stack, and communication standards expected by ${companyName} for the ${roleTitle || "SDE"} role.
+` : "";
+
+    const resumeContext = analysisResult ? `
 Based on the candidate's profile:
 - Parsed Resume: ${JSON.stringify(analysisResult.parsedResume)}
 - GitHub Repos: ${JSON.stringify(analysisResult.githubAnalysis)}
 - Cross-Reference Audit: ${JSON.stringify(analysisResult.crossReference || {})}
+` : "Candidate is a graduating computer science and engineering student preparing for campus recruitment.";
 
-Generate exactly 15 interview questions. IMPORTANT: Start with very simple, easy, friendly questions (ice-breakers) and GRADUALLY increase difficulty. The first 5 questions must be basic and comfortable so the candidate warms up. Do NOT start with complex or multi-part questions.
-CRITICAL: You must ONLY ask about projects/skills that are explicitly mentioned in the Parsed Resume or GitHub Repos. Do NOT invent or reference anything not in the profile.
-Do not repeat any of these questions from the candidate's previous interview: ${JSON.stringify(previousQuestions)}
+    const prompt = `You are an elite campus placement proctor and technical HR interviewer.
+${companyContext}
+${resumeContext}
+
+Generate exactly 15 interview questions. IMPORTANT: Start with very simple, easy, friendly questions (ice-breakers) and GRADUALLY increase difficulty. The first 5 questions must be basic and comfortable so the candidate warms up.
+Ensure questions evaluate:
+1. Spoken Communication Clarity & Structure (STAR format)
+2. Role-specific Technical Understanding (${roleTitle || "Software Engineering"})
+3. Teamwork, Conflict Resolution & Leadership (${companyName || "Top Tech"} Cultural Principles)
+4. Problem Solving & Real-World Tradeoffs
+
+Do not repeat any of these previous questions: ${JSON.stringify(previousQuestions)}
 
 The 15 questions must follow this exact progression:
 1. Ice-Breaker / Introduction (Easy) — A very simple, friendly greeting + ask the candidate to introduce themselves in 1-2 sentences.
@@ -1934,7 +1951,7 @@ Respond with STRICT JSON matching this schema:
     {
       "question": "Question text",
       "originalResponse": "Student response text",
-      "improvedVersion": "Prinstine rewritten answer",
+      "improvedVersion": "Pristine rewritten answer",
       "explanation": "Explanation description"
     }
   ],
@@ -1944,7 +1961,7 @@ Respond with STRICT JSON matching this schema:
 
     const completionText = await getLLMCompletion({
       messages: [
-        { role: "system", content: "You are an engineering director. Respond with a JSON object conforming strictly to the requested schema." },
+        { role: "system", content: "You are an engineering director and communication proctor. Respond with a JSON object conforming strictly to the requested schema." },
         { role: "user", content: prompt }
       ],
       jsonMode: true,

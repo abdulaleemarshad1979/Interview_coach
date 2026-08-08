@@ -23,9 +23,12 @@ import {
   Radio,
   Pause,
   RotateCcw,
-  Sparkle
+  Building2,
+  Briefcase,
+  Layers,
+  ChevronDown
 } from "lucide-react";
-import { InterviewQuestion, AnswerFeedback, StudentProfile, FullAnalysisResult, Scorecard } from "../types";
+import { InterviewQuestion, AnswerFeedback, StudentProfile, FullAnalysisResult, Scorecard, CompanyPlacementDrive } from "../types";
 import { supabase } from "../lib/supabaseClient";
 import { getApiUrl, apiFetch } from "../lib/api";
 import { speakNaturalAI, stopNaturalSpeech } from "../lib/naturalVoice";
@@ -45,6 +48,33 @@ export default function InterviewPage({
   onInterviewComplete,
   onNavigate
 }: InterviewPageProps) {
+  // Check if student has a company placement drive assigned by faculty
+  const [activeCompanyDrive, setActiveCompanyDrive] = useState<CompanyPlacementDrive | null>(() => {
+    if (studentProfile.assignedCompanyDrive) return studentProfile.assignedCompanyDrive;
+    const stored = localStorage.getItem(`assigned_company_drive_${studentProfile.studentId}`);
+    if (stored) {
+      try { return JSON.parse(stored); } catch {}
+    }
+    const storedInterview = localStorage.getItem(`assignedInterview_${studentProfile.studentId}`);
+    if (storedInterview) {
+      try {
+        const parsed = JSON.parse(storedInterview);
+        if (parsed.companyName) {
+          return {
+            id: "drive_assigned",
+            companyName: parsed.companyName,
+            roleTitle: parsed.roleTitle || "Full Stack SDE",
+            driveType: "Campus Placement",
+            requiredSkills: ["Communication Clarity", "STAR Problem Solving"]
+          };
+        }
+      } catch {}
+    }
+    return null;
+  });
+
+  const [questionsList, setQuestionsList] = useState<InterviewQuestion[]>(interviewQuestions);
+  const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
@@ -97,11 +127,55 @@ export default function InterviewPage({
   const silenceTimerRef = useRef<any>(null);
   const transcriptAccumulatedRef = useRef<string>("");
 
-  const activeQuestion = interviewQuestions[currentQuestionIdx] || {
+  const activeQuestion = questionsList[currentQuestionIdx] || {
     id: "q1",
     text: "Hello, can you please introduce yourself and tell us a little bit about your background?",
     category: "Ice-Breaker",
     difficulty: "Easy"
+  };
+
+  // Switch or dynamically load company placement drive questions
+  const loadCompanyDriveQuestions = async (drive: CompanyPlacementDrive) => {
+    setLoadingQuestions(true);
+    setActiveCompanyDrive(drive);
+    localStorage.setItem(`assigned_company_drive_${studentProfile.studentId}`, JSON.stringify(drive));
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch(getApiUrl("/api/interview/generate-questions"), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          analysisResult,
+          interviewType: "soft-skills",
+          companyName: drive.companyName,
+          roleTitle: drive.roleTitle,
+          driveType: drive.driveType,
+          materialText: drive.materialText
+        })
+      });
+
+      if (res.ok) {
+        const customQ = await res.json();
+        if (Array.isArray(customQ) && customQ.length > 0) {
+          setQuestionsList(customQ);
+          setCurrentQuestionIdx(0);
+          setCurrentFeedback(null);
+          setFeedbacks([]);
+          // Greet with company context
+          speakQuestion(`Welcome to your mock interview for ${drive.companyName}, targeting the ${drive.roleTitle} position. Let's begin round one: ${customQ[0].text}`);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not generate company questions, using standard progression", e);
+    } finally {
+      setLoadingQuestions(false);
+    }
   };
 
   // Stop all speech output
@@ -115,7 +189,6 @@ export default function InterviewPage({
     if (isVoiceMuted) return;
     setIsAISpeaking(true);
 
-    // Stop recognition while AI speaks to prevent echo
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -129,7 +202,6 @@ export default function InterviewPage({
       },
       () => {
         setIsAISpeaking(false);
-        // Automatically start the live audio listener after AI delivers question
         startAudioListener();
       }
     );
@@ -142,7 +214,6 @@ export default function InterviewPage({
 
     if (!SpeechRecognition) {
       setIsSpeechSupported(false);
-      console.warn("Native SpeechRecognition not present in this browser.");
       return;
     }
 
@@ -186,8 +257,7 @@ export default function InterviewPage({
           setSpeakingPace(wpm);
         }
 
-        // Voice Activity Detection (VAD) turn-taking:
-        // When candidate speaks substantive answer (>15 words) and pauses for 2.5s, auto-grade
+        // Voice Activity Detection (VAD) turn-taking
         if (wordCount >= 15 && !isPausedToThink) {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
@@ -200,9 +270,7 @@ export default function InterviewPage({
       };
 
       recognition.onerror = (event: any) => {
-        console.warn("Speech recognition notice:", event.error);
         if (event.error === "no-speech" || event.error === "network") {
-          // Restart seamlessly if recording
           if (shouldKeepListeningRef.current && isRecordingRef.current && !isAISpeaking) {
             setTimeout(() => {
               try {
@@ -342,7 +410,6 @@ export default function InterviewPage({
 
     let spokenText = (transcriptAccumulatedRef.current || transcript || interimTranscript).trim();
     
-    // If transcript was empty (e.g. browser Web Speech API didn't pick up voice), provide candidate's voice transcript
     if (!spokenText) {
       spokenText = `I am answering the question regarding ${activeQuestion.category}. My background is in software engineering, and I structure my solutions by first analyzing requirements, building modular components, and validating through tests.`;
       setTranscript(spokenText);
@@ -383,14 +450,12 @@ export default function InterviewPage({
       setCurrentFeedback(feedbackData);
       setFeedbacks(prev => [...prev, feedbackData]);
 
-      // Spoken encouragement via natural AI voice
+      // Spoken encouragement
       speakNaturalAI(`Good response. You scored ${feedbackData.score} on this round. ${feedbackData.speechFeedback}`);
 
-      // Auto advance timer
       setAutoAdvanceCountdown(6);
     } catch (err: any) {
       console.error("Answer submission error:", err);
-      // Constructive fallback feedback
       const fallbackFeedback: AnswerFeedback = {
         questionId: activeQuestion.id,
         questionText: activeQuestion.text,
@@ -448,7 +513,7 @@ export default function InterviewPage({
     setSecondsElapsed(0);
 
     const nextIdx = currentQuestionIdx + 1;
-    const totalRounds = Math.min(6, interviewQuestions.length || 6);
+    const totalRounds = Math.min(6, questionsList.length || 6);
 
     if (nextIdx < totalRounds) {
       setCurrentQuestionIdx(nextIdx);
@@ -489,7 +554,9 @@ export default function InterviewPage({
             }
           ],
           originalAnalysis: analysisResult,
-          interviewType: "soft-skills"
+          interviewType: "soft-skills",
+          companyDriveName: activeCompanyDrive?.companyName,
+          companyRoleTitle: activeCompanyDrive?.roleTitle
         })
       });
 
@@ -502,7 +569,6 @@ export default function InterviewPage({
       onNavigate("report");
     } catch (err: any) {
       console.error("Scorecard compilation error:", err);
-      // Fallback scorecard with complete SoftSkills parameters
       const fallbackScorecard: Scorecard = {
         id: "rpt_" + Math.random().toString(36).substring(2, 9),
         studentId: studentProfile.studentId,
@@ -511,6 +577,8 @@ export default function InterviewPage({
         overallScore: 86,
         candidateLevel: "Strong Candidate",
         interviewType: "soft-skills",
+        companyDriveName: activeCompanyDrive?.companyName,
+        companyRoleTitle: activeCompanyDrive?.roleTitle,
         clarityPronunciation: 4,
         fluencyPace: 5,
         grammarAccuracy: 88,
@@ -558,7 +626,7 @@ export default function InterviewPage({
           {
             question: activeQuestion.text,
             originalResponse: transcript || "My background is in software engineering with a focus on web applications.",
-            improvedVersion: "I am a software engineering student specializing in scalable web systems. In my recent project, I designed a real-time collaborative workspace using React and TypeScript, improving latency by 35% across all client nodes.",
+            improvedVersion: `I am a software engineering student specializing in scalable web systems. In my recent project for ${activeCompanyDrive?.companyName || "the campus drive"}, I designed a real-time collaborative workspace using React and TypeScript, improving latency by 35% across all client nodes.`,
             explanation: "Structured in STAR format (Situation, Task, Action, Result) with quantitative metrics."
           }
         ],
@@ -596,7 +664,7 @@ export default function InterviewPage({
       }, 700);
       return () => clearTimeout(timer);
     }
-  }, [currentQuestionIdx, interviewQuestions]);
+  }, [currentQuestionIdx, questionsList]);
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -616,7 +684,7 @@ export default function InterviewPage({
           <div className="text-center space-y-2 max-w-md">
             <h3 className="text-xl font-display font-bold text-white">Synthesizing SoftSkills Report</h3>
             <p className="text-xs text-brand-primary font-mono uppercase tracking-wider animate-pulse">
-              Computing all framework parameters & separate marks...
+              Computing all communication parameters for {activeCompanyDrive?.companyName || "Campus Placement"}...
             </p>
             <p className="text-sm text-gray-400 pt-2 leading-relaxed italic">
               "Compiling Clarity & Pronunciation, Fluency & Pace, Grammar Accuracy, Vocabulary Usage, Coherence of Ideas, and Confidence ratings..."
@@ -625,38 +693,105 @@ export default function InterviewPage({
         </div>
       )}
 
-      {/* Top Banner Status Info */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-5">
+      {/* Top Banner Status Info & Company Placement Switcher */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-5">
         <div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping inline-block" />
             <span className="text-xs font-mono uppercase tracking-widest text-emerald-400 font-bold">
-              Voice-to-Voice Conversational Interview
+              Voice-to-Voice AI Interview
             </span>
+            {activeCompanyDrive && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 border border-amber-500/30 text-amber-300 inline-flex items-center gap-1">
+                <Building2 className="w-3 h-3 text-amber-400" />
+                <span>Drive: {activeCompanyDrive.companyName} &bull; {activeCompanyDrive.roleTitle.split("/")[0]}</span>
+              </span>
+            )}
           </div>
           <h1 className="font-display font-bold text-2xl text-white tracking-tight mt-1">
-            SoftSkills Adaptive Interview Sandbox
+            {activeCompanyDrive ? `${activeCompanyDrive.companyName} Recruitment Drive` : "SoftSkills Adaptive Interview Sandbox"}
           </h1>
         </div>
 
-        {/* Round Progress Tracker */}
-        <div className="flex items-center space-x-3">
-          <span className="text-xs font-mono text-gray-400">
-            Round {currentQuestionIdx + 1} of {Math.min(6, interviewQuestions.length || 6)}
-          </span>
-          <div className="flex space-x-1.5">
-            {Array.from({ length: Math.min(6, interviewQuestions.length || 6) }).map((_, i) => (
-              <div
-                key={i}
-                className={`w-3.5 h-1.5 rounded-full transition-all duration-300 ${
-                  i < currentQuestionIdx
-                    ? "bg-brand-accent"
-                    : i === currentQuestionIdx
-                    ? "bg-brand-primary animate-pulse w-6"
-                    : "bg-white/10"
-                }`}
-              />
-            ))}
+        {/* Round Progress Tracker & Placement Drive Quick Switcher */}
+        <div className="flex items-center space-x-4 flex-wrap gap-y-2">
+          {/* Quick Drive Switcher */}
+          <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl px-2.5 py-1">
+            <Building2 className="w-3.5 h-3.5 text-brand-primary" />
+            <select
+              value={activeCompanyDrive?.companyName || "general"}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "general") {
+                  setActiveCompanyDrive(null);
+                  setQuestionsList(interviewQuestions);
+                  setCurrentQuestionIdx(0);
+                } else if (val === "TCS Digital") {
+                  loadCompanyDriveQuestions({
+                    id: "drive_tcs",
+                    companyName: "TCS Digital",
+                    roleTitle: "Full Stack SDE / Systems Engineer",
+                    driveType: "Campus Placement",
+                    materialText: "TCS Digital technical HR and system scalability round.",
+                    requiredSkills: ["JavaScript", "SQL", "STAR Communication"]
+                  });
+                } else if (val === "Amazon") {
+                  loadCompanyDriveQuestions({
+                    id: "drive_amazon",
+                    companyName: "Amazon (AWS)",
+                    roleTitle: "SDE / Cloud Solutions Architect",
+                    driveType: "Campus Placement",
+                    materialText: "Amazon Leadership Principles, cloud architecture, and ownership.",
+                    requiredSkills: ["Distributed Systems", "Ownership", "STAR Format"]
+                  });
+                } else if (val === "Google") {
+                  loadCompanyDriveQuestions({
+                    id: "drive_google",
+                    companyName: "Google",
+                    roleTitle: "Software Engineer (SWE)",
+                    driveType: "Campus Placement",
+                    materialText: "Googleyness, computational complexity tradeoffs, and high-clarity technical communication.",
+                    requiredSkills: ["Algorithms", "Empathy", "Clear Communication"]
+                  });
+                } else if (val === "Deloitte") {
+                  loadCompanyDriveQuestions({
+                    id: "drive_deloitte",
+                    companyName: "Deloitte",
+                    roleTitle: "Technology Analyst & Consultant",
+                    driveType: "Campus Placement",
+                    materialText: "Client-facing communication, executive business presentation, and case structuring.",
+                    requiredSkills: ["Client Communication", "Business Translation", "Presentation"]
+                  });
+                }
+              }}
+              className="bg-transparent text-xs text-gray-300 font-mono focus:outline-hidden cursor-pointer"
+            >
+              <option value="general" className="bg-brand-bg text-white">General SoftSkills</option>
+              <option value="TCS Digital" className="bg-brand-bg text-white">🏢 TCS Digital (SDE)</option>
+              <option value="Amazon" className="bg-brand-bg text-white">🏢 Amazon AWS (Cloud)</option>
+              <option value="Google" className="bg-brand-bg text-white">🏢 Google (SWE)</option>
+              <option value="Deloitte" className="bg-brand-bg text-white">🏢 Deloitte (Consulting)</option>
+            </select>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <span className="text-xs font-mono text-gray-400">
+              Round {currentQuestionIdx + 1} of {Math.min(6, questionsList.length || 6)}
+            </span>
+            <div className="flex space-x-1">
+              {Array.from({ length: Math.min(6, questionsList.length || 6) }).map((_, i) => (
+                <div
+                  key={i}
+                  className={`w-3.5 h-1.5 rounded-full transition-all duration-300 ${
+                    i < currentQuestionIdx
+                      ? "bg-brand-accent"
+                      : i === currentQuestionIdx
+                      ? "bg-brand-primary animate-pulse w-6"
+                      : "bg-white/10"
+                  }`}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -736,7 +871,9 @@ export default function InterviewPage({
           <div className="bg-brand-card/25 border border-white/5 p-4 rounded-2xl flex items-center justify-between">
             <div>
               <span className="text-xs font-mono text-gray-300 block font-semibold">Natural Voice Modulation</span>
-              <span className="text-[10px] text-gray-500 font-mono">Ultra-natural AI voice delivery</span>
+              <span className="text-[10px] text-gray-500 font-mono">
+                {activeCompanyDrive ? `Tuned for ${activeCompanyDrive.companyName}` : "Ultra-natural AI voice delivery"}
+              </span>
             </div>
             <div className="flex space-x-2">
               <button
@@ -786,7 +923,7 @@ export default function InterviewPage({
                 <div className="flex items-center justify-between border-b border-white/5 pb-4">
                   <div>
                     <span className="text-[10px] font-mono text-brand-primary uppercase tracking-wider font-bold">
-                      SoftSkills Assessment Framework
+                      {activeCompanyDrive ? `${activeCompanyDrive.companyName} Placement Framework` : "SoftSkills Assessment Framework"}
                     </span>
                     <h3 className="text-lg font-display font-bold text-white mt-0.5">
                       Round {currentQuestionIdx + 1} Rubric Scorecard
@@ -892,11 +1029,11 @@ export default function InterviewPage({
                   className="w-full py-4 bg-linear-to-r from-brand-accent to-brand-primary text-brand-bg font-bold rounded-xl flex items-center justify-center space-x-2 neon-glow-btn cursor-pointer"
                 >
                   <span>
-                    {currentQuestionIdx < Math.min(6, interviewQuestions.length || 6) - 1
+                    {currentQuestionIdx < Math.min(6, questionsList.length || 6) - 1
                       ? `Proceed to Next Question ${
                           autoAdvanceCountdown !== null ? `(Auto-advancing in ${autoAdvanceCountdown}s)` : ""
                         }`
-                      : `Finalize SoftSkills Scorecard ${
+                      : `Finalize Placement Dossier ${
                           autoAdvanceCountdown !== null ? `(${autoAdvanceCountdown}s)` : ""
                         }`}
                   </span>
@@ -916,7 +1053,7 @@ export default function InterviewPage({
                 <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-4 shadow-sm">
                   <div className="flex items-center justify-between pb-3 border-b border-white/5">
                     <span className="px-3 py-1 rounded text-[10px] font-mono uppercase tracking-wider bg-brand-primary/10 border border-brand-primary/20 text-brand-primary font-bold">
-                      {activeQuestion.category}
+                      {activeCompanyDrive ? `${activeCompanyDrive.companyName} · ${activeQuestion.category}` : activeQuestion.category}
                     </span>
                     <span className="px-2.5 py-0.5 rounded text-[10px] font-mono uppercase font-bold bg-white/5 border border-white/10 text-gray-300">
                       {activeQuestion.difficulty}
@@ -932,13 +1069,13 @@ export default function InterviewPage({
                     <div className="flex items-center space-x-2.5 bg-brand-primary/10 border border-brand-primary/20 p-3 rounded-xl">
                       <Radio className="w-4 h-4 text-brand-primary animate-ping" />
                       <span className="text-xs font-mono text-brand-primary font-semibold">
-                        AI Interviewer is speaking with dynamic voice modulation...
+                        AI Interviewer is delivering question with natural voice modulation...
                       </span>
                     </div>
                   )}
                 </div>
 
-                {/* Live Acoustic Telemetry & Voice Listener (No giant frequency bar graph) */}
+                {/* Live Acoustic Telemetry & Voice Listener */}
                 <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-5">
                   <div className="flex items-center justify-between border-b border-white/5 pb-3">
                     <div className="flex items-center space-x-2">
@@ -1002,7 +1139,7 @@ export default function InterviewPage({
                     </div>
                   )}
 
-                  {/* Action Bar (Always smooth and never blocks) */}
+                  {/* Action Bar */}
                   <div className="flex flex-wrap items-center gap-3 pt-2">
                     <button
                       type="button"

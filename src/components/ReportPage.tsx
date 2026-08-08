@@ -18,7 +18,9 @@ import {
   Users,
   Mail,
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  Building2,
+  Briefcase
 } from "lucide-react";
 import { Scorecard, FullAnalysisResult } from "../types";
 
@@ -164,15 +166,21 @@ export default function ReportPage({ scorecard, onNavigate }: ReportPageProps) {
   ];
 
   return (
-    <div id="report-page" className="max-w-7xl mx-auto px-6 py-8 space-y-10 print:bg-white print:text-black">
+    <div id="report-page" className="max-w-7xl mx-auto px-6 py-8 space-y-10 print:bg-white print:text-black text-left">
       {/* Printable Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-white/5 pb-8 print:border-black/10 print:pb-4">
-        <div className="text-left">
-          <div className="flex items-center space-x-2">
+        <div>
+          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             <GraduationCap className="w-4 h-4 text-brand-primary print:text-blue-600" />
             <span className="text-xs font-mono text-brand-primary uppercase tracking-widest print:text-blue-600 font-bold">
               Official SoftSkills Assessment Framework
             </span>
+            {scorecard.companyDriveName && (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/10 border border-amber-500/20 text-amber-300 print:text-black print:border-black/20 inline-flex items-center gap-1">
+                <Building2 className="w-3 h-3 text-amber-400 print:text-black" />
+                <span>Drive: {scorecard.companyDriveName} &bull; {scorecard.companyRoleTitle || "SDE"}</span>
+              </span>
+            )}
           </div>
           <h1 className="font-display font-bold text-3xl text-white tracking-tight mt-1 print:text-black">
             Interview Performance & SoftSkills Dossier
@@ -182,7 +190,7 @@ export default function ReportPage({ scorecard, onNavigate }: ReportPageProps) {
             <span>•</span>
             <span>Evaluation Date: <strong>{scorecard.date}</strong></span>
             <span>•</span>
-            <span>Assessment Mode: <strong className="text-emerald-400">Voice-to-Voice Real-Time AI</strong></span>
+            <span>Assessment Mode: <strong className="text-emerald-400 print:text-black">Voice-to-Voice Real-Time AI</strong></span>
           </div>
         </div>
 

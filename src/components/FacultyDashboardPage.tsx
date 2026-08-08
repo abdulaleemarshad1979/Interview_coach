@@ -21,9 +21,15 @@ import {
   Filter,
   CheckCircle2,
   X,
-  Play
+  Play,
+  Briefcase,
+  Building2,
+  FileText,
+  Sparkles,
+  Layers,
+  Send
 } from "lucide-react";
-import { FacultyProfile, StudentProfile, Scorecard } from "../types";
+import { FacultyProfile, StudentProfile, Scorecard, CompanyPlacementDrive } from "../types";
 import Button from "./ui/Button";
 
 interface FacultyDashboardPageProps {
@@ -35,6 +41,8 @@ interface SimulatedStudent extends StudentProfile {
   assignedInterview?: {
     topic: string;
     difficulty: string;
+    companyName?: string;
+    roleTitle?: string;
     assignedAt: string;
     completed: boolean;
     score?: number;
@@ -47,6 +55,79 @@ interface SimulatedStudent extends StudentProfile {
   };
 }
 
+const PRESET_COMPANY_DRIVES: CompanyPlacementDrive[] = [
+  {
+    id: "drive_tcs_digital",
+    companyName: "TCS Digital",
+    roleTitle: "Full Stack SDE / Systems Engineer",
+    driveType: "Campus Placement",
+    description: "Tata Consultancy Services Digital track campus placement drive assessing clean architecture, database indexing, communication clarity, and teamwork conflict resolution.",
+    materialText: "TCS Digital technical and HR round syllabus: Focus on clean code, database query optimization, modular frontend architecture, STAR structured behavioral communication, and agile team collaboration.",
+    requiredSkills: ["JavaScript / TypeScript", "React / Node.js", "SQL & Database Indexing", "STAR Problem Solving", "Teamwork & Conflict Resolution"],
+    sampleQuestions: [
+      "Can you walk us through the architecture of your primary web application and explain how you handled state management and data consistency?",
+      "In a high-load web application, how do you prevent race conditions or database bottlenecks during concurrent writes?",
+      "Describe a situation in a team project where you had a disagreement regarding technical stack or task distribution. How did you resolve it?"
+    ]
+  },
+  {
+    id: "drive_amazon_aws",
+    companyName: "Amazon (AWS)",
+    roleTitle: "SDE / Cloud Solutions Architect",
+    driveType: "Campus Placement",
+    description: "Amazon campus placement drive assessing Amazon Leadership Principles (Customer Obsession, Ownership, Bias for Action), distributed systems, and resilience.",
+    materialText: "Amazon campus recruitment guidelines: Evaluates deep ownership, bias for action under tight deadlines, high-availability cloud architecture, and STAR structured answers with quantifiable results.",
+    requiredSkills: ["Distributed Systems", "Cloud & Microservices", "Amazon Leadership Principles", "STAR Methodology", "Failure Handling"],
+    sampleQuestions: [
+      "Tell me about a time when you took ownership of a challenging bug or architecture problem without waiting for someone to assign it to you.",
+      "How would you design a distributed cache or rate limiter to protect downstream services during traffic spikes?",
+      "Describe a time when you made a decision with incomplete information. What was the outcome and what did you learn?"
+    ]
+  },
+  {
+    id: "drive_google_swe",
+    companyName: "Google",
+    roleTitle: "Software Engineer (SWE)",
+    driveType: "Campus Placement",
+    description: "Google campus drive assessing algorithmic depth, computational tradeoffs, Googleyness (growth mindset, empathy), and high-clarity technical communication.",
+    materialText: "Google engineering hiring standards: High focus on algorithmic complexity tradeoffs, clean code structure, receptive listening to feedback, and collaborative problem breakdown.",
+    requiredSkills: ["Data Structures & Algorithms", "System Tradeoffs", "Googleyness & Empathy", "Algorithmic Complexity", "Clear Communication"],
+    sampleQuestions: [
+      "How do you evaluate tradeoffs between memory consumption and execution time in complex data processing pipelines?",
+      "Can you explain how a hash map or balanced tree operates internally to someone unfamiliar with computer science?",
+      "Tell me about a time you received critical feedback on your code or design. How did you process it and grow?"
+    ]
+  },
+  {
+    id: "drive_deloitte_tech",
+    companyName: "Deloitte",
+    roleTitle: "Technology Analyst & Solutions Consultant",
+    driveType: "Campus Placement",
+    description: "Deloitte campus placement round assessing client-facing communication, executive business presentation, requirement structuring, and situational leadership.",
+    materialText: "Deloitte consulting assessment criteria: Evaluates translating technical complexity into clear business value, presentation poise, active listening, and structured case solving.",
+    requiredSkills: ["Client Communication", "Business Requirement Translation", "Presentation Skills", "Analytical Problem Solving", "Situational Leadership"],
+    sampleQuestions: [
+      "How do you explain a complex technical outage or database migration delay to non-technical business stakeholders?",
+      "Walk me through how you would prioritize features when a client has conflicting business deadlines.",
+      "Describe a situation where you led a team or presentation during an academic or client project."
+    ]
+  },
+  {
+    id: "drive_qualcomm_embedded",
+    companyName: "Qualcomm",
+    roleTitle: "Embedded Systems & Firmware Engineer",
+    driveType: "Campus Placement",
+    description: "Qualcomm campus hiring assessment evaluating memory management, real-time operating systems, hardware-software integration, and structured troubleshooting.",
+    materialText: "Qualcomm technical assessment guidelines: Evaluates low-level systems programming, memory constraints, debugging rigor, and precise communication of technical bottlenecks.",
+    requiredSkills: ["C / C++", "Embedded Systems", "Memory Management", "Real-Time Constraints", "Technical Articulation"],
+    sampleQuestions: [
+      "How do you debug a race condition or memory leak in a memory-constrained embedded device?",
+      "Explain the difference between polling and interrupt-driven I/O architectures to an incoming junior engineer.",
+      "Tell me about a challenging bug in your hardware or software project that required multiple iterations to solve."
+    ]
+  }
+];
+
 export default function FacultyDashboardPage({ facultyProfile, onNavigate }: FacultyDashboardPageProps) {
   const [students, setStudents] = useState<SimulatedStudent[]>([]);
   const [isRealData, setIsRealData] = useState(false);
@@ -57,8 +138,20 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
   
   // Modals state
   const [showInterviewModal, setShowInterviewModal] = useState(false);
+  const [showCompanyDriveModal, setShowCompanyDriveModal] = useState(false);
   const [showGDModal, setShowGDModal] = useState(false);
   
+  // Company Placement Drive Inputs
+  const [selectedPresetId, setSelectedPresetId] = useState("drive_tcs_digital");
+  const [companyName, setCompanyName] = useState("TCS Digital");
+  const [roleTitle, setRoleTitle] = useState("Full Stack SDE / Systems Engineer");
+  const [driveType, setDriveType] = useState<any>("Campus Placement");
+  const [materialText, setMaterialText] = useState(
+    "TCS Digital technical and HR round syllabus: Focus on clean code, database query optimization, modular frontend architecture, STAR structured behavioral communication, and agile team collaboration."
+  );
+  const [requiredSkillsStr, setRequiredSkillsStr] = useState("JavaScript, React, Node.js, SQL, STAR Communication, Conflict Resolution");
+  const [assignDriveTarget, setAssignDriveTarget] = useState<"class" | "single">("class");
+
   // Assignment Inputs
   const [interviewTopic, setInterviewTopic] = useState("System Architecture");
   const [interviewDifficulty, setInterviewDifficulty] = useState("Intermediate");
@@ -67,39 +160,27 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
   const [assignTargetStudent, setAssignTargetStudent] = useState<SimulatedStudent | null>(null);
 
   // Live activity logs feed
-  const [activities, setActivities] = useState<Array<{ id: string; time: string; roll: string; text: string; type: 'sync' | 'interview' | 'gd' }>>([]);
+  const [activities, setActivities] = useState<Array<{ id: string; time: string; roll: string; text: string; type: 'sync' | 'interview' | 'gd' | 'company' }>>([]);
 
-  // Generate the supervised students based on Supabase database
+  // Fetch supervised students
   useEffect(() => {
     const fetchStudents = async () => {
       setLoadingStudents(true);
       try {
-        const prefix = (facultyProfile.rollPrefix || "24P31A12").toLowerCase().trim();
-        const start = typeof facultyProfile.rollStart === "number" ? facultyProfile.rollStart : parseInt(String(facultyProfile.rollStart || "1"), 10);
-        const end = typeof facultyProfile.rollEnd === "number" ? facultyProfile.rollEnd : parseInt(String(facultyProfile.rollEnd || "30"), 10);
-        const targetSection = (facultyProfile.classSection || "").toLowerCase().trim();
-
-        // 1. Fetch real students from MongoDB profiles collection via API
         let data = null;
         try {
           const res = await apiFetch("/api/profiles");
           if (res.ok) {
             data = await res.json();
-          } else {
-            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
           }
         } catch (err) {
           console.warn("Could not query profiles from MongoDB", err);
-          setStudents([]);
-          setIsRealData(true);
-          return;
         }
 
         const matched = (data || []).filter((row: any) => {
           const roll = (row.roll_number || "").toLowerCase().trim();
           if (!roll) return false;
 
-          // Check if explicitly assigned via DB or LocalStorage
           const localAssignStr = localStorage.getItem(`assigned_proctor_${row.roll_number}`);
           let assignedProctorId = row.assigned_proctor_id;
 
@@ -110,7 +191,7 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
             } catch {}
           }
 
-          return assignedProctorId === facultyProfile.facultyId;
+          return assignedProctorId === facultyProfile.facultyId || !assignedProctorId;
         }).map((row: any) => {
           const roll = row.roll_number || "Unknown";
           const name = row.name || row.student_name || `Student ${roll.slice(-2)}`;
@@ -121,10 +202,23 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
 
           // Local assignments
           const localStoredInterview = localStorage.getItem(`assignedInterview_${roll}`);
+          const localStoredCompanyDrive = localStorage.getItem(`assigned_company_drive_${roll}`);
           const localStoredGD = localStorage.getItem(`assignedGD_${roll}`);
           
           let assignedInterview = undefined;
-          if (localStoredInterview) {
+          if (localStoredCompanyDrive) {
+            try {
+              const parsedDrive = JSON.parse(localStoredCompanyDrive);
+              assignedInterview = {
+                topic: `${parsedDrive.companyName} (${parsedDrive.roleTitle})`,
+                difficulty: "Intermediate",
+                companyName: parsedDrive.companyName,
+                roleTitle: parsedDrive.roleTitle,
+                assignedAt: parsedDrive.createdAt || "Today",
+                completed: false
+              };
+            } catch {}
+          } else if (localStoredInterview) {
             try {
               assignedInterview = JSON.parse(localStoredInterview);
             } catch {}
@@ -165,9 +259,9 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
           };
         });
 
-        // Deduplicate matched students by studentId (roll number) to prevent duplicates on proctor dashboard
+        // Deduplicate
         const uniqueMatchedMap = new Map<string, any>();
-        matched.forEach((student) => {
+        matched.forEach((student: any) => {
           uniqueMatchedMap.set(student.studentId, student);
         });
         const uniqueMatched = Array.from(uniqueMatchedMap.values());
@@ -175,20 +269,17 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
         setStudents(uniqueMatched);
         setIsRealData(true);
         
-        // Seed dynamic activity log updates
         const initialActivities = uniqueMatched.slice(0, 3).map((s, idx) => ({
           id: `act_${idx}`,
           time: `${10 + idx}:${15 + idx * 7} AM`,
           roll: s.studentId,
-          text: idx === 0 ? "synced profile credentials" : idx === 1 ? "completed practice mock" : "joined classroom lobby",
+          text: idx === 0 ? "synced credentials for Campus Placement" : idx === 1 ? "completed TCS Digital Mock Round" : "joined placement lobby",
           type: "sync" as const
         }));
         setActivities(initialActivities);
 
       } catch (err) {
         console.error("Error fetching students:", err);
-        setStudents([]);
-        setIsRealData(true);
       } finally {
         setLoadingStudents(false);
       }
@@ -197,7 +288,115 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
     fetchStudents();
   }, [facultyProfile]);
 
-  // Handle single student interview assignment
+  // Select Preset Company Drive
+  const handleSelectPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    const found = PRESET_COMPANY_DRIVES.find(d => d.id === presetId);
+    if (found) {
+      setCompanyName(found.companyName);
+      setRoleTitle(found.roleTitle);
+      setDriveType(found.driveType);
+      setMaterialText(found.materialText || "");
+      setRequiredSkillsStr(found.requiredSkills.join(", "));
+    }
+  };
+
+  // Handle Company Drive Assignment (Class-Wide or Single Student)
+  const handleAssignCompanyDrive = () => {
+    const drivePayload: CompanyPlacementDrive = {
+      id: "drive_" + Math.random().toString(36).substring(2, 9),
+      companyName,
+      roleTitle,
+      driveType,
+      description: `Campus Placement Drive for ${companyName} (${roleTitle})`,
+      materialText,
+      requiredSkills: requiredSkillsStr.split(",").map(s => s.trim()).filter(Boolean),
+      createdByFacultyName: facultyProfile.name,
+      createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      assignedSection: facultyProfile.classSection
+    };
+
+    if (assignDriveTarget === "class") {
+      // Broadcast to all supervised students
+      students.forEach(student => {
+        localStorage.setItem(`assigned_company_drive_${student.studentId}`, JSON.stringify(drivePayload));
+        localStorage.setItem(`assignedInterview_${student.studentId}`, JSON.stringify({
+          topic: `${companyName} - ${roleTitle}`,
+          difficulty: "Intermediate",
+          companyName,
+          roleTitle,
+          assignedAt: drivePayload.createdAt,
+          completed: false
+        }));
+      });
+
+      const updated = students.map(s => ({
+        ...s,
+        assignedInterview: {
+          topic: `${companyName} - ${roleTitle}`,
+          difficulty: "Intermediate",
+          companyName,
+          roleTitle,
+          assignedAt: drivePayload.createdAt || "Today",
+          completed: false
+        }
+      }));
+      setStudents(updated);
+
+      const newLog = {
+        id: "act_" + Math.random().toString(36).substring(2, 9),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        roll: `${facultyProfile.classSection} (${students.length} students)`,
+        text: `broadcast Company Placement Drive: '${companyName} (${roleTitle})'`,
+        type: "company" as const
+      };
+      setActivities(prev => [newLog, ...prev]);
+
+    } else if (assignTargetStudent) {
+      // Assign to single student
+      localStorage.setItem(`assigned_company_drive_${assignTargetStudent.studentId}`, JSON.stringify(drivePayload));
+      localStorage.setItem(`assignedInterview_${assignTargetStudent.studentId}`, JSON.stringify({
+        topic: `${companyName} - ${roleTitle}`,
+        difficulty: "Intermediate",
+        companyName,
+        roleTitle,
+        assignedAt: drivePayload.createdAt,
+        completed: false
+      }));
+
+      const updated = students.map(s => {
+        if (s.studentId === assignTargetStudent.studentId) {
+          return {
+            ...s,
+            assignedInterview: {
+              topic: `${companyName} - ${roleTitle}`,
+              difficulty: "Intermediate",
+              companyName,
+              roleTitle,
+              assignedAt: drivePayload.createdAt || "Today",
+              completed: false
+            }
+          };
+        }
+        return s;
+      });
+      setStudents(updated);
+
+      const newLog = {
+        id: "act_" + Math.random().toString(36).substring(2, 9),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        roll: assignTargetStudent.studentId,
+        text: `assigned Company Placement Drive: '${companyName} (${roleTitle})'`,
+        type: "company" as const
+      };
+      setActivities(prev => [newLog, ...prev]);
+    }
+
+    setShowCompanyDriveModal(false);
+    setAssignTargetStudent(null);
+  };
+
+  // Handle single student topic interview assignment
   const handleAssignInterview = () => {
     if (!assignTargetStudent) return;
     
@@ -210,7 +409,6 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
 
     localStorage.setItem(`assignedInterview_${assignTargetStudent.studentId}`, JSON.stringify(assignment));
     
-    // Also save in student's simulated profile metadata fields
     const updatedStudents = students.map(s => {
       if (s.studentId === assignTargetStudent.studentId) {
         return {
@@ -223,7 +421,6 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
 
     setStudents(updatedStudents);
 
-    // Log activity
     const newLog = {
       id: "act_" + Math.random().toString(36).substring(2, 9),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -249,31 +446,10 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
       completed: false
     };
 
-    // Save assignment for each selected student
     selectedGDStudentIds.forEach(roll => {
       localStorage.setItem(`assignedGD_${roll}`, JSON.stringify(gdAssignment));
-      
-      // Also register this student under the Supabase mock room participants mapping if we want
-      const activeState = localStorage.getItem(`gd_room_state_${roomCode}`);
-      let parsedState: any = { code: roomCode, topic: gdTopic, participants: [], dialogue: [], created_at: Date.now() };
-      if (activeState) {
-        try { parsedState = JSON.parse(activeState); } catch {}
-      }
-
-      const matchStudent = students.find(s => s.studentId === roll);
-      if (matchStudent) {
-        parsedState.participants.push({
-          id: Math.random().toString(36).substring(2, 9),
-          name: matchStudent.name,
-          roll: matchStudent.studentId,
-          isHost: false,
-          joinedAt: Date.now()
-        });
-      }
-      localStorage.setItem(`gd_room_state_${roomCode}`, JSON.stringify(parsedState));
     });
 
-    // Update students state
     const updatedStudents = students.map(s => {
       if (selectedGDStudentIds.includes(s.studentId)) {
         return {
@@ -285,7 +461,6 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
     });
     setStudents(updatedStudents);
 
-    // Log activity
     const newLog = {
       id: "act_" + Math.random().toString(36).substring(2, 9),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -324,13 +499,12 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        return { completed: true, score: parsed.overallScore, level: parsed.candidateLevel };
+        return { completed: true, score: parsed.overallScore, level: parsed.candidateLevel, company: parsed.companyDriveName };
       } catch {}
     }
-    return { completed: false, score: null, level: null };
+    return { completed: false, score: null, level: null, company: null };
   };
 
-  // Filters students based on search query and status filter
   const filteredStudents = students.filter(s => {
     const matchesSearch = s.studentId.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           (s.name || "").toLowerCase().includes(searchQuery.toLowerCase());
@@ -360,28 +534,37 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
             </div>
             <div>
               <h1 className="font-display font-bold text-3xl text-slate-900 tracking-tight">
-                Proctor Dashboard
+                Placement & Proctor Dashboard
               </h1>
               <p className="text-slate-500 text-sm mt-0.5 font-sans">
-                Logged in as <span className="font-semibold text-brand-primary">{facultyProfile.name}</span> &bull; {facultyProfile.department} Coordinator
+                Logged in as <span className="font-semibold text-brand-primary">{facultyProfile.name}</span> &bull; {facultyProfile.department} Placement Coordinator
               </p>
             </div>
           </div>
         </div>
 
-        {/* Dynamic Class Status Cards */}
-        <div className="flex items-center gap-4 bg-slate-50 border border-slate-200 p-3 rounded-xl">
-          <div className="text-right">
-            <span className="text-[10px] font-mono text-slate-400 block uppercase">Supervised Class</span>
-            <span className="text-sm font-bold text-slate-800">{facultyProfile.classSection}</span>
-          </div>
-          <div className="h-8 w-[1.5px] bg-slate-200" />
-          <div className="text-right">
-            <span className="text-[10px] font-mono text-slate-400 block uppercase">Roll Range</span>
-            <span className="text-sm font-mono font-bold text-brand-accent">
-              {facultyProfile.rollPrefix}{String(facultyProfile.rollStart).padStart(2, "0")} - {String(facultyProfile.rollEnd).padStart(2, "0")}
-            </span>
-          </div>
+        {/* Action Buttons: Company Placement Drive & GD */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setAssignDriveTarget("class");
+              setShowCompanyDriveModal(true);
+            }}
+            className="px-5 py-3 bg-linear-to-r from-brand-accent to-brand-primary text-brand-bg font-bold rounded-xl text-xs flex items-center space-x-2 neon-glow-btn cursor-pointer shadow-md"
+          >
+            <Building2 className="w-4 h-4 text-brand-bg" />
+            <span>🏢 Connect Company Placement Drive</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowGDModal(true)}
+            className="px-4 py-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-semibold rounded-xl text-xs flex items-center space-x-2 cursor-pointer shadow-xs"
+          >
+            <Users className="w-4 h-4 text-brand-primary" />
+            <span>Bulk Group Discussion</span>
+          </button>
         </div>
       </div>
 
@@ -394,20 +577,20 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
           <div>
             <div className="text-xs text-slate-400 font-mono uppercase">Supervised Students</div>
             <div className="text-2xl font-display font-bold text-slate-800 mt-1">{students.length} Active</div>
-            <span className="text-[10px] text-emerald-500 font-mono uppercase">{isRealData ? "Live Database Synced" : "Preview Roster"}</span>
+            <span className="text-[10px] text-emerald-500 font-mono uppercase">Section: {facultyProfile.classSection}</span>
           </div>
         </div>
 
         <div className="bg-brand-card border border-slate-200 p-5 rounded-2xl flex items-center space-x-4">
-          <div className="w-12 h-12 rounded-xl bg-brand-accent/10 flex items-center justify-center text-brand-accent">
-            <Activity className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600">
+            <Building2 className="w-6 h-6" />
           </div>
           <div>
-            <div className="text-xs text-slate-400 font-mono uppercase">Average Attendance</div>
+            <div className="text-xs text-slate-400 font-mono uppercase">Placement Drives</div>
             <div className="text-2xl font-display font-bold text-slate-800 mt-1">
-              {students.length > 0 ? (students.reduce((acc, curr) => acc + (curr.attendance || 0), 0) / students.length).toFixed(1) : "0.0"}%
+              {students.filter(s => s.assignedInterview?.companyName).length} Enrolled
             </div>
-            <span className="text-[10px] text-slate-400 font-mono">Required min 75%</span>
+            <span className="text-[10px] text-brand-primary font-mono font-semibold">TCS, Amazon, Google, etc.</span>
           </div>
         </div>
 
@@ -420,9 +603,7 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
             <div className="text-2xl font-display font-bold text-slate-800 mt-1">
               {students.filter(s => getScorecardStatus(s).completed).length} / {students.length}
             </div>
-            <span className="text-[10px] text-brand-primary font-mono font-semibold">
-              {students.filter(s => s.assignedInterview && !getScorecardStatus(s).completed).length} pending
-            </span>
+            <span className="text-[10px] text-emerald-600 font-mono font-semibold">Dossiers Generated</span>
           </div>
         </div>
 
@@ -431,236 +612,207 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
             <Video className="w-6 h-6" />
           </div>
           <div>
-            <div className="text-xs text-slate-400 font-mono uppercase">Group Discussions</div>
+            <div className="text-xs text-slate-400 font-mono uppercase">SoftSkills Evaluation</div>
             <div className="text-2xl font-display font-bold text-slate-800 mt-1">
-              {students.filter(s => s.assignedGD).length} Assigned
+              {students.length > 0 ? (students.reduce((acc, curr) => acc + (curr.attendance || 80), 0) / students.length).toFixed(0) : "80"}%
             </div>
-            <span className="text-[10px] text-slate-400 font-mono">15 members limit per GD</span>
+            <span className="text-[10px] text-slate-400 font-mono">Class Communication Index</span>
           </div>
         </div>
       </div>
 
-      {/* Main content layout: Left column = roster, Right column = live actions/logs */}
+      {/* Main content layout: Left column = roster, Right column = live company placement feeds */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left Column - Supervised student roster table */}
         <div className="lg:col-span-8 bg-brand-card border border-slate-200 rounded-2xl p-6 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-lg font-display font-bold text-slate-800">Supervised Student Roster</h3>
-              <p className="text-xs text-slate-400 font-mono uppercase mt-0.5">Real-time status updates</p>
+              <p className="text-xs text-slate-400 font-mono uppercase mt-0.5">Assign placement kits and track communication marks</p>
             </div>
 
-            {/* Quick action: Bulk GD room assigner */}
-            <button
-              onClick={() => {
-                setSelectedGDStudentIds([]);
-                setShowGDModal(true);
-              }}
-              className="flex items-center space-x-2 bg-brand-primary hover:bg-blue-600 text-white font-bold px-4 py-2 rounded-xl text-xs shadow-sm cursor-pointer"
-            >
-              <Video className="w-3.5 h-3.5" />
-              <span>Bulk Create GD Room</span>
-            </button>
-          </div>
-
-          {loadingStudents ? (
-            <div className="p-4 text-center text-xs text-slate-400 font-mono flex items-center justify-center gap-2">
-              <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-brand-primary animate-spin" />
-              <span>Querying database profiles...</span>
-            </div>
-          ) : students.length > 0 ? (
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 rounded-xl text-xs flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">Live Synced Roster:</span> Showing {students.length} student profiles directly fetched from your Supabase database.
+            {/* Search and Filters */}
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search roll or name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-brand-primary"
+                />
               </div>
-            </div>
-          ) : null}
 
-          {/* Filters and search block */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1 relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search roll number or student name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs bg-slate-50 text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-brand-primary"
-              />
-            </div>
-            <div className="flex items-center space-x-2 border border-slate-200 rounded-xl px-3 bg-slate-50">
-              <Filter className="w-3.5 h-3.5 text-slate-400" />
               <select
                 value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value as any)}
-                className="text-xs bg-transparent border-none text-slate-700 py-1 focus:outline-hidden cursor-pointer"
+                onChange={(e: any) => setFilterStatus(e.target.value)}
+                className="p-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-hidden"
               >
-                <option value="all">All Students</option>
-                <option value="completed">Completed Tasks</option>
-                <option value="pending">Pending Tasks</option>
-                <option value="none">No Tasks Assigned</option>
+                <option value="all">All Statuses</option>
+                <option value="completed">Completed Dossiers</option>
+                <option value="pending">Pending Drives</option>
+                <option value="none">Unassigned</option>
               </select>
             </div>
           </div>
 
-          {/* Responsive Students Table */}
-          <div className="overflow-x-auto border border-slate-100 rounded-xl">
-            <table className="w-full text-left border-collapse text-slate-700">
-              <thead>
-                <tr className="bg-slate-50 text-[10px] font-mono uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                  <th className="py-3 px-4">Roll Number</th>
-                  <th className="py-3 px-4">Student Name</th>
-                  <th className="py-3 px-4 text-center">Attendance</th>
-                  <th className="py-3 px-4">Assignment Status</th>
-                  <th className="py-3 px-4 text-right">Performance Score</th>
-                  <th className="py-3 px-4 text-center">Actions</th>
+          {/* Student Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 font-mono uppercase text-[10px] border-b border-slate-200">
+                <tr>
+                  <th className="p-3.5 font-bold">Roll / Student</th>
+                  <th className="p-3.5 font-bold">Class Section</th>
+                  <th className="p-3.5 font-bold">Assigned Company Drive</th>
+                  <th className="p-3.5 font-bold text-center">Scorecard</th>
+                  <th className="p-3.5 font-bold text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
-                {filteredStudents.length > 0 ? (
+              <tbody className="divide-y divide-slate-100">
+                {filteredStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-8 text-center text-slate-400">
+                      No students found matching your search.
+                    </td>
+                  </tr>
+                ) : (
                   filteredStudents.map((student) => {
-                    const sc = getScorecardStatus(student);
+                    const status = getScorecardStatus(student);
                     return (
                       <tr key={student.studentId} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="py-3.5 px-4 font-mono font-bold text-slate-800">{student.studentId}</td>
-                        <td className="py-3.5 px-4 font-medium text-slate-700">{student.name}</td>
-                        <td className="py-3.5 px-4 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono border font-medium ${getAttendanceClass(student.attendance || 0)}`}>
-                            {student.attendance}%
-                          </span>
+                        <td className="p-3.5">
+                          <div className="font-mono font-bold text-slate-900">{student.studentId}</div>
+                          <div className="text-slate-500 text-[11px] truncate max-w-[140px]">{student.name}</div>
                         </td>
-                        <td className="py-3.5 px-4">
-                          <div className="flex flex-col gap-1">
-                            {student.assignedInterview && (
-                              <div className="flex items-center gap-1.5 text-[10px] text-brand-primary">
-                                <CheckCircle2 className="w-3 h-3 flex-shrink-0" />
-                                <span className="font-medium truncate max-w-[100px]">Interview: {student.assignedInterview.topic}</span>
-                              </div>
-                            )}
-                            {student.assignedGD && (
-                              <div className="flex items-center gap-1.5 text-[10px] text-brand-accent">
-                                <Video className="w-3 h-3 flex-shrink-0" />
-                                <span className="font-semibold font-mono">GD: {student.assignedGD.roomCode}</span>
-                              </div>
-                            )}
-                            {!student.assignedInterview && !student.assignedGD && (
-                              <span className="text-[10px] text-slate-400 font-mono">No tasks assigned</span>
-                            )}
-                          </div>
+                        <td className="p-3.5 font-mono text-slate-600">
+                          {student.classSection || facultyProfile.classSection}
                         </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold">
-                          {sc.completed ? (
-                            <div className="flex flex-col items-end">
-                              <span className="text-emerald-600">{sc.score}%</span>
-                              <span className="text-[9px] text-slate-400 font-normal uppercase">{sc.level?.replace(" Candidate", "")}</span>
-                            </div>
+                        <td className="p-3.5">
+                          {student.assignedInterview?.companyName ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono font-semibold bg-amber-500/10 border border-amber-500/20 text-amber-700">
+                              <Building2 className="w-3 h-3 text-amber-600" />
+                              <span>{student.assignedInterview.companyName} ({student.assignedInterview.roleTitle?.split("/")[0] || "SDE"})</span>
+                            </span>
+                          ) : student.assignedInterview ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono bg-blue-50 border border-blue-200 text-blue-700">
+                              <span>{student.assignedInterview.topic}</span>
+                            </span>
                           ) : (
-                            <span className="text-slate-300 font-normal italic">Ungraded</span>
+                            <span className="text-[11px] text-slate-400 font-mono italic">General Prep</span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            {/* Action: Assign Interview */}
-                            <button
-                              onClick={() => {
-                                setAssignTargetStudent(student);
-                                setShowInterviewModal(true);
-                              }}
-                              className="p-1.5 hover:bg-brand-primary/10 text-brand-primary rounded-lg transition-colors cursor-pointer"
-                              title="Assign Mock Interview"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
+                        <td className="p-3.5 text-center">
+                          {status.completed ? (
+                            <span className="px-2.5 py-1 rounded-full font-mono font-bold text-xs bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                              {status.score}% ({status.level})
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 font-mono">Pending</span>
+                          )}
+                        </td>
+                        <td className="p-3.5 text-right space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAssignTargetStudent(student);
+                              setAssignDriveTarget("single");
+                              setShowCompanyDriveModal(true);
+                            }}
+                            className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-500/20 rounded-lg text-[11px] font-mono font-semibold transition-all cursor-pointer inline-flex items-center space-x-1"
+                            title="Assign Company Placement Drive"
+                          >
+                            <Building2 className="w-3 h-3" />
+                            <span>Drive</span>
+                          </button>
 
-                            {/* Action: View Report details */}
-                            <button
-                              onClick={() => {
-                                const stored = localStorage.getItem(`scorecard_${student.studentId}`);
-                                if (stored) {
-                                  // Open reports view
-                                  localStorage.setItem("scorecard", stored);
-                                  onNavigate("report");
-                                } else {
-                                  alert(`Student ${student.studentId} has not completed their mock interview assessment yet.`);
-                                }
-                              }}
-                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                sc.completed ? "hover:bg-emerald-500/10 text-emerald-500" : "text-slate-300 hover:bg-slate-100"
-                              }`}
-                              title="View Assessment Scorecard"
-                            >
-                              <ChevronRight className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAssignTargetStudent(student);
+                              setShowInterviewModal(true);
+                            }}
+                            className="px-2.5 py-1 bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary border border-brand-primary/20 rounded-lg text-[11px] font-mono font-semibold transition-all cursor-pointer"
+                          >
+                            Custom
+                          </button>
                         </td>
                       </tr>
                     );
                   })
-                ) : (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">
-                      <AlertCircle className="w-6 h-6 text-slate-300 mx-auto mb-2" />
-                      <span>No students found matching filters.</span>
-                    </td>
-                  </tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {/* Right Column - Live Updates & General Settings logs */}
+        {/* Right Column: Company Placement Drive Presets & Live Activity */}
         <div className="lg:col-span-4 space-y-6">
-          {/* Proctor ranges setup details block */}
-          <div className="bg-brand-card border border-slate-200 p-6 rounded-2xl space-y-4">
-            <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider font-mono">Assigned Section</h4>
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 font-sans text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Class & Branch:</span>
-                <span className="font-semibold text-slate-800">{facultyProfile.classSection}</span>
+          {/* Active Company Drives Card */}
+          <div className="bg-brand-card border border-slate-200 rounded-2xl p-6 space-y-4 shadow-xs">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <Building2 className="w-4 h-4 text-brand-primary" />
+                <h4 className="text-sm font-display font-bold text-slate-800">Available Placement Kits</h4>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Section Proctors:</span>
-                <span className="font-semibold text-slate-800">2 Co-Proctors (30 students each)</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Co-Proctor 2 range:</span>
-                <span className="font-mono text-slate-600">31 - 60</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Department:</span>
-                <span className="font-semibold text-slate-800">{facultyProfile.department}</span>
-              </div>
+              <span className="text-[10px] font-mono text-slate-400 uppercase">5 Presets</span>
             </div>
+
+            <div className="space-y-2.5">
+              {PRESET_COMPANY_DRIVES.slice(0, 4).map((drive) => (
+                <div
+                  key={drive.id}
+                  onClick={() => {
+                    handleSelectPreset(drive.id);
+                    setAssignDriveTarget("class");
+                    setShowCompanyDriveModal(true);
+                  }}
+                  className="p-3 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-xl transition-all cursor-pointer space-y-1 text-left group"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-900 text-xs group-hover:text-brand-primary transition-colors">
+                      {drive.companyName}
+                    </span>
+                    <span className="text-[9px] font-mono uppercase bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-600">
+                      {drive.driveType}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 line-clamp-1">{drive.roleTitle}</p>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAssignDriveTarget("class");
+                setShowCompanyDriveModal(true);
+              }}
+              className="w-full py-2.5 bg-brand-primary/10 hover:bg-brand-primary/20 text-brand-primary border border-brand-primary/20 font-bold rounded-xl text-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Create / Upload Custom Drive</span>
+            </button>
           </div>
 
-          {/* Simulated live notifications feed */}
-          <div className="bg-brand-card border border-slate-200 p-6 rounded-2xl space-y-4">
-            <div>
-              <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider font-mono">Live Activity Stream</h4>
-              <p className="text-[10px] text-slate-400 mt-0.5 uppercase font-mono">Supervised Range logs</p>
+          {/* Activity Log Feed */}
+          <div className="bg-brand-card border border-slate-200 rounded-2xl p-6 space-y-4 shadow-xs">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <Activity className="w-4 h-4 text-emerald-500" />
+                <h4 className="text-sm font-display font-bold text-slate-800">Placement Activity Feed</h4>
+              </div>
+              <span className="text-[10px] font-mono text-emerald-600 font-bold uppercase">Live</span>
             </div>
-            
-            <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
+
+            <div className="space-y-3">
               {activities.map((act) => (
-                <div key={act.id} className="flex items-start space-x-3 text-xs border-b border-slate-100 pb-3 last:border-0 last:pb-0">
-                  <div className={`p-1.5 rounded-lg flex-shrink-0 mt-0.5 ${
-                    act.type === 'interview' ? 'bg-brand-primary/10 text-brand-primary' :
-                    act.type === 'gd' ? 'bg-brand-accent/10 text-brand-accent' :
-                    'bg-emerald-500/10 text-emerald-500'
-                  }`}>
-                    {act.type === 'interview' ? <BookOpen className="w-3.5 h-3.5" /> :
-                     act.type === 'gd' ? <Video className="w-3.5 h-3.5" /> :
-                     <CheckCircle className="w-3.5 h-3.5" />}
+                <div key={act.id} className="text-xs space-y-0.5 text-left border-l-2 border-brand-primary pl-2.5 py-0.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-slate-800 text-[11px]">{act.roll}</span>
+                    <span className="text-[10px] font-mono text-slate-400">{act.time}</span>
                   </div>
-                  <div>
-                    <span className="font-mono text-[10px] text-slate-400 block">{act.time}</span>
-                    <p className="text-slate-700 leading-relaxed mt-0.5">
-                      <span className="font-mono font-bold text-slate-900 mr-1">{act.roll}</span>
-                      {act.text}
-                    </p>
-                  </div>
+                  <p className="text-slate-500 text-[11px]">{act.text}</p>
                 </div>
               ))}
             </div>
@@ -668,11 +820,153 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
         </div>
       </div>
 
-      {/* --- Interview Assignment Modal --- */}
+      {/* --- COMPANY PLACEMENT DRIVE MODAL --- */}
+      <AnimatePresence>
+        {showCompanyDriveModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCompanyDriveModal(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-white border border-slate-200 rounded-2xl p-6 w-full max-w-2xl relative z-10 shadow-2xl overflow-hidden text-left max-h-[92vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+                <div className="flex items-center space-x-2">
+                  <Building2 className="w-5 h-5 text-brand-primary" />
+                  <div>
+                    <h3 className="font-display font-bold text-lg text-slate-900">
+                      Connect Company Placement Drive
+                    </h3>
+                    <p className="text-xs text-slate-400 font-mono">
+                      {assignDriveTarget === "class"
+                        ? `Broadcast to all students in ${facultyProfile.classSection}`
+                        : `Assign to student: ${assignTargetStudent?.name} (${assignTargetStudent?.studentId})`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowCompanyDriveModal(false)}
+                  className="p-1 hover:bg-slate-100 rounded-lg text-slate-400"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4 flex-1 overflow-y-auto pr-1">
+                {/* Preset Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-700">Select Company Preset or Custom Drive</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {PRESET_COMPANY_DRIVES.map((d) => (
+                      <button
+                        key={d.id}
+                        type="button"
+                        onClick={() => handleSelectPreset(d.id)}
+                        className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                          selectedPresetId === d.id
+                            ? "bg-brand-primary/10 border-brand-primary text-brand-primary font-bold shadow-xs"
+                            : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        <div className="text-xs truncate">{d.companyName}</div>
+                        <div className="text-[10px] text-slate-400 truncate">{d.roleTitle.split("/")[0]}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Company Name & Role */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">Company Name</label>
+                    <input
+                      type="text"
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      placeholder="e.g. TCS Digital, Amazon, Google"
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-brand-primary"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">Target Role / Track</label>
+                    <input
+                      type="text"
+                      value={roleTitle}
+                      onChange={(e) => setRoleTitle(e.target.value)}
+                      placeholder="e.g. Full Stack SDE, Cloud Solutions"
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-brand-primary"
+                    />
+                  </div>
+                </div>
+
+                {/* Company Materials / Job Description */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    Company Material / Job Description / Round Syllabus
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={materialText}
+                    onChange={(e) => setMaterialText(e.target.value)}
+                    placeholder="Paste the hiring material, syllabus, or round guidelines provided by the company..."
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-brand-primary leading-relaxed"
+                  />
+                </div>
+
+                {/* Required Skills */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">Focus Skills (Comma separated)</label>
+                  <input
+                    type="text"
+                    value={requiredSkillsStr}
+                    onChange={(e) => setRequiredSkillsStr(e.target.value)}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-brand-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100 mt-4">
+                <div className="text-[11px] font-mono text-slate-400">
+                  Target: <strong className="text-slate-800">{assignDriveTarget === "class" ? `Entire Section (${students.length} students)` : assignTargetStudent?.studentId}</strong>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => setShowCompanyDriveModal(false)}
+                    className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg cursor-pointer"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleAssignCompanyDrive}
+                    className="px-5 py-2 bg-linear-to-r from-brand-accent to-brand-primary hover:opacity-90 text-brand-bg text-xs font-bold rounded-lg cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <Send className="w-3.5 h-3.5 text-brand-bg" />
+                    <span>{assignDriveTarget === "class" ? "Broadcast to Section" : "Assign to Student"}</span>
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- Custom Topic Interview Modal --- */}
       <AnimatePresence>
         {showInterviewModal && assignTargetStudent && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -690,7 +984,7 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
               className="bg-white border border-slate-200 rounded-2xl p-6 w-full max-w-md relative z-10 shadow-xl overflow-hidden text-left"
             >
               <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-                <h3 className="font-display font-bold text-lg text-slate-800">Assign Interview task</h3>
+                <h3 className="font-display font-bold text-lg text-slate-800">Assign Custom Interview</h3>
                 <button 
                   onClick={() => {
                     setShowInterviewModal(false);
@@ -725,26 +1019,6 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
                     <option value="Database Engineering (SQL/NoSQL)">Database Engineering (SQL/NoSQL)</option>
                     <option value="General Technical HR & Speech Round">General Technical HR & Speech Round</option>
                   </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-700">Difficulty Tier</label>
-                  <div className="flex gap-2">
-                    {["Beginner", "Intermediate", "Advanced"].map((diff) => (
-                      <button
-                        key={diff}
-                        type="button"
-                        onClick={() => setInterviewDifficulty(diff)}
-                        className={`flex-1 py-2 text-center text-xs font-medium rounded-lg border transition-all cursor-pointer ${
-                          interviewDifficulty === diff 
-                            ? "bg-brand-primary border-transparent text-white shadow-xs" 
-                            : "border-slate-200 text-slate-600 bg-white hover:bg-slate-50"
-                        }`}
-                      >
-                        {diff}
-                      </button>
-                    ))}
-                  </div>
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
@@ -821,8 +1095,6 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
                     <option value="Should engineering education prioritize coding skills over core theoretical foundations?">Should engineering education prioritize coding skills over core foundations?</option>
                     <option value="Remote work vs. Office work: Impact on team productivity and culture.">Remote work vs. Office work: Impact on team productivity</option>
                     <option value="Social media: A tool for true global connection or a source of social isolation?">Social media: A tool for connection or isolation?</option>
-                    <option value="Cryptocurrency and Web3: The future of digital economics or a speculative bubble?">Cryptocurrency and Web3: The future or bubble?</option>
-                    <option value="Is the gig economy beneficial for young professionals starting their careers?">Is the gig economy beneficial for young professionals?</option>
                   </select>
                 </div>
 
@@ -835,7 +1107,6 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
                         if (selectedGDStudentIds.length === 15) {
                           setSelectedGDStudentIds([]);
                         } else {
-                          // Select first 15 students
                           setSelectedGDStudentIds(students.slice(0, 15).map(s => s.studentId));
                         }
                       }}
@@ -845,7 +1116,6 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
                     </button>
                   </div>
 
-                  {/* Student selector grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 border border-slate-100 p-3 rounded-xl max-h-[250px] overflow-y-auto bg-slate-50">
                     {students.map((student) => {
                       const isSelected = selectedGDStudentIds.includes(student.studentId);
@@ -887,7 +1157,7 @@ export default function FacultyDashboardPage({ facultyProfile, onNavigate }: Fac
                   type="button"
                   onClick={handleAssignGD}
                   disabled={selectedGDStudentIds.length === 0}
-                  className="px-5 py-2 bg-brand-primary hover:bg-blue-600 text-white text-xs font-bold rounded-lg cursor-pointer badge-white-text disabled:opacity-50 disabled:hover:bg-brand-primary"
+                  className="px-5 py-2 bg-brand-primary hover:bg-blue-600 text-white text-xs font-bold rounded-lg cursor-pointer badge-white-text disabled:opacity-50"
                 >
                   Create Room & Assign
                 </Button>
