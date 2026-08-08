@@ -183,6 +183,8 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
 
   const socketRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
+  const shouldKeepListeningRef = useRef<boolean>(false);
+  const restartTimeoutRef = useRef<any>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -698,7 +700,13 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     const rec = new SpeechRecognition();
     rec.continuous = true;
     rec.interimResults = true;
+    rec.maxAlternatives = 1;
     rec.lang = "en-US";
+
+    rec.onstart = () => {
+      setIsRecording(true);
+      isRecordingRef.current = true;
+    };
 
     rec.onresult = (e: any) => {
       let finalTranscript = "";
@@ -721,31 +729,35 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     };
 
     rec.onerror = (e: any) => {
-      console.error("GD Speech Recognition error:", e);
-      isRecordingRef.current = false;
-      setIsRecording(false);
-      setInterimText("");
+      console.warn("GD Speech Recognition notice:", e.error);
 
-      if (e.error === "not-allowed") {
+      if (e.error === "no-speech" || e.error === "aborted" || e.error === "audio-capture") {
+        // Benign transient event; let onend recover smoothly
+        return;
+      }
+
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        shouldKeepListeningRef.current = false;
+        isRecordingRef.current = false;
+        setIsRecording(false);
         setError("Microphone permission was denied. Please allow mic access or use manual keyboard typing.");
-      } else if (e.error === "network") {
-        setError("Speech recognition network error. Try switching to manual keyboard mode.");
-      } else if (e.error === "no-speech") {
-        setError("No speech was detected. Please try speaking closer to the microphone.");
-      } else {
-        setError(`Speech recognition issue (${e.error}). You can switch to manual keyboard mode.`);
       }
     };
 
     rec.onend = () => {
-      if (isRecordingRef.current && recognitionRef.current) {
-        try {
-          recognitionRef.current.start();
-        } catch {
-          setIsRecording(false);
-          isRecordingRef.current = false;
-          setInterimText("");
-        }
+      if (shouldKeepListeningRef.current) {
+        if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+        restartTimeoutRef.current = setTimeout(() => {
+          if (shouldKeepListeningRef.current && recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch (err: any) {
+              if (err.name !== "InvalidStateError") {
+                console.warn("GD speech recognition restart catch:", err);
+              }
+            }
+          }
+        }, 80);
       } else {
         setIsRecording(false);
         isRecordingRef.current = false;
@@ -1070,6 +1082,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const startVoiceCapture = async () => {
     setError(null);
     setInterimText("");
+    shouldKeepListeningRef.current = true;
 
     const stream = mediaStreamRef.current;
     const useLocal = stream ? await checkLocalSttAvailability() : false;
@@ -1085,8 +1098,10 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
-      } catch (e) {
-        console.error("Speech recognition start failed:", e);
+      } catch (e: any) {
+        if (e.name !== "InvalidStateError") {
+          console.error("Speech recognition start failed:", e);
+        }
       }
     } else {
       setError("No speech recognition available: the local DGX STT service isn't reachable and this browser has no built-in speech recognition. Ask your admin to start local-voice/stt_server.py, or use manual keyboard mode.");
@@ -1094,8 +1109,16 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   };
 
   const stopVoiceCapture = () => {
+    shouldKeepListeningRef.current = false;
     stopLocalSttLoop();
     setMicLevel(0);
+    setIsRecording(false);
+    isRecordingRef.current = false;
+
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
 
     if (recognitionRef.current) {
       try {

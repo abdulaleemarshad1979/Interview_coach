@@ -148,6 +148,8 @@ export default function InterviewPage({ studentProfile, analysisResult, intervie
   // References
   const videoRef = useRef<HTMLVideoElement>(null);
   const recognitionRef = useRef<any>(null);
+  const shouldKeepListeningRef = useRef<boolean>(false);
+  const restartTimeoutRef = useRef<any>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const visualizerStreamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<any>(null);
@@ -1247,16 +1249,23 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
       const rec = new SpeechRecognition();
       rec.continuous = true;
       rec.interimResults = true;
+      rec.maxAlternatives = 1;
       rec.lang = "en-US";
 
+      rec.onstart = () => {
+        setIsRecording(true);
+        isRecordingRef.current = true;
+      };
+
       rec.onresult = (e: any) => {
-        let finalTranscript = "";
+        let finalTranscriptChunk = "";
         let interimText = "";
         for (let i = e.resultIndex; i < e.results.length; ++i) {
-          if (e.results[i].isFinal) {
-            finalTranscript += e.results[i][0].transcript + " ";
+          const item = e.results[i];
+          if (item.isFinal) {
+            finalTranscriptChunk += item[0].transcript + " ";
           } else {
-            interimText += e.results[i][0].transcript;
+            interimText += item[0].transcript;
           }
         }
 
@@ -1266,8 +1275,8 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
           silenceTimeoutRef.current = null;
         }
 
-        if (finalTranscript) {
-          const addedText = finalTranscript.trim();
+        if (finalTranscriptChunk) {
+          const addedText = finalTranscriptChunk.trim();
           const lowerText = addedText.toLowerCase();
 
           // 1. Hands-Free Voice Commands check
@@ -1294,15 +1303,16 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
           }
 
           setTranscript((prev) => {
-            const newTranscript = (prev + " " + addedText).trim();
+            const trimmedPrev = prev.trim();
+            const newTranscript = trimmedPrev ? `${trimmedPrev} ${addedText}` : addedText;
             if (voiceInterviewMode) {
               updateConversationHistory("candidate", newTranscript);
 
-              // Silence timeout to trigger local LLM response in fallback/local mode
+              // Generous silence timeout in conversational mode before follow-up
               if (voiceMode === "fallback") {
                 silenceTimeoutRef.current = setTimeout(() => {
                   sendSpeechToLocalLLM(addedText);
-                }, 1800); // 1.8 seconds of silence triggers follow-up
+                }, 3500); // 3.5 seconds of silence allows natural candidate pauses
               }
             }
             return newTranscript;
@@ -1314,38 +1324,41 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
       };
 
       rec.onerror = (e: any) => {
-        console.error("Speech Recognition error:", e);
-        setIsRecording(false);
-        isRecordingRef.current = false;
-        setInterimTranscript("");
+        console.warn("Speech Recognition notice:", e.error);
 
-        if (e.error === "aborted") {
-          // Ignore normal mic suspension/abort events
+        // Ignore benign transient network, abort, or no-speech events during natural pauses
+        if (e.error === "no-speech" || e.error === "aborted" || e.error === "audio-capture") {
+          // Do NOT cancel recording; let onend self-heal and restart smoothly
           return;
         }
 
-        if (e.error === "not-allowed") {
-          setError("Microphone permission was denied. Switched to keyboard typing mode.");
+        if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+          shouldKeepListeningRef.current = false;
+          setIsRecording(false);
+          isRecordingRef.current = false;
+          setError("Microphone permission was denied. You can enable microphone permissions or use keyboard typing mode.");
           setIsManualEdit(true);
         } else if (e.error === "network") {
-          setError("Speech recognition network error. Switched to keyboard typing mode.");
-          setIsManualEdit(true);
-        } else if (e.error === "no-speech") {
-          setError("No speech was detected. Please try speaking closer to the microphone.");
-        } else {
-          setError(`Speech recognition issue (${e.error}). Switched to keyboard typing mode.`);
-          setIsManualEdit(true);
+          console.warn("Web Speech API network timeout, attempting self-heal...");
         }
       };
 
       rec.onend = () => {
-        // Automatically restart if user hasn't explicitly stopped recording
-        if (isRecordingRef.current && recognitionRef.current) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) {
-            // Ignore if already running
-          }
+        // Automatically restart if candidate is still speaking / in recording mode
+        if (shouldKeepListeningRef.current) {
+          if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current);
+          restartTimeoutRef.current = setTimeout(() => {
+            if (shouldKeepListeningRef.current && recognitionRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch (err: any) {
+                // If already running (InvalidStateError), ignore gracefully
+                if (err.name !== "InvalidStateError") {
+                  console.warn("Speech recognition restart catch:", err);
+                }
+              }
+            }
+          }, 80);
         } else {
           setIsRecording(false);
           isRecordingRef.current = false;
@@ -1503,51 +1516,53 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
     setInterimTranscript("");
     setIsRecording(true);
     isRecordingRef.current = true;
-
-    // Release any previous audio context / streams before initializing SpeechRecognition
-    if (visualizerStreamRef.current) {
-      visualizerStreamRef.current.getTracks().forEach(t => t.stop());
-      visualizerStreamRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => { });
-      audioContextRef.current = null;
-    }
-    if (analyserRef.current) {
-      analyserRef.current = null;
-    }
+    shouldKeepListeningRef.current = true;
 
     if (recognitionRef.current) {
       try {
         recognitionRef.current.start();
       } catch (e: any) {
-        console.error("Speech recognition startup error:", e);
-        setError("Could not start speech recognition. Switched to keyboard typing mode.");
-        setIsManualEdit(true);
+        if (e.name !== "InvalidStateError") {
+          console.warn("Speech recognition start warning:", e);
+        }
       }
     }
 
-    // Try to acquire separate mic capture for visualizer and streaming, catch errors to avoid mobile crashes
+    // Connect audio stream for visualizer and audio DSP analytics with high-fidelity noise suppression
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(stream => {
-          if (isRecordingRef.current) {
-            setupAudioVisualizer(stream);
-            setupMicAudioStreamer(stream);
-          } else {
-            stream.getTracks().forEach(t => t.stop());
+      if (!visualizerStreamRef.current) {
+        navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
           }
         })
-        .catch(err => {
-          console.warn("Visualizer audio feed locked or unavailable:", err);
-        });
+          .then(stream => {
+            if (shouldKeepListeningRef.current) {
+              setupAudioVisualizer(stream);
+              setupMicAudioStreamer(stream);
+            } else {
+              stream.getTracks().forEach(t => t.stop());
+            }
+          })
+          .catch(err => {
+            console.warn("Visualizer audio feed locked or unavailable:", err);
+          });
+      }
     }
   };
 
   const stopRecording = () => {
+    shouldKeepListeningRef.current = false;
     setIsRecording(false);
     isRecordingRef.current = false;
     setInterimTranscript("");
+
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
     if (silenceTimeoutRef.current) {
       clearTimeout(silenceTimeoutRef.current);
       silenceTimeoutRef.current = null;
@@ -1595,7 +1610,8 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
     }
     setPitchVariance(pitchInflectionScore);
 
-    const wordCount = transcriptRef.current.trim().split(/\s+/).filter(Boolean).length;
+    const currentText = transcriptRef.current || transcript || "";
+    const wordCount = currentText.trim().split(/\s+/).filter(Boolean).length;
     const currentDuration = secondsElapsed || 10;
     const wpm = Math.round((wordCount / currentDuration) * 60) || 120;
     setSpeakingPace(wpm);
@@ -2154,24 +2170,60 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
                       className="w-full h-32 bg-brand-bg border border-white/10 rounded-xl p-4 text-white text-xs placeholder-gray-600 focus:outline-hidden focus:border-brand-primary leading-relaxed"
                     />
                   ) : (
-                    /* Real-time microphone recorder */
                     <div className="space-y-4 text-center">
                       {isRecording ? (
-                        <div className="p-4 bg-brand-primary/5 border border-brand-primary/10 rounded-xl space-y-4">
-                          {/* Live timer */}
-                          <div className="flex items-center justify-center space-x-2 text-brand-primary font-mono text-sm font-bold">
-                            <Clock className="w-4 h-4 animate-spin" />
-                            <span>RECORDING • {formatTimer(secondsElapsed)}</span>
+                        <div className="p-5 bg-brand-primary/5 border border-brand-primary/20 rounded-2xl space-y-4 shadow-lg">
+                          {/* Live timer and status header */}
+                          <div className="flex items-center justify-between border-b border-brand-primary/15 pb-3">
+                            <div className="flex items-center space-x-2 text-brand-primary font-mono text-xs font-bold">
+                              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping inline-block" />
+                              <Clock className="w-3.5 h-3.5 animate-spin text-brand-primary" />
+                              <span>LIVE RECORDING • {formatTimer(secondsElapsed)}</span>
+                            </div>
+
+                            {/* Live Voice Activity / Speech detected badge */}
+                            <div className="flex items-center space-x-2">
+                              {interimTranscript ? (
+                                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono text-[10px] font-bold border border-emerald-500/30 animate-pulse">
+                                  ● Speaking Detected
+                                </span>
+                              ) : (
+                                <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 font-mono text-[10px] font-bold border border-cyan-500/30">
+                                  ● Mic Listening...
+                                </span>
+                              )}
+                            </div>
                           </div>
 
-                          {/* Dynamic live scrolling transcription window */}
-                          <div className="h-16 overflow-y-auto text-xs text-gray-300 leading-relaxed font-sans px-3 text-left">
+                          {/* Live Microphone Audio Level Meter */}
+                          <div className="space-y-1.5 text-left">
+                            <div className="flex justify-between text-[10px] font-mono text-gray-400">
+                              <span>Microphone Signal Level</span>
+                              <span className="text-brand-primary font-bold">{micLevel}%</span>
+                            </div>
+                            <div className="w-full h-1.5 bg-brand-bg rounded-full overflow-hidden border border-white/5">
+                              <div
+                                className="h-full bg-linear-to-r from-cyan-500 via-brand-primary to-emerald-400 transition-all duration-75 rounded-full"
+                                style={{ width: `${Math.max(4, micLevel)}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Real-time speech transcript with live interim words */}
+                          <div className="p-3.5 bg-black/40 border border-white/10 rounded-xl min-h-[90px] max-h-40 overflow-y-auto text-xs text-gray-200 leading-relaxed font-sans text-left">
                             {transcript || interimTranscript ? (
                               <span>
-                                {transcript} <span className="text-gray-400/80 italic">{interimTranscript}</span>
+                                {transcript}{" "}
+                                {interimTranscript && (
+                                  <span className="text-brand-primary font-medium bg-brand-primary/10 px-1 py-0.5 rounded animate-pulse">
+                                    {interimTranscript}
+                                  </span>
+                                )}
                               </span>
                             ) : (
-                              <span className="text-gray-500 italic">Listening... Start speaking clearly.</span>
+                              <span className="text-gray-500 italic flex items-center space-x-2">
+                                <span>Listening to your voice... Speak your response clearly into the mic.</span>
+                              </span>
                             )}
                           </div>
 
@@ -2181,29 +2233,60 @@ Ask follow-up questions or prompt the candidate to elaborate where needed.`;
                             </div>
                           )}
 
-                          <button
-                            type="button"
-                            onClick={stopRecording}
-                            className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold text-xs rounded-xl transition-colors cursor-pointer"
-                          >
-                            Stop Capture
-                          </button>
+                          <div className="flex items-center justify-center space-x-3 pt-1">
+                            <button
+                              type="button"
+                              onClick={stopRecording}
+                              className="px-5 py-2 bg-red-600/90 hover:bg-red-600 text-white font-semibold text-xs rounded-xl transition-all shadow-md cursor-pointer flex items-center space-x-1.5"
+                            >
+                              <span>Stop & Review Answer</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTranscript("");
+                                setInterimTranscript("");
+                                setSecondsElapsed(0);
+                              }}
+                              className="px-3.5 py-2 bg-white/5 hover:bg-white/10 text-gray-300 font-mono text-[11px] rounded-xl transition-all border border-white/10 cursor-pointer"
+                            >
+                              Reset Speech
+                            </button>
+                          </div>
                         </div>
                       ) : (
-                        <div
-                          onClick={startRecording}
-                          className="py-8 bg-brand-bg border border-white/5 border-dashed rounded-xl flex flex-col items-center justify-center space-y-3 cursor-pointer hover:bg-brand-primary/5 transition-all duration-200 group"
-                        >
-                          <button
-                            type="button"
-                            className="w-16 h-16 rounded-full bg-brand-primary/10 border border-brand-primary/30 flex items-center justify-center text-brand-primary transition-all shadow-lg group-hover:scale-105 group-hover:bg-brand-primary group-hover:text-brand-bg pointer-events-none"
+                        <div className="space-y-3">
+                          <div
+                            onClick={() => startRecording(false)}
+                            className="py-8 bg-brand-bg border border-white/10 border-dashed rounded-2xl flex flex-col items-center justify-center space-y-3 cursor-pointer hover:bg-brand-primary/5 hover:border-brand-primary/40 transition-all duration-200 group shadow-md"
                           >
-                            <Mic className="w-6 h-6 stroke-[2.5]" />
-                          </button>
-                          <div className="text-center select-none">
-                            <p className="text-xs font-semibold text-white">Click to Speak Answer</p>
-                            <p className="text-[10px] text-gray-500 font-mono mt-0.5">Captures high-frequency vocal signals for pacing</p>
+                            <button
+                              type="button"
+                              className="w-16 h-16 rounded-full bg-brand-primary/10 border border-brand-primary/30 flex items-center justify-center text-brand-primary transition-all shadow-lg group-hover:scale-110 group-hover:bg-brand-primary group-hover:text-brand-bg pointer-events-none"
+                            >
+                              <Mic className="w-7 h-7 stroke-[2.5]" />
+                            </button>
+                            <div className="text-center select-none">
+                              <p className="text-sm font-semibold text-white group-hover:text-brand-primary transition-colors">Click to Start Speaking</p>
+                              <p className="text-[10px] text-gray-400 font-mono mt-0.5">High-fidelity noise cancellation • Continuous speech recognition</p>
+                            </div>
                           </div>
+
+                          {/* Editable transcript preview if user has already spoken */}
+                          {transcript && (
+                            <div className="text-left space-y-1.5 p-3.5 bg-brand-bg border border-white/5 rounded-xl">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-mono text-gray-400 uppercase">Spoken Answer Preview (Editable)</span>
+                                <span className="text-[10px] font-mono text-emerald-400">✓ Ready to grade</span>
+                              </div>
+                              <textarea
+                                value={transcript}
+                                onChange={(e) => setTranscript(e.target.value)}
+                                rows={3}
+                                className="w-full bg-transparent border-0 text-white text-xs p-0 focus:outline-hidden resize-none leading-relaxed"
+                              />
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
