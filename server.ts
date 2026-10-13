@@ -317,7 +317,7 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
     return result.choices[0]?.message?.content || "";
   } else {
     const groq = getGroqClient();
-    const defaultModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+    const defaultModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
     let model = defaultModel;
     if (options.purpose === "chat") {
       model = process.env.GROQ_MODEL_CHAT || defaultModel;
@@ -351,6 +351,94 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Increase payload limit to handle base64-encoded PDF resumes
 app.use(express.json({ limit: "25mb" }));
+
+// Groq speech APIs use server-owned credentials and existing MongoDB session auth.
+app.get("/api/voice/status", requireAuth, async (_req, res) => {
+  const localUrl = process.env.LOCAL_STT_URL || "";
+  let localHealthy = false;
+  if (localUrl) {
+    try {
+      const health = await fetch(localUrl.replace(/\/transcribe\/?$/, "/health"), {
+        signal: AbortSignal.timeout(1500),
+      });
+      localHealthy = health.ok;
+    } catch { /* no local service */ }
+  }
+  res.json({ available: Boolean(process.env.GROQ_API_KEY || localHealthy),
+    groqConfigured: Boolean(process.env.GROQ_API_KEY), localHealthy });
+});
+
+app.post("/api/voice/synthesize", requireAuth, async (req, res) => {
+  const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+  const allowedVoices = ["hannah", "autumn", "diana"];
+  const requestedVoice = String(req.body?.voice || process.env.GROQ_TTS_VOICE || "hannah");
+  if (!text || text.length > 200) {
+    return res.status(400).json({ error: "Speech text must contain 1–200 characters." });
+  }
+  if (!allowedVoices.includes(requestedVoice)) {
+    return res.status(400).json({ error: "Unsupported female voice." });
+  }
+  if (!process.env.GROQ_API_KEY) {
+    return res.status(503).json({ error: "Groq TTS is not configured." });
+  }
+  try {
+    const audio = await getGroqClient().audio.speech.create({
+      model: process.env.GROQ_TTS_MODEL || "canopylabs/orpheus-v1-english",
+      voice: requestedVoice,
+      input: text,
+      response_format: "wav",
+    });
+    const bytes = Buffer.from(await audio.arrayBuffer());
+    res.setHeader("Content-Type", "audio/wav");
+    res.setHeader("Content-Length", String(bytes.length));
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(bytes);
+  } catch (error: any) {
+    const status = error?.status === 429 ? 429 : 502;
+    console.error("[voice] TTS provider failed", { status: error?.status || 0 });
+    return res.status(status).json({ error: "Speech generation temporarily unavailable." });
+  }
+});
+
+app.post("/api/voice/transcribe", requireAuth, async (req, res) => {
+  const audio = req.body?.audio;
+  const mimeType = String(req.body?.mimeType || "audio/webm");
+  if (typeof audio !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(audio) ||
+      !/^audio\/(webm|wav|ogg|mp4|mpeg|mp3|x-m4a)(;.*)?$/i.test(mimeType)) {
+    return res.status(400).json({ error: "Valid base64 audio and supported MIME type required." });
+  }
+  const bytes = Buffer.from(audio, "base64");
+  if (bytes.length < 512 || bytes.length > 10 * 1024 * 1024) {
+    return res.status(400).json({ error: "Audio length must be between 512 bytes and 10 MB." });
+  }
+  try {
+    if (process.env.GROQ_API_KEY) {
+      const ext = mimeType.includes("wav") ? "wav" : mimeType.includes("ogg") ? "ogg" : "webm";
+      const upload = new File([bytes], `speech.${ext}`, { type: mimeType });
+      const transcript = await getGroqClient().audio.transcriptions.create({
+        file: upload, model: process.env.GROQ_STT_MODEL || "whisper-large-v3-turbo",
+        language: "en", response_format: "json", temperature: 0,
+      });
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.json({ text: transcript.text || "", source: "groq" });
+    }
+    const localUrl = process.env.LOCAL_STT_URL;
+    if (!localUrl) return res.status(503).json({ error: "No speech recognizer configured." });
+    const form = new FormData();
+    const ext = mimeType.includes("wav") ? "wav" : "webm";
+    form.append("audio", new Blob([bytes], { type: mimeType }), `speech.${ext}`);
+    const upstream = await fetch(localUrl, { method: "POST", body: form, signal: AbortSignal.timeout(20000) });
+    if (!upstream.ok) throw new Error(`Local transcription returned ${upstream.status}`);
+    const data: any = await upstream.json();
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.json({ text: String(data.text || ""), source: "local" });
+  } catch (error: any) {
+    const status = error?.status === 429 ? 429 : 502;
+    console.error("[voice] STT provider failed", { status: error?.status || 0 });
+    return res.status(status).json({ error: "Transcription temporarily unavailable." });
+  }
+});
+
 
 // 1b. MongoDB Authentication Endpoints
 
