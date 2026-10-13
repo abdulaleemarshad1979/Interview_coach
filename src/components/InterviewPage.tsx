@@ -35,7 +35,7 @@ import {
 import { InterviewQuestion, AnswerFeedback, StudentProfile, FullAnalysisResult, Scorecard, CompanyPlacementDrive } from "../types";
 import { supabase } from "../lib/supabaseClient";
 import { getApiUrl, apiFetch } from "../lib/api";
-import { speakNaturalAI, stopNaturalSpeech } from "../lib/naturalVoice";
+import { speakNaturalAI, stopNaturalSpeech, getVoiceOptions, setVoiceOptions, type VoiceOptions } from "../lib/naturalVoice";
 
 interface InterviewPageProps {
   studentProfile: StudentProfile;
@@ -104,6 +104,7 @@ export default function InterviewPage({
 
   // Voice output (TTS) states
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
+  const [voiceOptions, setVoiceOptionsState] = useState<VoiceOptions>(() => getVoiceOptions());
   const [isAISpeaking, setIsAISpeaking] = useState(false);
 
   // Evaluation states
@@ -415,8 +416,8 @@ export default function InterviewPage({
     let spokenText = (transcriptAccumulatedRef.current || transcript || interimTranscript).trim();
     
     if (!spokenText) {
-      spokenText = `I am answering the question regarding ${activeQuestion.category}. My background is in software engineering, and I structure my solutions by first analyzing requirements, building modular components, and validating through tests.`;
-      setTranscript(spokenText);
+      setError("No spoken answer was captured. Please speak or enter an answer before submitting.");
+      return;
     }
 
     setEvaluating(true);
@@ -460,31 +461,7 @@ export default function InterviewPage({
       setAutoAdvanceCountdown(6);
     } catch (err: any) {
       console.error("Answer submission error:", err);
-      const fallbackFeedback: AnswerFeedback = {
-        questionId: activeQuestion.id,
-        questionText: activeQuestion.text,
-        transcript: spokenText,
-        score: 84,
-        pacing: "Optimal",
-        fillerWordCount: 1,
-        strengths: ["Clear response structure", "Good vocal delivery and pacing"],
-        improvements: ["Elaborate on specific architectural tradeoffs"],
-        speechFeedback: "Great conversational tone and structured response.",
-        contentFeedback: "Strong alignment with the question topic.",
-        presentationFeedback: "Maintained good eye contact and posture.",
-        clarityPronunciation: 4,
-        fluencyPace: 5,
-        grammarAccuracy: 88,
-        vocabularyUsage: 86,
-        coherenceIdeas: 5,
-        confidenceRating: 4,
-        speakingPace: 125,
-        audioClarity: 90,
-        pitchVariance: 85
-      };
-      setCurrentFeedback(fallbackFeedback);
-      setFeedbacks(prev => [...prev, fallbackFeedback]);
-      setAutoAdvanceCountdown(6);
+      setError("Evaluation failed. Your answer was not scored; retry when the service is available.");
     } finally {
       setEvaluating(false);
     }
@@ -574,69 +551,7 @@ export default function InterviewPage({
       onNavigate("report");
     } catch (err: any) {
       console.error("Scorecard compilation error:", err);
-      const fallbackScorecard: Scorecard = {
-        id: "rpt_" + Math.random().toString(36).substring(2, 9),
-        studentId: studentProfile.studentId,
-        githubUsername: studentProfile.githubUsername || "student",
-        date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
-        overallScore: 86,
-        candidateLevel: "Strong Candidate",
-        interviewType: "soft-skills",
-        companyDriveName: activeCompanyDrive?.companyName,
-        companyRoleTitle: activeCompanyDrive?.roleTitle,
-        clarityPronunciation: 4,
-        fluencyPace: 5,
-        grammarAccuracy: 88,
-        vocabularyUsage: 86,
-        coherenceIdeas: 5,
-        confidenceRating: 4,
-        communicationClarityLevel: "High",
-        communicationClarityScore: 88,
-        grammarVocabularyScore: 87,
-        fluencyConfidenceRating: 5,
-        presentationSkillsScore: 86,
-        teamworkLeadershipRating: 4,
-        interviewReadinessScore: 86,
-        bodyLanguageEtiquetteRating: 5,
-        trainingComparison: {
-          communicationClarity: { before: "Medium", after: "High (88%)", method: "Video-based speaking test, Intro video, Mock Interview" },
-          grammarVocabulary: { before: "74%", after: "87%", method: "MCQ Test, Writing Task Assessment, AI grammar analysis" },
-          fluencyConfidence: { before: "3.2 / 5", after: "5 / 5", method: "Mock Interview Rubric, AI Speech Analysis, GD participation" },
-          presentationSkills: { before: "70 / 100", after: "86 / 100", method: "Individual Presentation Evaluation, PPT rubric, Peer Review" },
-          teamworkLeadership: { before: "3.5 / 5", after: "4 / 5", method: "Group Activity Assessment, GD Observation, Behavioural Rubric" },
-          interviewReadiness: { before: "68 / 100", after: "86 / 100", method: "Structured Mock Interview, HR Rubrics, Situation-based Q&A" },
-          bodyLanguageEtiquette: { before: "3.4 / 5", after: "5 / 5", method: "Video Observation, Mock Interview Rubric, Classroom Behaviour Checklist" }
-        },
-        categoryScores: {
-          communicationClarity: 88,
-          presentationConfidence: 85,
-          problemSolving: 84,
-          teamworkCollaboration: 86,
-          adaptabilityResilience: 84,
-          ownershipEQ: 88,
-          overallReadiness: 86,
-          clarityPronunciation: 4,
-          fluencyPace: 5,
-          grammarAccuracy: 88,
-          vocabularyUsage: 86,
-          coherenceIdeas: 5,
-          confidence: 4
-        },
-        strengths: ["Clear STAR structured responses", "Confident vocal inflection and natural conversational pace"],
-        weaknesses: ["Deepen discussion on specific project architecture constraints"],
-        recommendedTopics: ["STAR methodology framework", "Executive presentation structuring"],
-        sampleAnswers: [
-          {
-            question: activeQuestion.text,
-            originalResponse: transcript || "My background is in software engineering with a focus on web applications.",
-            improvedVersion: `I am a software engineering student specializing in scalable web systems. In my recent project for ${activeCompanyDrive?.companyName || "the campus drive"}, I designed a real-time collaborative workspace using React and TypeScript, improving latency by 35% across all client nodes.`,
-            explanation: "Structured in STAR format (Situation, Task, Action, Result) with quantitative metrics."
-          }
-        ],
-        finalVerdict: "The candidate demonstrates strong communication clarity, active verbal engagement, and solid soft skills fundamentals."
-      };
-      onInterviewComplete(fallbackScorecard);
-      onNavigate("report");
+      setError("Report generation failed. No scorecard was created. Please retry.");
     } finally {
       setReportCompiling(false);
     }
@@ -880,7 +795,19 @@ export default function InterviewPage({
                 {activeCompanyDrive ? `Tuned for ${activeCompanyDrive.companyName}` : "Ultra-natural AI voice delivery"}
               </span>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex space-x-2 items-center flex-wrap gap-2">
+              <label className="text-xs text-gray-300" htmlFor="ai-voice-profile">Voice</label>
+              <select id="ai-voice-profile" aria-label="Female AI interviewer voice" value={voiceOptions.voice}
+                onChange={(e) => setVoiceOptionsState(setVoiceOptions({ voice: e.target.value as VoiceOptions["voice"] }))}
+                className="rounded-lg bg-slate-900 border border-white/20 px-2 py-2 text-xs text-white">
+                <option value="hannah">Hannah</option><option value="autumn">Autumn</option><option value="diana">Diana</option>
+              </select>
+              <label className="text-xs text-gray-300" htmlFor="ai-voice-rate">Speed</label>
+              <select id="ai-voice-rate" aria-label="AI interviewer playback speed" value={voiceOptions.rate}
+                onChange={(e) => setVoiceOptionsState(setVoiceOptions({ rate: Number(e.target.value) }))}
+                className="rounded-lg bg-slate-900 border border-white/20 px-2 py-2 text-xs text-white">
+                <option value={0.85}>0.85×</option><option value={1}>1×</option><option value={1.15}>1.15×</option>
+              </select>
               <button
                 type="button"
                 onClick={() => {

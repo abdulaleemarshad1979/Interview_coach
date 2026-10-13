@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { StudentProfile } from "../types";
 import Button from "./ui/Button";
-import { getApiUrl, getWsUrl } from "../lib/api";
+import { getApiUrl, getWsUrl, apiFetch } from "../lib/api";
 import { supabase } from "../lib/supabaseClient";
 import { speakNaturalAI } from "../lib/naturalVoice";
 
@@ -108,6 +108,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const [step, setStep] = useState<"setup" | "discussion" | "results">("setup");
   const [roomCode, setRoomCode] = useState("");
   const [mode, setMode] = useState<"create" | "join">("create");
+  const [aiTranscriptionConsent, setAiTranscriptionConsent] = useState(false);
   const [topic, setTopic] = useState(PRESET_TOPICS[0]);
   const [customTopic, setCustomTopic] = useState("");
   const [useCustomTopic, setUseCustomTopic] = useState(false);
@@ -583,10 +584,10 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   const checkLocalSttAvailability = async (): Promise<boolean> => {
     if (localSttAvailableRef.current !== null) return localSttAvailableRef.current;
     try {
-      const res = await fetch(getApiUrl("/api/local-voice/status"));
+      const res = await apiFetch("/api/voice/status");
       if (!res.ok) throw new Error("status check failed");
       const data = await res.json();
-      localSttAvailableRef.current = Boolean(data.sttConfigured && data.sttHealthy);
+      localSttAvailableRef.current = Boolean(data.available);
     } catch {
       localSttAvailableRef.current = false;
     }
@@ -607,7 +608,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
       }
       const base64 = btoa(binary);
 
-      const res = await fetch(getApiUrl("/api/local-stt/transcribe"), {
+      const res = await apiFetch("/api/voice/transcribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ audio: base64, mimeType: blob.type || "audio/webm" }),
@@ -891,6 +892,10 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
   };
 
   const joinRoom = async () => {
+    if (!aiTranscriptionConsent) {
+      setError("Please consent to AI transcription and assessment before entering a discussion.");
+      return;
+    }
     if (!participantName.trim()) {
       setError("Enter your name before joining a room.");
       return;
@@ -1496,7 +1501,14 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
               </div>
             )}
 
-            <div className="pt-2">
+            <div className="pt-2 space-y-3">
+              <label className="flex items-start gap-2 text-xs text-slate-700">
+                <input type="checkbox" checked={aiTranscriptionConsent}
+                  onChange={(event) => setAiTranscriptionConsent(event.target.checked)}
+                  className="mt-0.5" />
+                I consent to live AI transcription and assessment of my spoken contributions.
+                Other participants may receive discussion reports. Do not join without consent.
+              </label>
               <Button onClick={joinRoom} className="w-full badge-white-text">
                 {mode === "create" ? "Create Room" : "Join Room"}
               </Button>
