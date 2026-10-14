@@ -1,0 +1,29 @@
+{
+  "observedAt": "2026-10-14T05:36:02.730Z",
+  "model": "canopylabs/orpheus-v1-english",
+  "voices": [
+    "hannah",
+    "autumn",
+    "diana"
+  ],
+  "runs": 1,
+  "samples": [
+    {
+      "id": "introduction",
+      "text": "Hello. Let's begin with your recent project. What problem did you solve, and which decisions did you make?"
+    },
+    {
+      "id": "technical-follow-up",
+      "text": "How did you handle token expiration and refresh? Explain what would happen if a refresh token were stolen."
+    },
+    {
+      "id": "behavioral-question",
+      "text": "Tell me about a disagreement in your team. How did you respond, and what changed as a result?"
+    }
+  ],
+  "providerSource": "https://console.groq.com/docs/text-to-speech/orpheus",
+  "status": "blocked",
+  "reason": "GROQ_API_KEY is not configured; no provider requests were made.",
+  "listeningEvaluation": "Pending human listening. Timing and WAV validity cannot establish naturalness or pronunciation quality.",
+  "results": []
+}

@@ -5,7 +5,10 @@ export function chunkSpeech(text: string, maxChars = 180): string[] {
   }
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return [];
-  const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [clean];
+  // Intl preserves abbreviations, decimal points, quoted punctuation, and standalone symbols.
+  const sentences = typeof Intl.Segmenter === "function"
+    ? Array.from(new Intl.Segmenter("en", { granularity: "sentence" }).segment(clean), entry => entry.segment)
+    : clean.split(/(?<=[.!?])\s+(?=[A-Z"“])/);
   const chunks: string[] = [];
   let current = "";
   const flush = () => {
