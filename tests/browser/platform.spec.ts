@@ -7,9 +7,9 @@ async function createAccount(request: APIRequestContext, name: string) {
   expect(response.status()).toBe(201);
   return { email, body: await response.json() };
 }
-async function signIn(page: Page, email: string) {
-  await page.goto('/');
-  await page.locator('#btn-nav-login').click();
+async function signIn(page: Page, email: string, path = '/') {
+  await page.goto(path);
+  if (path === '/') await page.locator('#btn-nav-login').click();
   await page.getByRole('button', { name: 'Sign in with an Interview Coach account' }).click();
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
@@ -30,6 +30,13 @@ test('real signup/login, saved interview and explicit missing-provider failure',
   await expect(page.getByRole('heading', { name: 'Backend engineer', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Begin questions' })).toBeVisible();
+});
+
+test('invitation routes a signed-in participant directly to the join lobby', async ({ page, request }) => {
+  const account = await createAccount(request, 'Invited candidate');
+  await signIn(page, account.email, '/?meeting=ABCDEF123456');
+  await expect(page.getByRole('tab', { name: 'Join a discussion' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Meeting ID', { exact: true })).toHaveValue('ABCDEF123456');
 });
 
 test('responsive configuration has no horizontal overflow at 320, 768, 1024 and 1440px', async ({ page, request }) => {

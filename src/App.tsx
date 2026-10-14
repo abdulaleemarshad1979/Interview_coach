@@ -19,7 +19,7 @@ import { getApiUrl, apiFetch } from "./lib/api";
 
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<string>("landing");
+  const [currentView, setCurrentView] = useState<string>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("meeting") ? "group-discussion" : "landing");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const navigate = (view: string) => {
     if (view === "interview") setActiveSessionId(null);
@@ -344,7 +344,7 @@ export default function App() {
         setStudentProfile(null);
         setFacultyProfile(null);
         setAdminProfile(null);
-        setCurrentView((prev) => (prev === "landing" ? "landing" : "landing"));
+        setCurrentView(new URLSearchParams(window.location.search).has("meeting") ? "group-discussion" : "landing");
       }
     });
 
@@ -480,7 +480,7 @@ export default function App() {
           localStorage.setItem(`studentProfile_${userRollNo}`, JSON.stringify(profile));
           syncCollegeProfile(userRollNo, profile);
         }
-        setCurrentView("dashboard");
+        setCurrentView(new URLSearchParams(window.location.search).has("meeting") ? "group-discussion" : "dashboard");
       }
     });
   };
@@ -681,6 +681,7 @@ export default function App() {
           />
         );
       case "group-discussion":
+        if (adminProfile) return <MeetingLobby studentProfile={{ studentId: adminProfile.adminId, name: adminProfile.name }} onNavigate={navigate} />;
         if (facultyProfile) {
           return (
             <MeetingLobby
