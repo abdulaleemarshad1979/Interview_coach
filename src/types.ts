@@ -18,6 +18,7 @@ export interface CompanyPlacementDrive {
 
 export interface StudentProfile {
   studentId: string;
+  portal?: "aus" | "acet";
   githubUsername?: string;
   resumeFileName?: string;
   name?: string;

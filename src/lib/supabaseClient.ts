@@ -94,6 +94,27 @@ class LocalAuthClient {
     }
   }
 
+  async signInWithCollegePortal({ rollNo, password, portal, classSection }: { rollNo: string; password: string; portal: "aus" | "acet"; classSection?: string }) {
+    try {
+      const response = await fetch(getApiUrl("/api/college/login"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rollNo, password, portal, classSection }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) return { data: null, error: { message: data.error || "College sign-in failed. Please try again.", code: data.code } };
+      if (!data.session?.access_token || !data.user || !data.profile) return { data: null, error: { message: "The server returned an incomplete sign-in response.", code: "INVALID_LOGIN_RESPONSE" } };
+      localStorage.setItem(`studentProfile_${rollNo}`, JSON.stringify(data.profile));
+      localStorage.setItem("studentProfile", JSON.stringify(data.profile));
+      localStorage.setItem("auth_token", data.session.access_token);
+      localStorage.setItem("auth_user", JSON.stringify(data.user));
+      localStorage.removeItem("portal_pwd");
+      this.notify("SIGNED_IN", data.session);
+      return { data, error: null };
+    } catch {
+      return { data: null, error: { message: "Unable to reach the sign-in server. Please try again.", code: "NETWORK_ERROR" } };
+    }
+  }
+
   async signInWithPassword({ email, password }: any) {
     try {
       const res = await fetch(getApiUrl("/api/auth/login"), {

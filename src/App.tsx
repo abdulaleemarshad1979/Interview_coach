@@ -207,11 +207,12 @@ export default function App() {
           checkAndClearStudentCache(session.user.id);
           const profile: StudentProfile = {
             studentId: userRollNo,
+            portal: session.user.user_metadata?.college_portal,
             githubUsername: session.user.user_metadata?.github_username,
             resumeFileName: session.user.user_metadata?.resume_file_name,
             name: session.user.user_metadata?.student_name,
             classSection: session.user.user_metadata?.class_section,
-            department: session.user.user_metadata?.department || session.user.user_metadata?.branch || "Information Technology",
+            department: session.user.user_metadata?.department || session.user.user_metadata?.branch,
             academicYear: session.user.user_metadata?.academic_year,
             attendance: session.user.user_metadata?.attendance,
             profileImage: session.user.user_metadata?.profile_image,
@@ -294,11 +295,12 @@ export default function App() {
           checkAndClearStudentCache(session.user.id);
           const profile: StudentProfile = {
             studentId: userRollNo,
+            portal: session.user.user_metadata?.college_portal,
             githubUsername: session.user.user_metadata?.github_username,
             resumeFileName: session.user.user_metadata?.resume_file_name,
             name: session.user.user_metadata?.student_name,
             classSection: session.user.user_metadata?.class_section,
-            department: session.user.user_metadata?.department || session.user.user_metadata?.branch || "Information Technology",
+            department: session.user.user_metadata?.department || session.user.user_metadata?.branch,
             academicYear: session.user.user_metadata?.academic_year,
             attendance: session.user.user_metadata?.attendance,
             profileImage: session.user.user_metadata?.profile_image,
@@ -444,13 +446,14 @@ export default function App() {
           const userRollNo = user.user_metadata?.roll_number || displayName;
           const profile: StudentProfile = {
             studentId: userRollNo,
+            portal: user.user_metadata?.college_portal,
             githubUsername: user.user_metadata?.github_username,
             resumeFileName: user.user_metadata?.resume_file_name,
             name: user.user_metadata?.student_name || displayName,
             classSection: user.user_metadata?.class_section || "Section A",
-            department: user.user_metadata?.department || user.user_metadata?.branch || "Information Technology",
-            academicYear: user.user_metadata?.academic_year || "2nd Year",
-            attendance: user.user_metadata?.attendance || 82,
+            department: user.user_metadata?.department || user.user_metadata?.branch,
+            academicYear: user.user_metadata?.academic_year,
+            attendance: user.user_metadata?.attendance,
             profileImage: user.user_metadata?.profile_image,
             collegeAssessments: user.user_metadata?.college_assessments,
             isSynced: user.user_metadata?.is_synced,
@@ -706,20 +709,18 @@ export default function App() {
             scorecard={scorecard}
             scorecardHistory={scorecardHistory}
             onSyncPortalDetails={async (password: string) => {
-              localStorage.setItem("portal_pwd", password);
-              try {
-                await syncCollegeProfile(studentProfile.studentId, studentProfile, true);
-                const activeProfileStr = localStorage.getItem(`studentProfile_${studentProfile.studentId}`);
-                if (activeProfileStr) {
-                  const activeProfile = JSON.parse(activeProfileStr);
-                  if (activeProfile.isSynced) {
-                    return true;
-                  }
-                }
-                return false;
-              } catch (err) {
-                return false;
-              }
+              const { data: { user } } = await supabase.auth.getUser();
+              const portal = user?.user_metadata?.college_portal || studentProfile.portal;
+              if (portal !== "aus" && portal !== "acet") throw new Error("Sign in through your college portal before syncing.");
+              const response = await apiFetch("/api/college/sync-portal", { method: "POST",
+                body: JSON.stringify({ rollNo: studentProfile.studentId, password, portal }) });
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(data.error || "College profile sync failed. Please try again.");
+              const mergedProfile = { ...studentProfile, ...data };
+              setStudentProfile(mergedProfile);
+              localStorage.setItem("studentProfile", JSON.stringify(mergedProfile));
+              localStorage.setItem(`studentProfile_${studentProfile.studentId}`, JSON.stringify(mergedProfile));
+              return true;
             }}
             onProfileUpdate={(updatedProfile) => {
               setStudentProfile(updatedProfile);

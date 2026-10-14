@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
 import http from "http";
-import https from "https";
 import crypto from "crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import Groq from "groq-sdk";
@@ -12,6 +11,7 @@ import helmet from "helmet";
 import { createInterviewRouter } from "./backend/interview/router";
 import { createMeetingRouter } from "./backend/meetings";
 import { createApiLimiter, restrictOrigins } from "./backend/security";
+import { verifyCollegePortal, validatePortalLogin, PortalError, portalUrl } from "./backend/collegePortal";
 import { createPasswordHash, verifyPassword, PASSWORD_SCHEME, validateCredentials, configuredRoles, effectiveRoles, sanitizeMetadata, profileIdForUser, canAccessProfile, sanitizeProfile } from "./backend/authSafety";
 
 // Cached lazy MongoDB connector — safe for Vercel serverless cold starts.
@@ -50,7 +50,7 @@ const ProfileSchema = new mongoose.Schema({
   student_name: { type: String, default: "" },
   class_section: { type: String, default: "" },
   section: { type: String, default: "" },
-  attendance: { type: Number, default: 80 },
+  attendance: { type: Number },
   branch: { type: String, default: "" },
   department: { type: String, default: "" },
   college_assessments: { type: Array, default: [] },
@@ -361,7 +361,7 @@ app.use("/api", restrictOrigins);
 app.use("/api", (_req, res, next) => { res.setHeader("Cache-Control", "private, no-store"); next(); });
 const generalLimiter = createApiLimiter("api", 300, 60000, connectDB);
 app.use("/api", (req, res, next) => req.path === "/health" || req.path === "/ping" ? next() : generalLimiter(req, res, next));
-app.use("/api/college/auth-sync", createApiLimiter("college-auth", 10, 15 * 60000, connectDB));
+app.use(["/api/college/auth-sync", "/api/college/login", "/api/college/sync-portal"], createApiLimiter("college-auth", 10, 15 * 60000, connectDB));
 app.use("/api/auth", createApiLimiter("auth", 30, 15 * 60000, connectDB));
 app.use("/api/voice", createApiLimiter("voice", 60, 60000, connectDB));
 const server = http.createServer(app);
@@ -489,7 +489,8 @@ app.post("/api/auth/signup", async (req, res) => {
     const newUserId = new mongoose.Types.ObjectId();
     const user_metadata: Record<string, any> = { ...sanitizeMetadata(req.body?.user_metadata), roll_number: normalizedEmail.endsWith("@aec.edu.in") ? normalizedEmail.split("@")[0].toUpperCase() : newUserId.toString(), ...configuredRoles(normalizedEmail), ...(verifiedProfile ? {
       student_name: verifiedProfile.name, department: verifiedProfile.department, class_section: verifiedProfile.classSection,
-      is_synced: true, attendance: verifiedProfile.attendance, college_assessments: verifiedProfile.collegeAssessments,
+      college_portal: verifiedProfile.portal, academic_year: verifiedProfile.academicYear, profile_image: verifiedProfile.profileImage,
+      is_synced: true, ...(typeof verifiedProfile.attendance === "number" ? { attendance: verifiedProfile.attendance } : {}), college_assessments: verifiedProfile.collegeAssessments,
     } : {}) };
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
@@ -497,7 +498,7 @@ app.post("/api/auth/signup", async (req, res) => {
     }
 
     const salt = generateSalt();
-    const passwordHash = await createPasswordHash(password, salt);
+    const passwordHash = await createPasswordHash(verifiedProfile ? crypto.randomBytes(32).toString("hex") : password, salt);
 
     const user = new User({
       _id: newUserId,
@@ -527,7 +528,7 @@ app.post("/api/auth/signup", async (req, res) => {
           section: user_metadata?.class_section || "",
           branch: user_metadata?.branch || "",
           department: user_metadata?.department || "",
-          attendance: user_metadata?.attendance || 80,
+          attendance: user_metadata?.attendance,
           college_assessments: user_metadata?.college_assessments || [],
           is_synced: !!user_metadata?.is_synced,
           profile_image: user_metadata?.profile_image || "",
@@ -583,6 +584,10 @@ app.post("/api/auth/login", async (req, res) => {
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
       return res.status(400).json({ error: "Invalid login credentials" });
+    }
+
+    if (normalizedEmail.endsWith("@aec.edu.in") && !user.staffProvisioned) {
+      return res.status(403).json({ error: "Use College portal sign-in with your current ECAP credentials.", code: "COLLEGE_LOGIN_REQUIRED" });
     }
 
     if (!(await verifyPassword(password, user.salt, user.passwordHash, user.passwordScheme))) {
@@ -664,7 +669,7 @@ app.post("/api/auth/update-metadata", requireAuth, async (req: any, res) => {
           section: user.user_metadata?.class_section || "",
           branch: user.user_metadata?.branch || "",
           department: user.user_metadata?.department || "",
-          attendance: user.user_metadata?.attendance || 80,
+          attendance: user.user_metadata?.attendance,
           college_assessments: user.user_metadata?.college_assessments || [],
           is_synced: !!user.user_metadata?.is_synced,
           profile_image: user.user_metadata?.profile_image || "",
@@ -823,430 +828,104 @@ app.get("/api/college/student/:rollNo", requireAuth, async (req: any, res) => {
   }
 });
 
-// Portal sync helper: Encrypt password matching Aditya Portal AES 128-bit CBC
-function encryptPortalPassword(plaintext: string): string {
-  const key = Buffer.from("8701661282118308", "utf8");
-  const iv = Buffer.from("8701661282118308", "utf8");
-  const cipher = crypto.createCipheriv("aes-128-cbc", key, iv);
-  let encrypted = cipher.update(plaintext, "utf8", "base64");
-  encrypted += cipher.final("base64");
-  return encrypted;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PORTAL SCRAPER (Using direct raw HTTP requests)
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function scrapePortalWithFallback(rollNo: string, password: string, portal: string): Promise<any> {
-  console.log(`[Portal] Scraping student details via raw HTTP requests for ${rollNo} on ${portal}...`);
-  return await scrapeStudentProfileFromPortal(rollNo, password, portal);
-}
-
-// Raw HTTP client to interact with portal
-async function makePortalRawRequest(urlStr: string, method = "GET", headers: Record<string, string> = {}, body: string | null = null): Promise<{ statusCode: number | undefined; headers: any; body: string }> {
-  return new Promise((resolve, reject) => {
-    const url = new URL(urlStr);
-    const options: any = {
-      hostname: url.hostname,
-      port: url.port || (url.protocol === "https:" ? 443 : 80),
-      path: url.pathname + url.search,
-      method: method,
-      // Full browser-like headers to bypass Cloudflare bot detection
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "sec-fetch-dest": "document",
-        "sec-fetch-mode": "navigate",
-        "sec-fetch-site": "same-origin",
-        "sec-fetch-user": "?1",
-        "Cache-Control": "max-age=0",
-        ...headers
-      }
-    };
-
-    if (body) {
-      options.headers["Content-Length"] = Buffer.byteLength(body);
-    }
-
-    const lib = url.protocol === "https:" ? https : http;
-    const req = lib.request(options, (res) => {
-      const chunks: any[] = [];
-      res.on("data", (chunk) => chunks.push(chunk));
-      res.on("end", () => {
-        resolve({
-          statusCode: res.statusCode,
-          headers: res.headers,
-          body: Buffer.concat(chunks).toString()
-        });
-      });
-    });
-
-    req.on("error", (err) => reject(err));
-    if (body) req.write(body);
-    req.end();
+// College passwords exist only for the duration of the upstream verification request.
+function sendPortalError(res: any, error: unknown, portal: unknown) {
+  const known = error instanceof PortalError;
+  console.warn("[college] Verification failed", { code: known ? error.code : "COLLEGE_SERVICE_UNAVAILABLE" });
+  return res.status(known ? error.status : 503).json({
+    error: known ? error.message : "Student sign-in is temporarily unavailable. Please try again.",
+    code: known ? error.code : "COLLEGE_SERVICE_UNAVAILABLE",
+    ...((portal === "aus" || portal === "acet") ? { portalUrl: portalUrl(portal) } : {}),
   });
 }
 
-// Client wrapper to maintain sessions across requests
-async function fetchPortalWithCookies(urlStr: string, method = "GET", headers: Record<string, string> = {}, body: string | null = null, cookieJar: Record<string, string> = {}): Promise<{ statusCode: number | undefined; headers: any; body: string; cookies: Record<string, string> }> {
-  let currentUrl = urlStr;
-  let currentMethod = method;
-  let currentBody = body;
-  let redirectCount = 0;
-  const MAX_REDIRECTS = 15;
-
-  while (true) {
-    const cookieHeaderValue = Object.entries(cookieJar)
-      .map(([k, v]) => `${k}=${v}`)
-      .join("; ");
-
-    const requestHeaders = { ...headers };
-    if (cookieHeaderValue) {
-      requestHeaders["Cookie"] = cookieHeaderValue;
-    }
-    if (currentBody && currentMethod === "POST") {
-      requestHeaders["Content-Type"] = "application/x-www-form-urlencoded";
-    }
-
-    const res = await makePortalRawRequest(currentUrl, currentMethod, requestHeaders, currentBody);
-
-    // Settle cookies
-    const setCookies = res.headers["set-cookie"];
-    if (setCookies) {
-      for (const sc of setCookies) {
-        const cookiePair = sc.split(";")[0];
-        const eqIdx = cookiePair.indexOf("=");
-        if (eqIdx !== -1) {
-          const k = cookiePair.substring(0, eqIdx).trim();
-          const v = cookiePair.substring(eqIdx + 1).trim();
-          cookieJar[k] = v;
-        }
-      }
-    }
-
-    // Handle redirects with a limit to prevent infinite loops (e.g. Cloudflare challenges)
-    if (res.statusCode === 302 || res.statusCode === 301 || res.statusCode === 307 || res.statusCode === 308) {
-      redirectCount++;
-      if (redirectCount > MAX_REDIRECTS) {
-        throw new Error(`Too many redirects (${redirectCount}) — the portal may be blocking automated access (Cloudflare).`);
-      }
-      const redirectLoc = res.headers["location"];
-      if (!redirectLoc) {
-        return { ...res, cookies: cookieJar };
-      }
-      currentUrl = new URL(redirectLoc, currentUrl).toString();
-      currentMethod = "GET";
-      currentBody = null;
-      delete requestHeaders["Content-Type"];
-      delete requestHeaders["Content-Length"];
-      continue;
-    }
-
-    return {
-      ...res,
-      cookies: cookieJar
-    };
+async function persistCollegeProfile(user: any, profile: any, classSection?: string) {
+  const existing = await Profile.findOne({ id: profile.studentId }).lean();
+  if (existing?.ownerId && existing.ownerId !== user._id.toString()) {
+    throw new PortalError("PROFILE_OWNERSHIP_CONFLICT", "This college profile is linked to another account. Contact the administrator.", 409);
   }
+  profile = { ...profile, department: profile.department || existing?.department || user.user_metadata?.department || "",
+    academicYear: profile.academicYear || user.user_metadata?.academic_year || "",
+    profileImage: profile.profileImage || existing?.profile_image || user.user_metadata?.profile_image || "" };
+  const resolvedSection = profile.classSection || existing?.class_section || classSection || "";
+  user.user_metadata = { ...user.user_metadata, roll_number: profile.studentId, college_portal: profile.portal,
+    student_name: profile.name, department: profile.department, branch: profile.department,
+    class_section: resolvedSection, academic_year: profile.academicYear, profile_image: profile.profileImage,
+    ...(typeof profile.attendance === "number" ? { attendance: profile.attendance } : {}), is_synced: true };
+  user.markModified("user_metadata");
+  await user.save();
+  await Profile.findOneAndUpdate({ id: profile.studentId, $or: [{ ownerId: user._id.toString() }, { ownerId: { $exists: false } }, { ownerId: null }] }, {
+    $set: { ownerId: user._id.toString(), roll_number: profile.studentId, name: profile.name, student_name: profile.name,
+      branch: profile.department, department: profile.department, class_section: resolvedSection, section: resolvedSection,
+      profile_image: profile.profileImage, ...(typeof profile.attendance === "number" ? { attendance: profile.attendance } : {}),
+      is_synced: true, updated_at: new Date() },
+  }, { upsert: true, setDefaultsOnInsert: true });
+  return { ...profile, classSection: resolvedSection };
 }
 
-// Extract inputs dynamically from login HTML page
-function extractPortalFormFields(html: string): Record<string, string> {
-  const fields: Record<string, string> = {};
-  const inputRegex = /<input\s+([^>]*?)>/gi;
-  let match;
-  while ((match = inputRegex.exec(html)) !== null) {
-    const attrs = match[1];
-    const nameMatch = attrs.match(/name="([^"]*?)"/i) || attrs.match(/name='([^']*?)'/i);
-    if (!nameMatch) continue;
-    const name = nameMatch[1];
-    const valMatch = attrs.match(/value="([^"]*?)"/i) || attrs.match(/value='([^']*?)'/i);
-    const value = valMatch ? valMatch[1] : "";
-    fields[name] = value;
-  }
-  return fields;
-}
-
-// Parse university BIO-DATA html response
-function getPreferredPortalForRollNo(rollNo: string): { primary: string; secondary: string } {
-  const clean = String(rollNo || "").trim().toUpperCase();
-  // Regex for JNTU roll number format (e.g. 24P31A1234 or 22A95A0501)
-  const isJNTU = /^\d{2}[A-Z0-9]{2}[15]A\d{2}[A-Z0-9]{2}$/.test(clean);
-  if (isJNTU) {
-    return { primary: "acet", secondary: "aus" };
-  }
-  return { primary: "aus", secondary: "acet" };
-}
-
-function parsePortalProfileHtml(rawHtml: string, studentId: string, portal: string) {
-  let html = rawHtml;
-  if (html.startsWith('"') || html.startsWith("'")) {
-    html = html.substring(1, html.length - 1)
-      .replace(/\\'/g, "'")
-      .replace(/\\"/g, '"')
-      .replace(/\\r/g, "\r")
-      .replace(/\\n/g, "\n");
-  }
-
-  // 1. Name
-  const nameMatch = html.match(/Name<\/td>\s*<td>:<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
-  const name = nameMatch ? nameMatch[1].trim() : "";
-
-  // 2. Course
-  const courseMatch = html.match(/Course<\/td>\s*<td>:<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
-  const course = courseMatch ? courseMatch[1].trim() : "";
-
-  // 3. Branch / Department
-  const branchMatch = html.match(/Branch<\/td>\s*<td>:<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
-  const branch = branchMatch ? branchMatch[1].trim() : "";
-
-  // 4. Semester / Year
-  const semMatch = html.match(/Semester<\/td>\s*<td>:<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
-  let semesterText = "";
-  if (semMatch) {
-    const spanMatch = semMatch[1].match(/<span[^>]*>(.*?)<\/span>/i);
-    semesterText = spanMatch ? spanMatch[1].trim() : semMatch[1].trim();
-  }
-
-  // 5. Photo
-  const photoMatch = html.match(/<img[^>]*src=['"]([^'"]*?StudentPhotos\/.*?)['"]/i);
-  const photoUrl = photoMatch ? photoMatch[1].trim() : `http://info.aec.edu.in/${portal}/StudentPhotos/${studentId}.jpg`;
-
-  // 6. Attendance
-  const totalMatch = html.match(/TOTAL<\/td>\s*<td[^>]*>\d+<\/td>\s*<td[^>]*>\d+<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
-  let attendance = 75;
-  if (totalMatch) {
-    const val = parseFloat(totalMatch[1]);
-    if (!isNaN(val)) {
-      attendance = Math.round(val);
-    }
-  }
-
-  // Map fields
-  const department = branch || "Information Technology";
-  let yearStr = "III B.Tech";
-  const yearMatch = semesterText.match(/(\d)\/\d/);
-  if (yearMatch) {
-    const yearNum = parseInt(yearMatch[1], 10);
-    const romans = ["I", "II", "III", "IV"];
-    if (yearNum >= 1 && yearNum <= 4) {
-      yearStr = `${romans[yearNum - 1]} B.Tech`;
-    }
-  }
-
-  const branchShort = department.toLowerCase().includes("information technology") ? "IT" : "CSE";
-  const classSection = `${yearStr} ${branchShort} - Section A`;
-
-  let academicYear = "2024-2028";
-  const rollYearPrefix = studentId.substring(0, 2);
-  if (/^\d+$/.test(rollYearPrefix)) {
-    const joinYear = 2000 + parseInt(rollYearPrefix, 10);
-    academicYear = `${joinYear}-${joinYear + 4}`;
-  }
-
-  return {
-    studentId,
-    name,
-    department,
-    classSection,
-    academicYear,
-    attendance,
-    profileImage: photoUrl,
-    isSynced: true
-  };
-}
-
-async function scrapeStudentProfileFromPortal(rollNo: string, password: string, portal: string) {
-  const isNewPortal = (portal === "aus");
-  const loginUrl = `https://info.aec.edu.in/${portal}/default.aspx`;
-  const cookieJar: Record<string, string> = {};
-
-  // 1. Get initial ASP.NET cookies & fields
-  console.log(`[Scraper] Fetching login page: ${loginUrl}`);
-  const initRes = await fetchPortalWithCookies(loginUrl, "GET", {}, null, cookieJar);
-
-  // Detect Cloudflare block — if we get a CF challenge page, scraping won't work
-  const initBodyLower = initRes.body.toLowerCase();
-  if (initBodyLower.includes("just a moment") || initBodyLower.includes("cf-browser-verification") || initBodyLower.includes("enable javascript and cookies") || initBodyLower.includes("ray id") && initBodyLower.includes("cloudflare")) {
-    throw new Error("Portal is behind Cloudflare bot protection. Automated scraping is currently blocked. Please use mock mode.");
-  }
-
-  const formFields = extractPortalFormFields(initRes.body);
-  console.log(`[Scraper] Parsed ${Object.keys(formFields).length} form fields from login page. StatusCode: ${initRes.statusCode}`);
-
-  if (Object.keys(formFields).length < 2) {
-    // Likely got a Cloudflare or error page instead of the real form
-    const snippet = initRes.body.substring(0, 300).replace(/\s+/g, " ");
-    throw new Error(`Portal returned an unexpected page (status ${initRes.statusCode}). Snippet: ${snippet}`);
-  }
-
-  // 2. Encrypt password
-  const encryptedPwd = encryptPortalPassword(password);
-
-  // 3. Prepare login POST payload
-  if (isNewPortal) {
-    // AUS portal — new Campus Connect interface
-    // The Student radio button value is "rbtStudent" — set it as selected
-    formFields["userType"] = "rbtStudent";
-    // Also try alternate field names used by some AUS portal versions
-    formFields["txtUserId"] = rollNo;
-    formFields["txtPassword"] = encryptedPwd;
-    formFields["hdnpwd"] = encryptedPwd;
-    // Try both button name variants
-    if (!formFields["btnLogin"]) {
-      formFields["btnLogin"] = "LOGIN";
-    }
-
-    // Delete older/ACET-style fields
-    delete formFields["txtId2"];
-    delete formFields["txtPwd2"];
-    delete formFields["hdnpwd2"];
-    delete formFields["imgBtn1"];
-    delete formFields["imgBtn2"];
-    delete formFields["imgBtn3"];
-  } else {
-    // ACET portal — older interface
-    formFields["txtId2"] = rollNo;
-    formFields["txtPwd2"] = encryptedPwd;
-    formFields["hdnpwd2"] = encryptedPwd;
-    formFields["imgBtn2.x"] = "30";
-    formFields["imgBtn2.y"] = "20";
-
-    delete formFields["imgBtn1"];
-    delete formFields["imgBtn3"];
-  }
-
-  const postData = Object.entries(formFields)
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join("&");
-
-  console.log(`[Scraper] Posting login for ${rollNo} on ${portal} portal...`);
-
-  // 4. Perform Login POST request
-  const postRes = await fetchPortalWithCookies(loginUrl, "POST", {
-    "Referer": loginUrl,
-    "Origin": `https://info.aec.edu.in`,
-    "sec-fetch-site": "same-origin",
-    "sec-fetch-mode": "navigate",
-    "sec-fetch-dest": "document",
-  }, postData, cookieJar);
-
-  // Verify if we actually reached the logged-in StudentMaster page
-  const dashboardHtml = postRes.body;
-  const dashboardLower = dashboardHtml.toLowerCase();
-  console.log(`[Scraper] Login POST response: status=${postRes.statusCode}, bodyLength=${dashboardHtml.length}, hasLogout=${dashboardLower.includes("lnklogout")}, hasStudentMaster=${dashboardLower.includes("studentmaster")}`);
-
-  if (!dashboardLower.includes("lnklogout") && !dashboardLower.includes("studentmaster")) {
-    // Log a snippet to help diagnose what the portal returned
-    const snippet = dashboardHtml.substring(0, 500).replace(/\s+/g, " ");
-    console.error(`[Scraper] Login failed. Portal response snippet: ${snippet}`);
-    throw new Error("Authentication failed — portal did not redirect to student dashboard");
-  }
-
-  // 5. Query the AjaxPro method to fetch BIO-DATA HTML
-  const ajaxUrl = `https://info.aec.edu.in/${portal}/ajax/StudentProfile,App_Web_studentprofile.aspx.a2a1b31c.ashx?_method=ShowStudentProfileNew&_session=rw`;
-  const ajaxBody = `RollNo=${encodeURIComponent(rollNo)}\r\nisImageDisplay=${encodeURIComponent("true")}`;
-
-  const ajaxRes = await fetchPortalWithCookies(ajaxUrl, "POST", {
-    "X-AjaxPro-Method": "ShowStudentProfileNew",
-    "Content-Type": "text/plain; charset=utf-8",
-    "Referer": `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx?scrid=17`
-  }, ajaxBody, cookieJar);
-
-  console.log(`[Scraper] Profile AJAX response: status=${ajaxRes.statusCode}, bodyLength=${ajaxRes.body?.length}`);
-
-  if (ajaxRes.statusCode !== 200 || !ajaxRes.body) {
-    throw new Error("Failed to query profile details from the college database.");
-  }
-
-  // 6. Parse details
-  return parsePortalProfileHtml(ajaxRes.body, rollNo, portal);
-}
-
-// 1d-v2. API Endpoint: Synchronize details directly from college portal via real-time login scraper
-app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
-  const { rollNo, password, portal } = req.body;
-  const cleanRollNo = String(rollNo || "").trim().toUpperCase();
-
-  if (!canAccessProfile(req.user, cleanRollNo)) return res.status(403).json({ error: "Only your own verified college profile can be synchronized." });
-  if (!cleanRollNo || !password) {
-    res.status(400).json({ error: "Roll number and password are required." });
-    return;
-  }
-
-  console.log(`[Sync Scraper] Commencing sync-portal routine for: ${cleanRollNo}`);
-  const selectedPortal = (portal === "aus" || portal === "acet") ? portal : null;
-  const { primary, secondary } = getPreferredPortalForRollNo(cleanRollNo);
-  const portalToUse = selectedPortal || primary;
-
+app.post("/api/college/login", async (req, res) => {
+  res.setHeader("Cache-Control", "private, no-store");
   try {
-    let profile;
-    if (selectedPortal) {
-      console.log(`[Sync Scraper] Strict portal mode: fetching ONLY from ${portalToUse} for ${cleanRollNo}`);
-      profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
-    } else {
-      try {
-        console.log(`[Sync Scraper] Trying preferred portal: ${portalToUse} for ${cleanRollNo}`);
-        profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
-      } catch (primaryErr: any) {
-        const fallback = portalToUse === primary ? secondary : primary;
-        console.warn(`[Sync Scraper] Preferred portal ${portalToUse} failed, trying fallback portal: ${fallback} for ${cleanRollNo}`);
-        profile = await scrapePortalWithFallback(cleanRollNo, password, fallback);
+    const credentials = validatePortalLogin(req.body);
+    const profile = await verifyCollegePortal(credentials.rollNo, credentials.password, credentials.portal);
+    await connectDB();
+    const email = `${credentials.rollNo.toLowerCase()}@aec.edu.in`;
+    let user = await User.findOne({ email });
+    if (user?.staffProvisioned || configuredRoles(email).is_faculty) {
+      throw new PortalError("STAFF_LOGIN_REQUIRED", "Use the staff sign-in for this account.", 403);
+    }
+    if (user?.user_metadata?.college_portal && user.user_metadata.college_portal !== credentials.portal) {
+      throw new PortalError("PORTAL_ACCOUNT_CONFLICT", "This roll number is already linked to another college portal. Contact the administrator.", 409);
+    }
+    if (!user) {
+      // Required legacy password fields hold a random unusable secret, never the ECAP password.
+      const salt = generateSalt();
+      const passwordHash = await createPasswordHash(crypto.randomBytes(32).toString("hex"), salt);
+      user = await User.findOneAndUpdate({ email }, { $setOnInsert: { email, salt, passwordHash, passwordScheme: PASSWORD_SCHEME,
+        user_metadata: { roll_number: credentials.rollNo, college_portal: credentials.portal, is_faculty: false, is_admin: false } } },
+        { upsert: true, returnDocument: "after", setDefaultsOnInsert: true });
+      // Recheck after a concurrent first login creates the account.
+      if (user.staffProvisioned || user.user_metadata?.college_portal !== credentials.portal) {
+        throw new PortalError("PORTAL_ACCOUNT_CONFLICT", "This roll number is linked to another account. Contact the administrator.", 409);
       }
     }
-    console.log(`[Sync Scraper] Profile sync successful for ${cleanRollNo}: Name="${profile.name}"`);
-    res.json(profile);
-  } catch (err: any) {
-    console.error(`[Sync Scraper] Error scraping details for ${cleanRollNo}:`, err.message);
-    res.status(401).json({ error: "Authentication failed. Invalid Roll Number or Portal Password." });
-  }
+    const classSection = typeof req.body.classSection === "string" ? req.body.classSection.trim().slice(0, 100) : undefined;
+    const syncedProfile = await persistCollegeProfile(user, profile, classSection);
+    const token = crypto.randomBytes(32).toString("hex");
+    await Session.create({ token, userId: user._id });
+    const publicUser = { id: user._id.toString(), email: user.email, user_metadata: { ...user.user_metadata, ...effectiveRoles(user) } };
+    return res.json({ user: publicUser, session: { access_token: token, user: publicUser }, profile: syncedProfile });
+  } catch (error) { return sendPortalError(res, error, req.body?.portal); }
 });
 
-// 1d-v3. Public API Endpoint: Synchronize details directly from college portal via real-time login scraper during login
-app.post("/api/college/auth-sync", async (req: any, res) => {
-  const { rollNo, password, portal } = req.body;
-  const cleanRollNo = String(rollNo || "").trim().toUpperCase();
-
-  if (!cleanRollNo || !password) {
-    res.status(400).json({ error: "Roll number and password are required." });
-    return;
-  }
-
-  console.log(`[Auth Scraper] Commencing auth-sync routine for: ${cleanRollNo}`);
-  const selectedPortal = (portal === "aus" || portal === "acet") ? portal : null;
-  const { primary, secondary } = getPreferredPortalForRollNo(cleanRollNo);
-  const portalToUse = selectedPortal || primary;
-
+app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
+  res.setHeader("Cache-Control", "private, no-store");
   try {
-    let profile;
-    if (selectedPortal) {
-      console.log(`[Auth Scraper] Strict portal mode: fetching ONLY from ${portalToUse} for ${cleanRollNo}`);
-      profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
-    } else {
-      try {
-        console.log(`[Auth Scraper] Trying preferred portal: ${portalToUse} for ${cleanRollNo}`);
-        profile = await scrapePortalWithFallback(cleanRollNo, password, portalToUse);
-      } catch (primaryErr: any) {
-        const fallback = portalToUse === primary ? secondary : primary;
-        console.warn(`[Auth Scraper] Preferred portal ${portalToUse} failed, trying fallback portal: ${fallback} for ${cleanRollNo}`);
-        profile = await scrapePortalWithFallback(cleanRollNo, password, fallback);
-      }
+    const credentials = validatePortalLogin(req.body);
+    if (!canAccessProfile(req.user, credentials.rollNo, true) || req.user.user_metadata?.is_faculty) {
+      throw new PortalError("PROFILE_ACCESS_DENIED", "Only your own college profile can be synchronized.", 403);
     }
-    console.log(`[Auth Scraper] Profile auth-sync successful for ${cleanRollNo}: Name="${profile.name}"`);
+    const user = await User.findById(req.user.id);
+    if (!user || (user.user_metadata?.college_portal && user.user_metadata.college_portal !== credentials.portal)) {
+      throw new PortalError("PORTAL_ACCOUNT_CONFLICT", "Select the college portal linked to your account.", 409);
+    }
+    const profile = await verifyCollegePortal(credentials.rollNo, credentials.password, credentials.portal);
+    return res.json(await persistCollegeProfile(user, profile));
+  } catch (error) { return sendPortalError(res, error, req.body?.portal); }
+});
+
+// Compatibility for older clients. Verification remains strict to the chosen college.
+app.post("/api/college/auth-sync", async (req, res) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  try {
+    const credentials = validatePortalLogin(req.body);
+    const profile = await verifyCollegePortal(credentials.rollNo, credentials.password, credentials.portal);
     await connectDB();
     const registrationToken = crypto.randomBytes(32).toString("hex");
-    await RegistrationVerification.create({ tokenDigest: crypto.createHash("sha256").update(registrationToken).digest("hex"), email: `${cleanRollNo.toLowerCase()}@aec.edu.in`, expiresAt: new Date(Date.now() + 5 * 60000), profile });
-    res.json({ ...profile, registrationToken });
-  } catch (err: any) {
-    console.error(`[Auth Scraper] Error scraping details for ${cleanRollNo}:`, err.message);
-    res.status(401).json({ error: "Authentication failed. Invalid Roll Number or Portal Password." });
-  }
+    await RegistrationVerification.create({ tokenDigest: crypto.createHash("sha256").update(registrationToken).digest("hex"),
+      email: `${credentials.rollNo.toLowerCase()}@aec.edu.in`, expiresAt: new Date(Date.now() + 5 * 60000), profile });
+    return res.json({ ...profile, registrationToken });
+  } catch (error) { return sendPortalError(res, error, req.body?.portal); }
 });
 
 
