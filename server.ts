@@ -355,10 +355,17 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
 
 const app = express();
 app.disable("x-powered-by");
-if (process.env.TRUST_PROXY_HOPS && /^\d+$/.test(process.env.TRUST_PROXY_HOPS)) app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS));
+const proxyHops = process.env.TRUST_PROXY_HOPS ?? (process.env.VERCEL ? "1" : "");
+if (/^\d+$/.test(proxyHops)) app.set("trust proxy", Number(proxyHops));
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.use("/api", restrictOrigins);
 app.use("/api", (_req, res, next) => { res.setHeader("Cache-Control", "private, no-store"); next(); });
+// Existing fixture tests still exercise legacy account auth; deployed and local app
+// users can create sessions only through the verified college portal.
+app.post(["/api/auth/signup", "/api/auth/login"], (_req, res, next) => {
+  if (process.env.NODE_ENV === "test") return next();
+  return res.status(410).json({ error: "Sign in through your college portal.", code: "COLLEGE_LOGIN_REQUIRED" });
+});
 const generalLimiter = createApiLimiter("api", 300, 60000, connectDB);
 app.use("/api", (req, res, next) => req.path === "/health" || req.path === "/ping" ? next() : generalLimiter(req, res, next));
 app.use(["/api/college/auth-sync", "/api/college/login", "/api/college/sync-portal"], createApiLimiter("college-auth", 10, 15 * 60000, connectDB));
@@ -872,7 +879,7 @@ app.post("/api/college/login", async (req, res) => {
     const email = `${credentials.rollNo.toLowerCase()}@aec.edu.in`;
     let user = await User.findOne({ email });
     if (user?.staffProvisioned || configuredRoles(email).is_faculty) {
-      throw new PortalError("STAFF_LOGIN_REQUIRED", "Use the staff sign-in for this account.", 403);
+      throw new PortalError("PORTAL_ACCOUNT_CONFLICT", "This roll number is reserved for a staff account. Contact the administrator.", 403);
     }
     if (user?.user_metadata?.college_portal && user.user_metadata.college_portal !== credentials.portal) {
       throw new PortalError("PORTAL_ACCOUNT_CONFLICT", "This roll number is already linked to another college portal. Contact the administrator.", 409);
@@ -3273,7 +3280,7 @@ async function initServer() {
     viteInstance = vite;
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.join(process.cwd(), "dist", "client");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

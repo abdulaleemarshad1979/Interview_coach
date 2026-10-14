@@ -13,7 +13,7 @@ npm run db:migrate
 npm run dev
 ```
 
-Open http://localhost:3000. Select **Get Started → Sign in with an Interview Coach account** to register or sign in with an app account. The existing college portal sign-in remains available. First-time college roll registration requires successful portal verification; staff accounts must be provisioned by the operator.
+Open http://localhost:3000. Select **Get Started → Sign in with college portal**, choose AUS or ACET, and use your roll number and ECAP password. An account and session are created only after the official portal verifies the student. The former Interview Coach account and staff password sign-in routes are retired for app users.
 
 Production build/start:
 
@@ -46,9 +46,9 @@ The provider layer also supports configured Ollama and OpenAI-compatible JSON co
 
 `npm run benchmark:voice` compares the same questions across three Orpheus voices when a real key is present. It saves WAV files and synthesis timings for an operator listening evaluation; without a key it records an explicit blocked result. Generation success alone does not prove naturalness or audible quality.
 
-## Staff access and security
+## Security
 
-Set `ADMIN_EMAILS` / `FACULTY_EMAILS` to the authorized addresses. Public registration cannot claim an allowlisted address or grant privileges. Existing staff accounts retain their password and require both an allowlist entry and operator provisioning. To create a new account, set `STAFF_EMAIL`, `STAFF_NAME`, `STAFF_INITIAL_PASSWORD` in the local/server environment and run `npm run staff:provision`; remove the initial password afterward.
+The app accepts new sign-ins only after successful college portal verification. The former account and staff password endpoints return `410` in normal operation. Existing staff sessions expire under the existing seven-day session policy; staff dashboards remain in the codebase but have no separate sign-in route.
 
 Session expiration is checked on every protected request. Existing PBKDF2 passwords upgrade to asynchronous scrypt after a valid login, without a forced reset. Profile writes enforce owner identity. Production rate-limit counters use MongoDB for shared enforcement across instances. Configure `APP_URL`, optional `ALLOWED_ORIGINS` and the exact `TRUST_PROXY_HOPS` count for your reverse proxy. Never broadly trust arbitrary proxy headers.
 

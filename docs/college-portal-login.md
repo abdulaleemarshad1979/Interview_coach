@@ -21,7 +21,7 @@ The current AUS form includes Cloudflare Turnstile. The widget and resulting ver
 
 ## Application flow
 
-`POST /api/college/login` validates an explicit college selection, verifies its current ECAP credentials, and creates or reuses the local student account before returning `{user, session, profile}`. Successful verification binds the college in server-owned metadata. Existing account IDs, profile ownership, saved interview metadata, and selected section are preserved. New college accounts store an unrelated random local password hash; they authenticate through the college endpoint. The generic local password endpoint rejects college student sign-in.
+`POST /api/college/login` validates an explicit college selection, verifies its current ECAP credentials, and creates or reuses the local student account before returning `{user, session, profile}`. Successful verification binds the college in server-owned metadata. Existing account IDs, profile ownership, saved interview metadata, and selected section are preserved. New college accounts store an unrelated random local password hash; they authenticate through the college endpoint. The generic local password and signup endpoints return `410` in normal operation.
 
 `POST /api/college/sync-portal` repeats verification for the signed-in student's bound college and updates the stored profile. Legacy `/api/college/auth-sync` verification tickets also carry the verified college identity. The UI holds the submitted password in memory only and clears it after login; profile sync requests a password again.
 
