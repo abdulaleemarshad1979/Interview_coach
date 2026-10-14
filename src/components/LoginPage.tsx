@@ -46,6 +46,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [studentBranch, setStudentBranch] = useState("");
   const [studentSection, setStudentSection] = useState("Section A");
   const [selectedPortal, setSelectedPortal] = useState<"aus" | "acet">("aus");
+  const [portalManuallySelected, setPortalManuallySelected] = useState(false);
+  const [portalVerificationUrl, setPortalVerificationUrl] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -72,42 +74,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     ? "Passwords do not match."
     : undefined;
 
-  const syncOnLogin = async (userRollNo: string, pass: string) => {
-    try {
-      const session = await supabase.auth.getSession();
-      const token = session.data.session?.access_token;
-      if (!token) return;
-
-      const syncRes = await fetch(getApiUrl("/api/college/sync-portal"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({ rollNo: userRollNo, password: pass, portal: selectedPortal })
-      });
-      if (syncRes.ok) {
-        const syncedProfile = await syncRes.json();
-        localStorage.setItem(`studentProfile_${userRollNo}`, JSON.stringify(syncedProfile));
-        localStorage.setItem("studentProfile", JSON.stringify(syncedProfile));
-        
-        await supabase.auth.updateUser({
-          data: {
-            student_name: syncedProfile.name,
-            class_section: syncedProfile.classSection,
-            department: syncedProfile.department,
-            academic_year: syncedProfile.academicYear,
-            attendance: syncedProfile.attendance,
-            profile_image: syncedProfile.profileImage,
-            is_synced: true
-          }
-        });
-      }
-    } catch (e) {
-      console.error("Auto sync on login failed", e);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -129,98 +95,27 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
       setLoading(true);
       setError(null);
-      setSuccessMessage("Signing in to your student portal...");
-
+      setPortalVerificationUrl(null);
+      setSuccessMessage(`Verifying your credentials with ${selectedPortal.toUpperCase()}...`);
       try {
-        const mappedEmail = `${cleanRollNo.toLowerCase()}@aec.edu.in`;
-        const { data: existingAccount, error: existingAccountError } = await supabase.auth.signInWithPassword({
-          email: mappedEmail,
-          password,
+        const { data, error: loginError } = await supabase.auth.signInWithCollegePortal({
+          rollNo: cleanRollNo, password, portal: selectedPortal, classSection: studentSection,
         });
-
-        if (!existingAccountError && existingAccount.user) {
-          localStorage.removeItem("portal_pwd");
-          onLoginSuccess(cleanRollNo, mappedEmail);
-          void syncOnLogin(cleanRollNo, password);
-          return;
-        }
-
-        setSuccessMessage("Verifying first-time credentials with Aditya Student Portal...");
-        // 1. Verify credentials and sync details from college website scraper
-        const syncRes = await fetch(getApiUrl("/api/college/auth-sync"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ rollNo: cleanRollNo, password, portal: selectedPortal })
-        });
-
-        if (!syncRes.ok) {
-          const errMsg = await syncRes.json().catch(() => ({ error: "Verification failed." }));
-          setError(errMsg.error || "Authentication failed. Invalid Roll Number or Portal Password.");
-          setLoading(false);
-          return;
-        }
-
-        const syncedProfile = await syncRes.json();
-        setSuccessMessage("Credentials verified! Connecting to gateway...");
-
-        // If no app account exists yet, create one after the college portal verifies the student.
-        setSuccessMessage("Creating new student account on the gateway...");
-        const resolvedSection = studentSection || syncedProfile.classSection;
-        const metaData = {
-          is_faculty: false,
-          roll_number: cleanRollNo,
-          registration_token: syncedProfile.registrationToken,
-          student_name: syncedProfile.name,
-          branch: syncedProfile.department,
-          department: syncedProfile.department,
-          class_section: resolvedSection,
-          section: resolvedSection,
-          academic_year: syncedProfile.academicYear,
-          attendance: syncedProfile.attendance,
-          profile_image: syncedProfile.profileImage,
-          is_synced: true
-        };
-
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: mappedEmail,
-          password: password,
-          options: {
-            data: metaData,
-          },
-        });
-
-        if (signUpError) {
-          if (signUpError.message.includes("already registered") || signUpError.message.includes("already exists")) {
-            setError("This Roll Number is already registered, but the password entered does not match our records.");
-          } else {
-            setError(signUpError.message);
+        if (loginError) {
+          setError(loginError.message);
+          if (loginError.code === "PORTAL_VERIFICATION_REQUIRED") {
+            setPortalVerificationUrl(`https://info.aec.edu.in/${selectedPortal}/default.aspx`);
           }
-          setLoading(false);
           return;
         }
-
-        if (signUpData.user) {
-          if (signUpData.session) {
-            setSuccessMessage("Account created successfully! Syncing details...");
-            const profileToStore = {
-              ...syncedProfile,
-              classSection: resolvedSection
-            };
-            localStorage.setItem(`studentProfile_${cleanRollNo}`, JSON.stringify(profileToStore));
-            localStorage.setItem("studentProfile", JSON.stringify(profileToStore));
-            setTimeout(() => {
-              onLoginSuccess(cleanRollNo, mappedEmail);
-            }, 1000);
-          } else {
-            setSuccessMessage("Account registered on gateway! Please verify your student profile at next sign in.");
-            setLoading(false);
-          }
-        }
-      } catch (err: any) {
-        console.error("Student Gateway Auth error:", err);
+        if (!data?.user || !data?.session) throw new Error("Missing login session");
+        setPassword("");
+        localStorage.removeItem("portal_pwd");
+        onLoginSuccess(cleanRollNo, data.user.email);
+      } catch {
         setError("Unable to connect to the authentication server. Please check your connection.");
+      } finally {
+        setSuccessMessage(null);
         setLoading(false);
       }
       return;
@@ -338,8 +233,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             onLoginSuccess(displayName, data.user.email);
           } else {
             const userRollNo = data.user.user_metadata?.roll_number || email.split("@")[0].toUpperCase();
-            setSuccessMessage("Logging in and syncing student details from portal...");
-            await syncOnLogin(userRollNo, password);
+            setSuccessMessage("Signing in...");
             onLoginSuccess(userRollNo, data.user.email);
           }
         }
@@ -733,7 +627,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                           disabled={loading}
                           onClick={() => {
                             setSelectedPortal(pType);
+                            setPortalManuallySelected(true);
                             setError(null);
+                            setPortalVerificationUrl(null);
                           }}
                           className={`flex-1 py-1.5 text-center text-xs font-bold font-sans rounded-[8px] transition-colors relative z-10 select-none cursor-pointer disabled:opacity-50 uppercase ${
                             selectedPortal === pType ? 'text-slate-800' : 'text-[#64748B]'
@@ -766,6 +662,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                       value={rollNo}
                       onChange={(val) => {
                         setRollNo(val);
+                        if (!portalManuallySelected) setSelectedPortal(/^\d{2}P3[15]A/i.test(val.trim()) ? "acet" : "aus");
+                        setPortalVerificationUrl(null);
                         setError(null);
                       }}
                       disabled={loading}
@@ -831,7 +729,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     className="bg-red-500/8 border border-red-500/20 rounded-[8px] p-3 flex items-center gap-2.5 text-red-400 text-sm font-sans"
                   >
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    <span>{error}</span>
+                    <span>{error}{portalVerificationUrl && (
+                      <a href={portalVerificationUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 underline font-semibold">Open official {selectedPortal.toUpperCase()} portal</a>
+                    )}</span>
                   </motion.div>
                 )}
               </AnimatePresence>

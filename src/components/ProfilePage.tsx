@@ -17,7 +17,6 @@ import {
   RefreshCw
 } from "lucide-react";
 import { StudentProfile, Scorecard } from "../types";
-import abdulProfileImg from "../../assets/abdul_profile.png";
 
 interface ProfilePageProps {
   studentProfile: StudentProfile;
@@ -29,7 +28,7 @@ interface ProfilePageProps {
 }
 
 const normalizeBranch = (dept: string) => {
-  if (!dept) return "Information Technology";
+  if (!dept) return "";
   const lower = dept.toLowerCase();
   if (lower.includes("information technology") || lower === "it") return "Information Technology";
   if (lower.includes("computer science") || lower.includes("cse")) return "Computer Science Engineering";
@@ -47,15 +46,15 @@ export default function ProfilePage({
 }: ProfilePageProps) {
   
   // Local state for profile form fields
-  const [name, setName] = useState(studentProfile.name || (studentProfile.studentId === "24P31A1234" ? "MOHAMMAD ABDUL ALEEM ARSHAD" : "Offline Student User"));
+  const [name, setName] = useState(studentProfile.name || "");
   const [department, setDepartment] = useState(
-    normalizeBranch(studentProfile.department || (studentProfile.studentId === "24P31A1234" ? "Information Technology" : "Computer Science Engineering"))
+    normalizeBranch(studentProfile.department || "")
   );
-  const [classSection, setClassSection] = useState(studentProfile.classSection || (studentProfile.studentId === "24P31A1234" ? "II B.Tech IT - Section A" : "Aditya College of Engineering & Technology"));
-  const [academicYear, setAcademicYear] = useState(studentProfile.academicYear || (studentProfile.studentId === "24P31A1234" ? "2024-2028" : "2023-2027"));
+  const [classSection, setClassSection] = useState(studentProfile.classSection || "");
+  const [academicYear, setAcademicYear] = useState(studentProfile.academicYear || "");
   const [githubUsername, setGithubUsername] = useState(studentProfile.githubUsername || "");
   const [profileImage, setProfileImage] = useState(studentProfile.profileImage || "");
-  const [attendance, setAttendance] = useState<number>(studentProfile.attendance || 84);
+  const [attendance, setAttendance] = useState<number | undefined>(studentProfile.attendance);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState(false);
@@ -72,15 +71,15 @@ export default function ProfilePage({
 
   // Synchronize form states when studentProfile updates from college API sync
   React.useEffect(() => {
-    setName(studentProfile.name || (studentProfile.studentId === "24P31A1234" ? "MOHAMMAD ABDUL ALEEM ARSHAD" : "Offline Student User"));
+    setName(studentProfile.name || "");
     setDepartment(
-      normalizeBranch(studentProfile.department || (studentProfile.studentId === "24P31A1234" ? "Information Technology" : "Computer Science Engineering"))
+      normalizeBranch(studentProfile.department || "")
     );
-    setClassSection(studentProfile.classSection || (studentProfile.studentId === "24P31A1234" ? "II B.Tech IT - Section A" : "Aditya College of Engineering & Technology"));
-    setAcademicYear(studentProfile.academicYear || (studentProfile.studentId === "24P31A1234" ? "2024-2028" : "2023-2027"));
+    setClassSection(studentProfile.classSection || "");
+    setAcademicYear(studentProfile.academicYear || "");
     setGithubUsername(studentProfile.githubUsername || "");
     setProfileImage(studentProfile.profileImage || "");
-    setAttendance(studentProfile.attendance || 84);
+    setAttendance(studentProfile.attendance);
   }, [studentProfile]);
 
   // Synchronize active report selection if history updates
@@ -118,7 +117,7 @@ export default function ProfilePage({
   };
 
   // Fallbacks for profile badge & display image
-  const resolvedProfileImg = profileImage || (studentProfile.studentId === "24P31A1234" ? abdulProfileImg : undefined);
+  const resolvedProfileImg = profileImage || undefined;
 
   // Use active scorecard, or fall back to realistic dashboard values
   const activeScorecard = scorecardHistory.find(h => h.id === activeReportId) || scorecard || null;
@@ -238,13 +237,13 @@ export default function ProfilePage({
               <div className="md:col-span-2">
                 <div className="flex justify-between items-center mb-1">
                   <label className="block text-xs font-mono text-gray-500 uppercase">Class Attendance Ratio</label>
-                  <span className="text-xs font-mono font-bold text-brand-primary">{attendance}%</span>
+                  <span className="text-xs font-mono font-bold text-brand-primary">{attendance === undefined ? "Not available" : `${attendance}%`}</span>
                 </div>
                 <input 
                   type="range" 
                   min="0" 
                   max="100" 
-                  value={attendance}
+                  value={attendance ?? 0}
                   onChange={(e) => setAttendance(parseInt(e.target.value))}
                   className="w-full accent-brand-primary cursor-pointer h-1.5 bg-slate-200 rounded-lg appearance-none"
                 />
@@ -262,29 +261,7 @@ export default function ProfilePage({
                 <button
                   type="button"
                   onClick={async () => {
-                    const cachedPwd = localStorage.getItem("portal_pwd");
-                    if (cachedPwd) {
-                      setSyncing(true);
-                      setSyncSuccess(false);
-                      setSyncError(null);
-                      try {
-                        const success = await onSyncPortalDetails(cachedPwd);
-                        if (success) {
-                          setSyncSuccess(true);
-                          setTimeout(() => setSyncSuccess(false), 4000);
-                        } else {
-                          setSyncError("Auto-sync failed. Please enter password manually.");
-                          setIsSyncModalOpen(true);
-                        }
-                      } catch (err: any) {
-                        setSyncError(err.message || "Auto-sync failed.");
-                        setIsSyncModalOpen(true);
-                      } finally {
-                        setSyncing(false);
-                      }
-                    } else {
-                      setIsSyncModalOpen(true);
-                    }
+                    setIsSyncModalOpen(true);
                   }}
                   disabled={syncing}
                   className="flex-1 sm:flex-none flex items-center justify-center space-x-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 font-bold px-4 py-3 rounded-xl text-xs hover:scale-[1.01] transition-all duration-200 cursor-pointer disabled:opacity-50"
@@ -438,7 +415,7 @@ export default function ProfilePage({
             <div className="w-full pt-4 border-t border-white/5 flex justify-around text-xs font-mono text-gray-500">
               <div>
                 <span className="block text-[10px] text-gray-400 uppercase">attendance</span>
-                <span className="text-sm font-bold text-white font-sans">{attendance}%</span>
+                <span className="text-sm font-bold text-white font-sans">{attendance === undefined ? "Not available" : `${attendance}%`}</span>
               </div>
               <div className="border-r border-white/5" />
               <div>
