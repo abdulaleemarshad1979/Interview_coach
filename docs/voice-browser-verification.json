@@ -1,0 +1,266 @@
+{
+  "observedAt": "2026-10-14T06:02:04.809Z",
+  "evidenceType": "native browser playback/capture with synthetic WAV and synthetic microphone, no Groq credentials or provider calls",
+  "checks": [
+    {
+      "name": "three queued audio sources complete with one start/end each",
+      "status": "passed",
+      "playback": {
+        "results": [
+          {
+            "status": "completed",
+            "provider": "groq",
+            "fallbackUsed": false,
+            "playedChunks": 1,
+            "synthesisLatencyMs": [
+              0
+            ]
+          },
+          {
+            "status": "completed",
+            "provider": "groq",
+            "fallbackUsed": false,
+            "playedChunks": 1,
+            "synthesisLatencyMs": [
+              0
+            ]
+          },
+          {
+            "status": "completed",
+            "provider": "groq",
+            "fallbackUsed": false,
+            "playedChunks": 1,
+            "synthesisLatencyMs": [
+              0
+            ]
+          }
+        ],
+        "starts": 3,
+        "ends": 3,
+        "states": [
+          {
+            "status": "idle",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 1,
+            "completedChunks": 0,
+            "totalChunks": 0,
+            "fallback": false,
+            "at": 154.19999999925494
+          },
+          {
+            "status": "synthesizing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 0,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 161.90000000037253
+          },
+          {
+            "status": "synthesizing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 1,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 161.90000000037253
+          },
+          {
+            "status": "synthesizing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 2,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 161.90000000037253
+          },
+          {
+            "status": "synthesizing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 2,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 162
+          },
+          {
+            "status": "playing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 2,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 214.40000000037253
+          },
+          {
+            "status": "playing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 2,
+            "completedChunks": 1,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 507.90000000037253
+          },
+          {
+            "status": "synthesizing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 1,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 508.30000000074506
+          },
+          {
+            "status": "synthesizing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 1,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 508.30000000074506
+          },
+          {
+            "status": "playing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 1,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 511.69999999925494
+          },
+          {
+            "status": "playing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 1,
+            "completedChunks": 1,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 741.8000000007451
+          },
+          {
+            "status": "synthesizing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 0,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 741.9000000003725
+          },
+          {
+            "status": "synthesizing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 0,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 741.9000000003725
+          },
+          {
+            "status": "playing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 0,
+            "completedChunks": 0,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 744.6999999992549
+          },
+          {
+            "status": "playing",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 0,
+            "completedChunks": 1,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 976.3000000007451
+          },
+          {
+            "status": "idle",
+            "provider": "groq",
+            "voice": "hannah",
+            "queued": 0,
+            "completedChunks": 1,
+            "totalChunks": 1,
+            "fallback": false,
+            "at": 976.3000000007451
+          }
+        ]
+      }
+    },
+    {
+      "name": "native playing source and queued sources cancel and settle",
+      "status": "passed"
+    },
+    {
+      "name": "native VAD pause does not stop the answer and later speech resumes",
+      "status": "passed"
+    },
+    {
+      "name": "native MediaRecorder and VAD produce bounded complete synthetic capture and release track",
+      "status": "passed",
+      "recording": {
+        "blob": {
+          "size": 12694,
+          "type": "audio/webm;codecs=opus"
+        },
+        "mimeType": "audio/webm;codecs=opus",
+        "durationMs": 3165.10000000149,
+        "voicedDurationMs": 599.9000000003725,
+        "speechDetected": true,
+        "stopReason": "user",
+        "trackState": "ended"
+      }
+    },
+    {
+      "name": "native microphone cancellation ends media track",
+      "status": "passed"
+    },
+    {
+      "name": "native recording duration limit finalizes and releases tracks without submitting",
+      "status": "passed",
+      "limited": {
+        "blob": {
+          "size": 7830,
+          "type": "audio/webm;codecs=opus"
+        },
+        "mimeType": "audio/webm;codecs=opus",
+        "durationMs": 1000.9000000003725,
+        "voicedDurationMs": 499.8999999985099,
+        "speechDetected": true,
+        "stopReason": "duration-limit",
+        "trackState": "ended"
+      }
+    },
+    {
+      "name": "native denied permission remains explicit and recoverable",
+      "status": "passed",
+      "denial": {
+        "state": {
+          "status": "error",
+          "level": 0,
+          "speaking": false,
+          "hasSpeech": false,
+          "silenceMs": 0,
+          "durationMs": 0,
+          "error": "Microphone permission was denied. Allow microphone access in your browser, then try again."
+        },
+        "error": "Microphone permission was denied. Allow microphone access in your browser, then try again."
+      }
+    }
+  ],
+  "consoleErrors": []
+}

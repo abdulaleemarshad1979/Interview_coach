@@ -1,24 +1,30 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Navbar from "./components/Navbar";
 import LandingPage from "./components/LandingPage";
 import LoginPage from "./components/LoginPage";
-import DashboardPage from "./components/DashboardPage";
-import AnalyzePage from "./components/AnalyzePage";
-import InterviewPage from "./components/InterviewPage";
-import ReportPage from "./components/ReportPage";
+const DashboardPage = lazy(() => import("./components/DashboardPage"));
+const AnalyzePage = lazy(() => import("./components/AnalyzePage"));
+const AdaptiveInterviewPage = lazy(() => import("./components/AdaptiveInterviewPage"));
+const InterviewHistoryPage = lazy(() => import("./components/InterviewHistoryPage"));
+const ReportPage = lazy(() => import("./components/ReportPage"));
 
-import GroupDiscussionPage from "./components/GroupDiscussionPage";
-import FacultyDashboardPage from "./components/FacultyDashboardPage";
-import AdminDashboardPage from "./components/AdminDashboardPage";
+const MeetingLobby = lazy(() => import("./components/MeetingLobby"));
+const FacultyDashboardPage = lazy(() => import("./components/FacultyDashboardPage"));
+const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 import { StudentProfile, FacultyProfile, AdminProfile, FullAnalysisResult, InterviewQuestion, Scorecard } from "./types";
 import { supabase } from "./lib/supabaseClient";
-import ProfilePage from "./components/ProfilePage";
+const ProfilePage = lazy(() => import("./components/ProfilePage"));
 import { getApiUrl, apiFetch } from "./lib/api";
 
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<string>("landing");
+  const [currentView, setCurrentView] = useState<string>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("meeting") ? "group-discussion" : "landing");
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const navigate = (view: string) => {
+    if (view === "interview") setActiveSessionId(null);
+    setCurrentView(view);
+  };
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
   const [facultyProfile, setFacultyProfile] = useState<FacultyProfile | null>(null);
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
@@ -29,6 +35,7 @@ export default function App() {
 
   // Sync basic student details from college portal API using Roll Number
   const syncCollegeProfile = async (rollNo: string, currentProfile: StudentProfile | null, force: boolean = false) => {
+    if (!/^\d{2}[A-Z0-9]{6,}$/i.test(rollNo) || /^[a-f0-9]{24}$/i.test(rollNo)) return;
     try {
       if (!force && currentProfile?.isSynced && currentProfile?.name) {
         console.log(`[Sync bypass] Profile is already synced for Roll No: ${rollNo}`);
@@ -337,7 +344,7 @@ export default function App() {
         setStudentProfile(null);
         setFacultyProfile(null);
         setAdminProfile(null);
-        setCurrentView((prev) => (prev === "landing" ? "landing" : "landing"));
+        setCurrentView(new URLSearchParams(window.location.search).has("meeting") ? "group-discussion" : "landing");
       }
     });
 
@@ -473,7 +480,7 @@ export default function App() {
           localStorage.setItem(`studentProfile_${userRollNo}`, JSON.stringify(profile));
           syncCollegeProfile(userRollNo, profile);
         }
-        setCurrentView("dashboard");
+        setCurrentView(new URLSearchParams(window.location.search).has("meeting") ? "group-discussion" : "dashboard");
       }
     });
   };
@@ -604,7 +611,7 @@ export default function App() {
       case "landing":
         return (
           <LandingPage
-            onNavigate={setCurrentView}
+            onNavigate={navigate}
             isLoggedIn={!!studentProfile || !!facultyProfile || !!adminProfile}
           />
         );
@@ -619,7 +626,7 @@ export default function App() {
           return (
             <AdminDashboardPage
               adminProfile={adminProfile}
-              onNavigate={setCurrentView}
+              onNavigate={navigate}
             />
           );
         }
@@ -627,7 +634,7 @@ export default function App() {
           return (
             <FacultyDashboardPage
               facultyProfile={facultyProfile}
-              onNavigate={setCurrentView}
+              onNavigate={navigate}
             />
           );
         }
@@ -636,7 +643,7 @@ export default function App() {
             studentProfile={studentProfile}
             scorecard={scorecard}
             analysisResult={analysisResult}
-            onNavigate={setCurrentView}
+            onNavigate={navigate}
           />
         ) : (
           <LoginPage onLoginSuccess={handleLoginSuccess} />
@@ -648,43 +655,45 @@ export default function App() {
             analysisResult={analysisResult}
             onAnalysisSuccess={handleAnalysisSuccess}
             onQuestionsGenerated={handleQuestionsGenerated}
-            onNavigate={setCurrentView}
+            onNavigate={navigate}
           />
         ) : (
           <LoginPage onLoginSuccess={handleLoginSuccess} />
         );
       case "interview":
         return studentProfile ? (
-          <InterviewPage
+          <AdaptiveInterviewPage
             studentProfile={studentProfile}
             analysisResult={analysisResult}
-            interviewQuestions={interviewQuestions}
-            onInterviewComplete={handleInterviewComplete}
-            onNavigate={setCurrentView}
+            sessionId={activeSessionId}
+            onNavigate={navigate}
           />
         ) : (
           <LoginPage onLoginSuccess={handleLoginSuccess} />
         );
+      case "history":
+        return studentProfile ? <InterviewHistoryPage onNavigate={navigate} onSelect={id => { setActiveSessionId(id); setCurrentView("interview"); }} /> : <LoginPage onLoginSuccess={handleLoginSuccess} />;
       case "report":
         return (
           <ReportPage
             scorecard={scorecard}
-            onNavigate={setCurrentView}
+            onNavigate={navigate}
           />
         );
       case "group-discussion":
+        if (adminProfile) return <MeetingLobby studentProfile={{ studentId: adminProfile.adminId, name: adminProfile.name }} onNavigate={navigate} />;
         if (facultyProfile) {
           return (
-            <GroupDiscussionPage
+            <MeetingLobby
               studentProfile={{ studentId: facultyProfile.facultyId, name: facultyProfile.name } as any}
-              onNavigate={setCurrentView}
+              onNavigate={navigate}
             />
           );
         }
         return studentProfile ? (
-          <GroupDiscussionPage
+          <MeetingLobby
             studentProfile={studentProfile}
-            onNavigate={setCurrentView}
+            onNavigate={navigate}
           />
         ) : (
           <LoginPage onLoginSuccess={handleLoginSuccess} />
@@ -757,7 +766,7 @@ export default function App() {
                 }
               });
             }}
-            onNavigate={setCurrentView}
+            onNavigate={navigate}
           />
         ) : (
           <LoginPage onLoginSuccess={handleLoginSuccess} />
@@ -765,7 +774,7 @@ export default function App() {
       default:
         return (
           <LandingPage
-            onNavigate={setCurrentView}
+            onNavigate={navigate}
             isLoggedIn={!!studentProfile || !!facultyProfile || !!adminProfile}
           />
         );
@@ -787,7 +796,7 @@ export default function App() {
         facultyProfile={facultyProfile}
         adminProfile={adminProfile}
         currentView={currentView}
-        onNavigate={setCurrentView}
+        onNavigate={navigate}
         onLogout={handleLogout}
       />
 
@@ -804,7 +813,7 @@ export default function App() {
             transition={{ duration: 0.35, ease: "easeInOut" }}
             className="w-full h-full"
           >
-            {renderActiveView()}
+            <Suspense fallback={<div className="coach-page" role="status">Loading your workspace…</div>}>{renderActiveView()}</Suspense>
           </motion.div>
         </AnimatePresence>
       </main>

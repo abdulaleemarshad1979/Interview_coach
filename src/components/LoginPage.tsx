@@ -1,3 +1,4 @@
+import AccountLogin from "./AccountLogin";
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Mail, Fingerprint, Check, Star, AlertCircle, GraduationCap, CheckCircle2, Lock, User } from "lucide-react";
@@ -37,6 +38,7 @@ const isValidCollegeEmail = (email: string): boolean => {
 };
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
+  const [appAccount, setAppAccount] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [portalType, setPortalType] = useState<"student" | "faculty" | "admin">("student");
   const [rollNo, setRollNo] = useState("");
@@ -169,6 +171,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         const metaData = {
           is_faculty: false,
           roll_number: cleanRollNo,
+          registration_token: syncedProfile.registrationToken,
           student_name: syncedProfile.name,
           branch: syncedProfile.department,
           department: syncedProfile.department,
@@ -256,8 +259,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     }
 
     if (isSignUp) {
-      if (password.length < 6) {
-        setError("Password must be at least 6 characters long.");
+      if (password.length < 8) {
+        setError("Password must be at least 8 characters long.");
         return;
       }
       if (password !== confirmPassword) {
@@ -348,7 +351,10 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   };
 
 
+  if (appAccount) return <AccountLogin onLoginSuccess={onLoginSuccess} onBack={() => setAppAccount(false)} />;
   return (
+    <>
+    <div className="text-center py-4"><button className="coach-button" onClick={() => setAppAccount(true)}>Sign in with an Interview Coach account</button></div>
     <div className="min-h-screen bg-white flex text-slate-800 font-sans selection:bg-brand-primary/30 overflow-y-auto lg:overflow-hidden relative">
       {/* Left Panel (Desktop only) */}
       <motion.div
@@ -873,5 +879,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         </div>
       </div>
     </div>
+    </>
   );
 }

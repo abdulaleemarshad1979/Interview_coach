@@ -1,0 +1,417 @@
+{
+  "observedAt": "2026-10-14T05:40:26.371Z",
+  "method": "isolated Playwright, fresh unauthenticated browser context",
+  "initialMs": 1940,
+  "errors": [
+    {
+      "kind": "warning",
+      "message": "VIDEOJS: WARN: videojs.plugin() is deprecated; use videojs.registerPlugin() instead"
+    },
+    {
+      "kind": "warning",
+      "message": "VIDEOJS: WARN: videojs.plugin() is deprecated; use videojs.registerPlugin() instead"
+    }
+  ],
+  "responses": [
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/index-DJTG_4jj.css",
+      "status": 200
+    },
+    {
+      "origin": "https://maxcdn.bootstrapcdn.com",
+      "pathname": "/bootstrap/3.3.7/css/bootstrap.min.css",
+      "status": 200
+    },
+    {
+      "origin": "https://maxcdn.bootstrapcdn.com",
+      "pathname": "/bootstrap/3.3.7/js/bootstrap.min.js",
+      "status": 200
+    },
+    {
+      "origin": "https://cdn.jsdelivr.net",
+      "pathname": "/npm/@sweetalert2/theme-bootstrap-4@5/bootstrap-4.min.css",
+      "status": 200
+    },
+    {
+      "origin": "https://cdn.jsdelivr.net",
+      "pathname": "/npm/@mediapipe/camera_utils/camera_utils.js",
+      "status": 200
+    },
+    {
+      "origin": "https://cdn.jsdelivr.net",
+      "pathname": "/npm/@mediapipe/face_mesh/face_mesh.js",
+      "status": 200
+    },
+    {
+      "origin": "https://cdn.jsdelivr.net",
+      "pathname": "/npm/sweetalert2@11",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.googleapis.com",
+      "pathname": "/css2",
+      "status": 200
+    },
+    {
+      "origin": "https://ajax.googleapis.com",
+      "pathname": "/ajax/libs/jquery/3.2.1/jquery.min.js",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.googleapis.com",
+      "pathname": "/css2",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.googleapis.com",
+      "pathname": "/css2",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.googleapis.com",
+      "pathname": "/css2",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/index-C6UqieF5.js",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/logo-D9XjcS3z.png",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/CollegeLogoWhiteFont-CT77Qe37.png",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/iQuizWhite-DZdBnGfh.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/CT-CTejqVoc.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/admin-CXFjF3Jh.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/ai-DMALB5vz.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/2-B79v-gmR.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/metrics-C9_ZF5iF.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/5-BjPIkKdt.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/4-BZR1OHt9.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/3-DY56a_ro.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/videoInterviews-BAV_VPlP.png",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/Pm-BcxHGkyB.png",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/skill--Z7gJiif.png",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/simplifyHiring-BeGb90n8.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/snippetSharing-DTQDIaKX.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/shareInterview-BDt3aekW.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/jobMarket-CBV7Q-zq.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/FontsFree-Net-SFProDisplay-Regular--RY08FiS.ttf",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.gstatic.com",
+      "pathname": "/s/rubik/v31/iJWKBXyIfDnIV7nBrXw.woff2",
+      "status": 200
+    },
+    {
+      "origin": "https://landing-wall-videos.s3.us-west-2.amazonaws.com",
+      "pathname": "/landing_page_videos/share_interview_2.mp4",
+      "status": 206
+    },
+    {
+      "origin": "https://landing-wall-videos.s3.us-west-2.amazonaws.com",
+      "pathname": "/landing_page_videos/pre_recorded_interviews.mp4",
+      "status": 206
+    },
+    {
+      "origin": "https://landing-wall-videos.s3.us-west-2.amazonaws.com",
+      "pathname": "/landing_page_videos/testimonials+slide.mp4",
+      "status": 206
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/AdityaLogo.png",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.googleapis.com",
+      "pathname": "/css2",
+      "status": 200
+    },
+    {
+      "origin": "https://maxcdn.bootstrapcdn.com",
+      "pathname": "/bootstrap/3.3.7/css/bootstrap.min.css",
+      "status": 200
+    },
+    {
+      "origin": "https://cdn.jsdelivr.net",
+      "pathname": "/npm/@sweetalert2/theme-bootstrap-4@5/bootstrap-4.min.css",
+      "status": 200
+    },
+    {
+      "origin": "https://ajax.googleapis.com",
+      "pathname": "/ajax/libs/jquery/3.2.1/jquery.min.js",
+      "status": 200
+    },
+    {
+      "origin": "https://maxcdn.bootstrapcdn.com",
+      "pathname": "/bootstrap/3.3.7/js/bootstrap.min.js",
+      "status": 200
+    },
+    {
+      "origin": "https://cdn.jsdelivr.net",
+      "pathname": "/npm/sweetalert2@11",
+      "status": 200
+    },
+    {
+      "origin": "https://cdn.jsdelivr.net",
+      "pathname": "/npm/@mediapipe/camera_utils/camera_utils.js",
+      "status": 200
+    },
+    {
+      "origin": "https://cdn.jsdelivr.net",
+      "pathname": "/npm/@mediapipe/face_mesh/face_mesh.js",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/index-DJTG_4jj.css",
+      "status": 304
+    },
+    {
+      "origin": "https://fonts.googleapis.com",
+      "pathname": "/css2",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.googleapis.com",
+      "pathname": "/css2",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.googleapis.com",
+      "pathname": "/css2",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.gstatic.com",
+      "pathname": "/s/rubik/v31/iJWKBXyIfDnIV7nBrXw.woff2",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/index-C6UqieF5.js",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/logo-D9XjcS3z.png",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/CollegeLogoWhiteFont-CT77Qe37.png",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/iQuizWhite-DZdBnGfh.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/CT-CTejqVoc.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/metrics-C9_ZF5iF.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/ai-DMALB5vz.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/admin-CXFjF3Jh.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/2-B79v-gmR.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/3-DY56a_ro.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/5-BjPIkKdt.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/4-BZR1OHt9.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/videoInterviews-BAV_VPlP.png",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/skill--Z7gJiif.png",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/Pm-BcxHGkyB.png",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/snippetSharing-DTQDIaKX.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://landing-wall-videos.s3.us-west-2.amazonaws.com",
+      "pathname": "/landing_page_videos/pre_recorded_interviews.mp4",
+      "status": 206
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/FontsFree-Net-SFProDisplay-Regular--RY08FiS.ttf",
+      "status": 304
+    },
+    {
+      "origin": "https://landing-wall-videos.s3.us-west-2.amazonaws.com",
+      "pathname": "/landing_page_videos/share_interview_2.mp4",
+      "status": 206
+    },
+    {
+      "origin": "https://landing-wall-videos.s3.us-west-2.amazonaws.com",
+      "pathname": "/landing_page_videos/testimonials+slide.mp4",
+      "status": 206
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/simplifyHiring-BeGb90n8.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/jobMarket-CBV7Q-zq.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/shareInterview-BDt3aekW.svg",
+      "status": 304
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/AdityaLogo.png",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/Signpage-7LSwei0X.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/assets/iQuizBlack-D6sY6M-I.svg",
+      "status": 200
+    },
+    {
+      "origin": "https://adityauniversity.iqua.ai",
+      "pathname": "/AdityaLogo.png",
+      "status": 200
+    },
+    {
+      "origin": "https://fonts.gstatic.com",
+      "pathname": "/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+      "status": 200
+    }
+  ]
+}

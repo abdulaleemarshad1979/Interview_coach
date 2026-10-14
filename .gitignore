@@ -10,3 +10,8 @@ Thumbs.db
 
 .vercel
 .env*
+!.env.example
+playwright-report/
+test-results/
+coverage/
+docs/benchmark-results/

@@ -13,25 +13,25 @@ interface NavbarProps {
 
 export default function Navbar({ studentProfile, facultyProfile, adminProfile, currentView, onNavigate, onLogout }: NavbarProps) {
   return (
-    <header id="app-navbar" className="glass-nav sticky top-0 z-50 w-full px-6 py-4 transition-all duration-300">
+    <header id="app-navbar" className="glass-nav sticky top-0 z-50 w-full px-3 sm:px-6 py-4 transition-all duration-300">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Logo and Branding */}
-        <div 
+        <button type="button" aria-label="Interview Coach home"
           onClick={() => onNavigate("landing")} 
-          className="flex items-center space-x-3 cursor-pointer group"
+          className="flex items-center gap-2 min-w-0 cursor-pointer group"
           id="nav-logo"
         >
           <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-100 shadow-xs">
             <img 
               src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg" 
               alt="Aditya University Logo" 
-              className="h-9 object-contain"
+              className="h-9 w-24 sm:w-auto max-w-full object-contain"
             />
-            <div className="h-6 w-[1.5px] bg-slate-200" />
+            <div className="hidden sm:block h-6 w-[1.5px] bg-slate-200" />
             <img 
               src="https://www.adityauniversity.in/public/frontend/assets/images/naac-logo.svg" 
               alt="NAAC Logo" 
-              className="h-8 object-contain"
+              className="hidden sm:block h-8 object-contain"
             />
           </div>
           <div className="hidden md:block">
@@ -40,7 +40,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
             </span>
             <span className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block mt-1">Aditya University Portal</span>
           </div>
-        </div>
+        </button>
 
         {/* Navigation Options - shown if student or faculty is logged in */}
         {studentProfile ? (
@@ -85,6 +85,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
             >
               Group Discussion
             </button>
+            <button onClick={() => onNavigate("history")} className="px-3 py-1.5 rounded-lg font-medium text-xs text-slate-600 hover:text-brand-primary hover:bg-slate-50">History</button>
             <button
               onClick={() => onNavigate("report")}
               className={`px-3 py-1.5 rounded-lg font-medium text-xs transition-all duration-200 cursor-pointer ${
@@ -146,7 +147,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
         ) : null}
 
         {/* Action Button Group */}
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           {(studentProfile || facultyProfile || adminProfile) ? (
             <div className="flex items-center space-x-3">
               {/* User Identification badge */}
@@ -169,7 +170,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
                       <User className="w-2.5 h-2.5 text-brand-primary" />
                     </div>
                   )}
-                  <span className="font-mono text-[11px] group-hover:text-white transition-colors">
+                  <span className="hidden sm:block font-mono text-[11px] max-w-24 truncate group-hover:text-white transition-colors">
                     {studentProfile.name ? studentProfile.name.split(" ")[0] : studentProfile.studentId}
                   </span>
                 </button>
@@ -198,6 +199,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
                 onClick={onLogout}
                 className="flex items-center space-x-1.5 bg-red-950/30 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 cursor-pointer"
                 id="btn-logout"
+                aria-label="Logout"
               >
                 <LogOut className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">Logout</span>
