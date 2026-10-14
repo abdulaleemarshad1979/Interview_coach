@@ -8,6 +8,11 @@ import Groq from "groq-sdk";
 import pdf from "pdf-parse/lib/pdf-parse.js";
 import fs from "fs";
 import mongoose from "mongoose";
+import helmet from "helmet";
+import { createInterviewRouter } from "./backend/interview/router";
+import { createMeetingRouter } from "./backend/meetings";
+import { createApiLimiter, restrictOrigins } from "./backend/security";
+import { createPasswordHash, verifyPassword, PASSWORD_SCHEME, validateCredentials, configuredRoles, effectiveRoles, sanitizeMetadata, profileIdForUser, canAccessProfile, sanitizeProfile } from "./backend/authSafety";
 
 // Cached lazy MongoDB connector — safe for Vercel serverless cold starts.
 // process.env.MONGODB_URI is read at call-time, not module-load time.
@@ -18,18 +23,18 @@ async function connectDB() {
     throw new Error("MONGODB_URI is not configured.");
   }
   const isAtlas = uri.includes("mongodb+srv");
-  console.log(`[DB] MONGODB_URI env present: ${!!process.env.MONGODB_URI}, isAtlas: ${isAtlas}, readyState: ${mongoose.connection.readyState}`);
+
 
   if (mongoose.connection.readyState === 1) return; // already connected
   if (mongoConnecting) return mongoConnecting;      // reuse in-flight promise
 
-  console.log("Connecting to MongoDB at:", isAtlas ? uri.replace(/:([^@]+)@/, ":***@") : uri);
-  mongoConnecting = mongoose.connect(uri).then((m) => {
+  console.log("[DB] Connecting");
+  mongoConnecting = mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 }).then((m) => {
     console.log("Connected successfully to MongoDB");
     mongoConnecting = null;
     return m;
   }).catch((err) => {
-    console.error("MongoDB connection failed:", err);
+    console.error("[DB] Connection failed", { code: (err as any)?.code });
     mongoConnecting = null;
     throw err;
   });
@@ -38,7 +43,8 @@ async function connectDB() {
 
 // MongoDB Schema Definitions
 const ProfileSchema = new mongoose.Schema({
-  id: { type: String, required: true, unique: true }, // Supabase Auth User ID
+  id: { type: String, required: true, unique: true },
+  ownerId: { type: String },
   roll_number: { type: String, default: "" },
   name: { type: String, default: "" },
   student_name: { type: String, default: "" },
@@ -94,6 +100,8 @@ const ProctorAssignment = mongoose.model("ProctorAssignment", ProctorAssignmentS
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   passwordHash: { type: String, required: true },
+  passwordScheme: { type: String },
+  staffProvisioned: { type: Boolean, default: false },
   salt: { type: String, required: true },
   user_metadata: { type: Object, default: {} },
   created_at: { type: Date, default: Date.now }
@@ -108,13 +116,13 @@ const SessionSchema = new mongoose.Schema({
 });
 
 const Session = mongoose.model("Session", SessionSchema);
+const RegistrationVerification = mongoose.model("RegistrationVerification", new mongoose.Schema({
+  tokenDigest: { type: String, required: true, unique: true }, email: { type: String, required: true },
+  expiresAt: { type: Date, required: true, expires: 0 }, profile: { type: Object },
+}));
 
 function generateSalt(): string {
   return crypto.randomBytes(16).toString("hex");
-}
-
-function hashPassword(password: string, salt: string): string {
-  return crypto.pbkdf2Sync(password, salt, 1000, 64, "sha512").toString("hex");
 }
 
 // Polyfill global WebSocket for Node.js < 22 where native WebSocket is not available
@@ -133,7 +141,7 @@ async function requireAuth(req: any, res: any, next: any) {
 
   try {
     await connectDB();
-    const session = await Session.findOne({ token }).populate("userId");
+    const session = await Session.findOne({ token, createdAt: { $gt: new Date(Date.now() - 7 * 86400000) } }).populate("userId");
     if (!session || !session.userId) {
       return res.status(401).json({ error: "Invalid or expired session. Please sign in again." });
     }
@@ -141,11 +149,11 @@ async function requireAuth(req: any, res: any, next: any) {
     req.user = {
       id: user._id.toString(),
       email: user.email,
-      user_metadata: user.user_metadata
+      user_metadata: { ...user.user_metadata, ...effectiveRoles(user) }
     };
     next();
   } catch (err: any) {
-    return res.status(401).json({ error: "Token verification failed: " + err.message });
+    return res.status(503).json({ error: "Authentication service unavailable. Please retry." });
   }
 }
 
@@ -160,7 +168,7 @@ function getGroqClient(): Groq {
   }
   if (!groqInstance || currentGroqApiKey !== apiKey) {
     groqInstance = new Groq({
-      apiKey,
+      apiKey, timeout: 30000, maxRetries: 2,
     });
     currentGroqApiKey = apiKey;
   }
@@ -346,11 +354,29 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
 }
 
 const app = express();
+app.disable("x-powered-by");
+if (process.env.TRUST_PROXY_HOPS && /^\d+$/.test(process.env.TRUST_PROXY_HOPS)) app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS));
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+app.use("/api", restrictOrigins);
+app.use("/api", (_req, res, next) => { res.setHeader("Cache-Control", "private, no-store"); next(); });
+const generalLimiter = createApiLimiter("api", 300, 60000, connectDB);
+app.use("/api", (req, res, next) => req.path === "/health" || req.path === "/ping" ? next() : generalLimiter(req, res, next));
+app.use("/api/college/auth-sync", createApiLimiter("college-auth", 10, 15 * 60000, connectDB));
+app.use("/api/auth", createApiLimiter("auth", 30, 15 * 60000, connectDB));
+app.use("/api/voice", createApiLimiter("voice", 60, 60000, connectDB));
 const server = http.createServer(app);
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Increase payload limit to handle base64-encoded PDF resumes
 app.use(express.json({ limit: "25mb" }));
+
+app.use(["/api/interview/submit-answer", "/api/interview/generate-report", "/api/interview/evaluate-gd"], (_req, res) => res.status(410).json({ error: "Use the adaptive interview or secure meeting flow to generate evidence-based reports.", code: "LEGACY_ASSESSMENT_RETIRED" }));
+app.use("/api/gd-room", (_req, res) => res.status(410).json({ error: "This legacy room has been retired. Create a secure discussion room from the lobby.", code: "LEGACY_ROOM_RETIRED" }));
+app.use("/api/local-stt", requireAuth);
+app.use("/api/local-tts", requireAuth);
+
+app.use("/api/interview/sessions", createInterviewRouter({ requireAuth, connectDB }));
+app.use("/api/meetings", createMeetingRouter({ requireAuth, connectDB }));
 
 // Groq speech APIs use server-owned credentials and existing MongoDB session auth.
 app.get("/api/voice/status", requireAuth, async (_req, res) => {
@@ -413,7 +439,7 @@ app.post("/api/voice/transcribe", requireAuth, async (req, res) => {
   }
   try {
     if (process.env.GROQ_API_KEY) {
-      const ext = mimeType.includes("wav") ? "wav" : mimeType.includes("ogg") ? "ogg" : "webm";
+      const ext = mimeType.includes("wav") ? "wav" : mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") || mimeType.includes("x-m4a") ? "m4a" : mimeType.includes("mpeg") || mimeType.includes("mp3") ? "mp3" : "webm";
       const upload = new File([bytes], `speech.${ext}`, { type: mimeType });
       const transcript = await getGroqClient().audio.transcriptions.create({
         file: upload, model: process.env.GROQ_STT_MODEL || "whisper-large-v3-turbo",
@@ -425,7 +451,7 @@ app.post("/api/voice/transcribe", requireAuth, async (req, res) => {
     const localUrl = process.env.LOCAL_STT_URL;
     if (!localUrl) return res.status(503).json({ error: "No speech recognizer configured." });
     const form = new FormData();
-    const ext = mimeType.includes("wav") ? "wav" : "webm";
+    const ext = mimeType.includes("wav") ? "wav" : mimeType.includes("mp4") || mimeType.includes("x-m4a") ? "m4a" : mimeType.includes("ogg") ? "ogg" : "webm";
     form.append("audio", new Blob([bytes], { type: mimeType }), `speech.${ext}`);
     const upstream = await fetch(localUrl, { method: "POST", body: form, signal: AbortSignal.timeout(20000) });
     if (!upstream.ok) throw new Error(`Local transcription returned ${upstream.status}`);
@@ -443,25 +469,41 @@ app.post("/api/voice/transcribe", requireAuth, async (req, res) => {
 // 1b. MongoDB Authentication Endpoints
 
 app.post("/api/auth/signup", async (req, res) => {
+  let credentials;
+  try { credentials = validateCredentials(req.body?.email, req.body?.password, true); }
+  catch (error: any) { return res.status(400).json({ error: error.message }); }
+  if (configuredRoles(credentials.email).is_faculty) return res.status(403).json({ error: "Staff accounts must be provisioned by the administrator. Use an existing staff account to sign in." });
+  const requestedStaff = req.body?.user_metadata?.is_admin || req.body?.user_metadata?.is_faculty;
+  if (requestedStaff && !configuredRoles(credentials.email).is_faculty) return res.status(403).json({ error: "Staff registration requires administrator approval for this email address." });
   try {
     await connectDB();
-    const { email, password, user_metadata } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required." });
+    const { email: normalizedEmail, password } = credentials;
+    let verifiedProfile: any = null;
+    if (normalizedEmail.endsWith("@aec.edu.in")) {
+      const ticket = req.body?.user_metadata?.registration_token;
+      if (typeof ticket !== "string" || !/^[a-f0-9]{64}$/.test(ticket)) return res.status(403).json({ error: "Verify this roll number through College portal sign-in before creating its account." });
+      const verification = await RegistrationVerification.findOneAndDelete({ tokenDigest: crypto.createHash("sha256").update(ticket).digest("hex"), email: normalizedEmail, expiresAt: { $gt: new Date() } });
+      if (!verification) return res.status(403).json({ error: "College verification expired. Please sign in through the college portal again." });
+      verifiedProfile = verification.profile;
     }
-
-    const normalizedEmail = email.toLowerCase().trim();
+    const newUserId = new mongoose.Types.ObjectId();
+    const user_metadata: Record<string, any> = { ...sanitizeMetadata(req.body?.user_metadata), roll_number: normalizedEmail.endsWith("@aec.edu.in") ? normalizedEmail.split("@")[0].toUpperCase() : newUserId.toString(), ...configuredRoles(normalizedEmail), ...(verifiedProfile ? {
+      student_name: verifiedProfile.name, department: verifiedProfile.department, class_section: verifiedProfile.classSection,
+      is_synced: true, attendance: verifiedProfile.attendance, college_assessments: verifiedProfile.collegeAssessments,
+    } : {}) };
     const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(400).json({ error: "User already registered" });
     }
 
     const salt = generateSalt();
-    const passwordHash = hashPassword(password, salt);
+    const passwordHash = await createPasswordHash(password, salt);
 
     const user = new User({
+      _id: newUserId,
       email: normalizedEmail,
       passwordHash,
+      passwordScheme: PASSWORD_SCHEME,
       salt,
       user_metadata: user_metadata || {}
     });
@@ -477,6 +519,7 @@ app.post("/api/auth/signup", async (req, res) => {
         { id: rollNo },
         {
           id: rollNo,
+          ownerId: user._id.toString(),
           roll_number: rollNo,
           name: user_metadata?.student_name || user_metadata?.name || "",
           student_name: user_metadata?.student_name || user_metadata?.name || "",
@@ -492,13 +535,14 @@ app.post("/api/auth/signup", async (req, res) => {
           is_admin: false,
           updated_at: new Date()
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
       );
     } else {
       await Profile.findOneAndUpdate(
         { id: user._id.toString() },
         {
           id: user._id.toString(),
+          ownerId: user._id.toString(),
           name: user_metadata?.faculty_name || user_metadata?.name || "User",
           student_name: user_metadata?.faculty_name || user_metadata?.name || "User",
           branch: user_metadata?.department || "",
@@ -507,7 +551,7 @@ app.post("/api/auth/signup", async (req, res) => {
           is_admin: isAdmin,
           updated_at: new Date()
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
       );
     }
 
@@ -520,34 +564,36 @@ app.post("/api/auth/signup", async (req, res) => {
     await session.save();
 
     res.status(201).json({
-      session: { access_token: token, user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata } },
-      user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata }
+      session: { access_token: token, user: { id: user._id.toString(), email: user.email, user_metadata: { ...user.user_metadata, ...effectiveRoles(user) } } },
+      user: { id: user._id.toString(), email: user.email, user_metadata: { ...user.user_metadata, ...effectiveRoles(user) } }
     });
   } catch (err: any) {
-    console.error("Signup error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("[auth] Signup failed", { code: err?.code });
+    res.status(503).json({ error: "Account creation unavailable. Please retry." });
   }
 });
 
 app.post("/api/auth/login", async (req, res) => {
+  let credentials;
+  try { credentials = validateCredentials(req.body?.email, req.body?.password); }
+  catch (error: any) { return res.status(400).json({ error: error.message }); }
   try {
     await connectDB();
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required." });
-    }
-
-    const normalizedEmail = email.toLowerCase().trim();
+    const { email: normalizedEmail, password } = credentials;
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
       return res.status(400).json({ error: "Invalid login credentials" });
     }
 
-    const hash = hashPassword(password, user.salt);
-    if (hash !== user.passwordHash) {
+    if (!(await verifyPassword(password, user.salt, user.passwordHash, user.passwordScheme))) {
       return res.status(400).json({ error: "Invalid login credentials" });
     }
 
+    if (user.passwordScheme !== PASSWORD_SCHEME) {
+      user.passwordHash = await createPasswordHash(password, user.salt);
+      user.passwordScheme = PASSWORD_SCHEME;
+      await user.save();
+    }
     // Generate session
     const token = crypto.randomBytes(32).toString("hex");
     const session = new Session({
@@ -557,12 +603,12 @@ app.post("/api/auth/login", async (req, res) => {
     await session.save();
 
     res.json({
-      session: { access_token: token, user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata } },
-      user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata }
+      session: { access_token: token, user: { id: user._id.toString(), email: user.email, user_metadata: { ...user.user_metadata, ...effectiveRoles(user) } } },
+      user: { id: user._id.toString(), email: user.email, user_metadata: { ...user.user_metadata, ...effectiveRoles(user) } }
     });
   } catch (err: any) {
-    console.error("Login error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("[auth] Login failed", { code: err?.code });
+    res.status(503).json({ error: "Sign in unavailable. Please retry." });
   }
 });
 
@@ -574,16 +620,16 @@ app.get("/api/auth/me", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const token = authHeader.split(" ")[1];
-    const session = await Session.findOne({ token }).populate("userId");
+    const session = await Session.findOne({ token, createdAt: { $gt: new Date(Date.now() - 7 * 86400000) } }).populate("userId");
     if (!session || !session.userId) {
       return res.status(401).json({ error: "Invalid session" });
     }
     const user = session.userId as any;
     res.json({
-      user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata }
+      user: { id: user._id.toString(), email: user.email, user_metadata: { ...user.user_metadata, ...effectiveRoles(user) } }
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Service unavailable. Please retry." });
   }
 });
 
@@ -599,15 +645,14 @@ app.post("/api/auth/update-metadata", requireAuth, async (req: any, res) => {
 
     user.user_metadata = {
       ...(user.user_metadata || {}),
-      ...data
+      ...sanitizeMetadata(data)
     };
     user.markModified("user_metadata");
     await user.save();
 
     // Keep corresponding Profile in sync
     const rollNo = user.user_metadata?.roll_number || user.email.split("@")[0].toUpperCase();
-    const isFaculty = !!user.user_metadata?.is_faculty;
-    const isAdmin = !!user.user_metadata?.is_admin;
+    const { is_faculty: isFaculty, is_admin: isAdmin } = effectiveRoles(user);
 
     if (!isFaculty && !isAdmin) {
       await Profile.findOneAndUpdate(
@@ -642,11 +687,11 @@ app.post("/api/auth/update-metadata", requireAuth, async (req: any, res) => {
     }
 
     res.json({
-      user: { id: user._id.toString(), email: user.email, user_metadata: user.user_metadata }
+      user: { id: user._id.toString(), email: user.email, user_metadata: { ...user.user_metadata, ...effectiveRoles(user) } }
     });
   } catch (err: any) {
     console.error("Update metadata error:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Service unavailable. Please retry." });
   }
 });
 
@@ -659,7 +704,7 @@ app.post("/api/auth/logout", async (req, res) => {
     }
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Service unavailable. Please retry." });
   }
 });
 
@@ -675,7 +720,7 @@ app.get("/api/health", (req, res) => {
 // API Endpoint: Get all profiles
 app.get("/api/profiles", requireAuth, async (req: any, res) => {
   try {
-    const profiles = await Profile.find({});
+    const profiles = await Profile.find(req.user.user_metadata?.is_faculty || req.user.user_metadata?.is_admin ? {} : { id: profileIdForUser(req.user) });
     res.json(profiles);
   } catch (err: any) {
     console.error("Error fetching profiles:", err);
@@ -687,14 +732,17 @@ app.get("/api/profiles", requireAuth, async (req: any, res) => {
 app.post("/api/profiles/upsert", requireAuth, async (req: any, res) => {
   try {
     const { id, ...rest } = req.body;
+    const existingProfile = typeof id === "string" ? await Profile.findOne({ id }) : null;
+    if (existingProfile?.ownerId && existingProfile.ownerId !== req.user.id && !req.user.user_metadata?.is_admin) return res.status(403).json({ error: "You cannot modify this profile." });
+    if (!canAccessProfile(req.user, id, true)) return res.status(403).json({ error: "You cannot modify this profile." });
     if (!id) {
       res.status(400).json({ error: "Profile id is required." });
       return;
     }
     const profile = await Profile.findOneAndUpdate(
       { id },
-      { id, ...rest, updated_at: new Date() },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { id, ownerId: existingProfile?.ownerId || req.user.id, ...sanitizeProfile(rest, !!req.user.user_metadata?.is_admin), updated_at: new Date() },
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
     );
     res.json({ success: true, data: profile });
   } catch (err: any) {
@@ -707,11 +755,15 @@ app.post("/api/profiles/upsert", requireAuth, async (req: any, res) => {
 app.patch("/api/profiles/:id", requireAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const isStaff = req.user.user_metadata?.is_faculty || req.user.user_metadata?.is_admin;
+    const existingProfile = await Profile.findOne({ id });
+    if (existingProfile?.ownerId && existingProfile.ownerId !== req.user.id && !isStaff) return res.status(403).json({ error: "You cannot modify this profile." });
+    if (!canAccessProfile(req.user, id, true) && !isStaff) return res.status(403).json({ error: "You cannot modify this profile." });
+    const updateData = isStaff ? sanitizeProfile(req.body, true) : sanitizeProfile(req.body);
     const profile = await Profile.findOneAndUpdate(
       { id },
       { ...updateData, updated_at: new Date() },
-      { new: true }
+      { returnDocument: "after" }
     );
     if (!profile) {
       res.status(404).json({ error: "Profile not found." });
@@ -729,6 +781,7 @@ app.get("/api/college/student/:rollNo", requireAuth, async (req: any, res) => {
   try {
     const { rollNo } = req.params;
     const cleanRollNo = String(rollNo || "").trim().toUpperCase();
+    if (!canAccessProfile(req.user, cleanRollNo)) return res.status(403).json({ error: "This student profile is private." });
 
     if (!cleanRollNo) {
       res.status(400).json({ error: "Roll number is required." });
@@ -742,7 +795,8 @@ app.get("/api/college/student/:rollNo", requireAuth, async (req: any, res) => {
     if (collegeUrl && collegeApiKey) {
       console.log(`Connecting to University Connect API for student: ${cleanRollNo}`);
       try {
-        const response = await fetch(`${collegeUrl}/student/profile?rollNo=${cleanRollNo}`, {
+        const response = await fetch(`${collegeUrl}/student/profile?rollNo=${encodeURIComponent(cleanRollNo)}`, {
+          signal: AbortSignal.timeout(10000),
           headers: {
             "Authorization": `Bearer ${collegeApiKey}`,
             "Content-Type": "application/json"
@@ -753,78 +807,19 @@ app.get("/api/college/student/:rollNo", requireAuth, async (req: any, res) => {
           res.json(profile);
           return;
         }
-        console.warn(`University API returned status ${response.status}. Falling back to cached mocks.`);
+        console.warn(`University API returned status ${response.status}. Using the verified cached profile if available.`);
       } catch (apiErr: any) {
-        console.error("Failed to query college portal endpoint, using mock database fallback:", apiErr);
+        console.error("[college] Configured upstream unavailable:", apiErr);
       }
     }
 
-    // Default mock profiles fallback
-    const mockDb: Record<string, any> = {
-      "24P31A1234": {
-        studentId: "24P31A1234",
-        name: "MOHAMMAD ABDUL ALEEM ARSHAD",
-        department: "Information Technology",
-        classSection: "II B.Tech IT - Section A",
-        academicYear: "2024-2028",
-        attendance: 84,
-        isSynced: true,
-        collegeAssessments: [
-          { examName: "Mid-Term 1 (Theory)", percentage: 84, marks: "33.6 / 40" },
-          { examName: "Mid-Term 2 (Theory)", percentage: 90, marks: "36.0 / 40" },
-          { examName: "Previous Semester GPA", percentage: 85, marks: "8.50 / 10.0 SGPA" },
-          { examName: "Design & Analysis of Algorithms Lab", percentage: 92, marks: "46.0 / 50" },
-          { examName: "Data Structures & Java Assessment", percentage: 88, marks: "44.0 / 50" },
-          { examName: "Soft Skills & Aptitude Assessment", percentage: 81, marks: "81 / 100" }
-        ]
-      },
-      "22A91A0501": {
-        studentId: "22A91A0501",
-        name: "SOMA REDDY",
-        department: "Computer Science Engineering",
-        classSection: "IV B.Tech CSE - Section B",
-        academicYear: "2022-2026",
-        attendance: 79,
-        isSynced: true,
-        collegeAssessments: [
-          { examName: "Mid-Term 1 (Theory)", percentage: 76, marks: "30.4 / 40" },
-          { examName: "Mid-Term 2 (Theory)", percentage: 82, marks: "32.8 / 40" },
-          { examName: "Previous Semester GPA", percentage: 80, marks: "8.02 / 10.0 SGPA" }
-        ]
-      },
-      "24P31A9999": {
-        studentId: "24P31A9999",
-        name: "CAMPUS CONNECT DEMO STUDENT",
-        department: "Artificial Intelligence & Data Science",
-        classSection: "II B.Tech AI - Section A",
-        academicYear: "2024-2028",
-        attendance: 88,
-        isSynced: true,
-        collegeAssessments: [
-          { examName: "Mid-Term 1 (Theory)", percentage: 90, marks: "36 / 40" }
-        ]
-      }
-    };
-
-    const matchedProfile = mockDb[cleanRollNo];
-    if (matchedProfile) {
-      res.json(matchedProfile);
-    } else {
-      res.json({
-        studentId: cleanRollNo,
-        name: `Aditya Student (${cleanRollNo})`,
-        department: "Computer Science Engineering",
-        classSection: "III B.Tech CSE - Section A",
-        academicYear: "2023-2027",
-        attendance: 75,
-        isSynced: true,
-        collegeAssessments: [
-          { examName: "Mid-Term 1 (Theory)", percentage: 75, marks: "30 / 40" }
-        ]
-      });
-    }
+    const stored = await Profile.findOne({ id: cleanRollNo }).lean();
+    if (!stored || !stored.is_synced) return res.status(404).json({ error: "No verified college profile is available. Sync your profile through the college portal." });
+    if (stored.ownerId && stored.ownerId !== req.user.id && !req.user.user_metadata?.is_faculty && !req.user.user_metadata?.is_admin) return res.status(403).json({ error: "This student profile is private." });
+    res.json({ studentId: cleanRollNo, name: stored.name, department: stored.department, classSection: stored.class_section,
+      attendance: stored.attendance, collegeAssessments: stored.college_assessments || [], isSynced: true, source: "cached" });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Service unavailable. Please retry." });
   }
 });
 
@@ -1179,6 +1174,7 @@ app.post("/api/college/sync-portal", requireAuth, async (req: any, res) => {
   const { rollNo, password, portal } = req.body;
   const cleanRollNo = String(rollNo || "").trim().toUpperCase();
 
+  if (!canAccessProfile(req.user, cleanRollNo)) return res.status(403).json({ error: "Only your own verified college profile can be synchronized." });
   if (!cleanRollNo || !password) {
     res.status(400).json({ error: "Roll number and password are required." });
     return;
@@ -1243,7 +1239,10 @@ app.post("/api/college/auth-sync", async (req: any, res) => {
       }
     }
     console.log(`[Auth Scraper] Profile auth-sync successful for ${cleanRollNo}: Name="${profile.name}"`);
-    res.json(profile);
+    await connectDB();
+    const registrationToken = crypto.randomBytes(32).toString("hex");
+    await RegistrationVerification.create({ tokenDigest: crypto.createHash("sha256").update(registrationToken).digest("hex"), email: `${cleanRollNo.toLowerCase()}@aec.edu.in`, expiresAt: new Date(Date.now() + 5 * 60000), profile });
+    res.json({ ...profile, registrationToken });
   } catch (err: any) {
     console.error(`[Auth Scraper] Error scraping details for ${cleanRollNo}:`, err.message);
     res.status(401).json({ error: "Authentication failed. Invalid Roll Number or Portal Password." });
@@ -1305,33 +1304,15 @@ app.post("/api/analyze", requireAuth, async (req: any, res) => {
     // Step A: Fetch GitHub data
     const repos = await fetchGitHubRepos(githubUsername);
 
-    // Check if resume url is provided and fetch PDF content
-    let finalBase64Resume = resumeBase64;
-    if (resumeUrl) {
-      try {
-        console.log(`Downloading resume from storage URL: ${resumeUrl.split("?")[0]}`);
-        const fetchResponse = await fetch(resumeUrl);
-        if (!fetchResponse.ok) {
-          throw new Error(`Supabase Storage fetch failed: status ${fetchResponse.status}`);
-        }
-        const arrayBuffer = await fetchResponse.arrayBuffer();
-        finalBase64Resume = Buffer.from(arrayBuffer).toString("base64");
-      } catch (err: any) {
-        console.error("Failed to retrieve resume from URL, falling back to client-provided base64:", err);
-      }
-    }
-
-    // Extract text from PDF resume
+    // Only the authenticated bounded upload path is supported. Never fetch arbitrary resume URLs.
+    if (resumeUrl && !resumeBase64) return res.status(400).json({ error: "Upload your resume PDF directly; remote resume URLs are unsupported." });
     let resumeText = "";
-    if (finalBase64Resume) {
-      try {
-        const pdfBuffer = Buffer.from(finalBase64Resume, "base64");
-        const pdfData = await pdf(pdfBuffer);
-        resumeText = pdfData.text;
-      } catch (err: any) {
-        console.error("Error parsing PDF resume, trying raw text fallback:", err);
-        resumeText = Buffer.from(finalBase64Resume, "base64").toString("utf-8");
-      }
+    if (resumeBase64) {
+      if (typeof resumeBase64 !== "string" || resumeBase64.length > 7 * 1024 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(resumeBase64) || (resumeMimeType && resumeMimeType !== "application/pdf")) return res.status(400).json({ error: "Upload a valid PDF of at most 5 MB." });
+      const pdfBuffer = Buffer.from(resumeBase64, "base64");
+      if (pdfBuffer.length > 5 * 1024 * 1024 || pdfBuffer.subarray(0, 5).toString("ascii") !== "%PDF-") return res.status(400).json({ error: "The resume must be a valid PDF of at most 5 MB." });
+      try { resumeText = (await pdf(pdfBuffer)).text.slice(0, 20000); }
+      catch { return res.status(400).json({ error: "The PDF could not be read. Upload an unencrypted PDF with selectable text." }); }
     }
 
     const prompt = `You are an elite technical interviewer and resume auditor. Analyze the uploaded resume text and the fetched GitHub repositories to:
@@ -1448,7 +1429,7 @@ Respond with STRICT JSON matching this schema:
     };
     res.json(result);
   } catch (error: any) {
-    console.error("Analysis Endpoint Error:", error);
+    console.error("[analysis] Request failed", { status: error?.status });
     res.status(500).json({ error: error.message });
   }
 });
@@ -2182,68 +2163,8 @@ Respond with STRICT JSON matching this schema:
 
     res.json(scorecard);
   } catch (error: any) {
-    console.error("Generate Report Error, returning default mock report:", error);
-    const mockReport = {
-      id: "rpt_" + Math.random().toString(36).substring(2, 9),
-      studentId,
-      githubUsername,
-      date: new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'long', day: 'numeric' }),
-      interviewType: isSoftSkills ? "soft-skills" : "technical",
-      overallScore: 84,
-      candidateLevel: "Strong Candidate",
-      clarityPronunciation: 4,
-      fluencyPace: 5,
-      grammarAccuracy: 88,
-      vocabularyUsage: 86,
-      coherenceIdeas: 5,
-      confidenceRating: 4,
-      communicationClarityLevel: "High",
-      communicationClarityScore: 88,
-      grammarVocabularyScore: 87,
-      fluencyConfidenceRating: 5,
-      presentationSkillsScore: 86,
-      teamworkLeadershipRating: 4,
-      interviewReadinessScore: 84,
-      bodyLanguageEtiquetteRating: 5,
-      trainingComparison: {
-        communicationClarity: { before: "Medium", after: "High (88%)", method: "Video-based speaking test, Intro video, Mock Interview" },
-        grammarVocabulary: { before: "74%", after: "87%", method: "MCQ Test, Writing Task Assessment, AI grammar analysis" },
-        fluencyConfidence: { before: "3.2 / 5", after: "5 / 5", method: "Mock Interview Rubric, AI Speech Analysis, GD participation" },
-        presentationSkills: { before: "70 / 100", after: "86 / 100", method: "Individual Presentation Evaluation, PPT rubric, Peer Review" },
-        teamworkLeadership: { before: "3.5 / 5", after: "4 / 5", method: "Group Activity Assessment, GD Observation, Behavioural Rubric" },
-        interviewReadiness: { before: "68 / 100", after: "84 / 100", method: "Structured Mock Interview, HR Rubrics, Situation-based Q&A" },
-        bodyLanguageEtiquette: { before: "3.4 / 5", after: "5 / 5", method: "Video Observation, Mock Interview Rubric, Classroom Behaviour Checklist" }
-      },
-      categoryScores: isSoftSkills ? {
-        communicationClarity: 88,
-        presentationConfidence: 85,
-        problemSolving: 82,
-        teamworkCollaboration: 85,
-        adaptabilityResilience: 84,
-        ownershipEQ: 86,
-        overallReadiness: 84
-      } : {
-        resumeStrength: 80,
-        githubStrength: 85,
-        technicalDepth: 85,
-        problemSolving: 82,
-        communicationClarity: 88,
-        vocabularyRichness: 86,
-        presentationConfidence: 85,
-        overallReadiness: 84
-      },
-      strengths: ["Clear STAR structured response", "Confident pacing and good vocal modulation"],
-      weaknesses: ["Elaborate on specific architectural tradeoffs"],
-      recommendedTopics: ["STAR methodology application", "Executive verbal framing"],
-      sampleAnswers: (answerFeedbacks || []).slice(0, 3).map((f: any) => ({
-        question: f.questionText || "Question",
-        originalResponse: f.transcript || "Answer",
-        improvedVersion: "A clean, structured STAR answer based on: " + (f.transcript || "Answer"),
-        explanation: "This version is structured with Situation, Task, Action, and Result."
-      })),
-      finalVerdict: "The candidate demonstrates strong communication clarity, active engagement, and solid fundamentals."
-    };
-    res.json(mockReport);
+    console.error("[interview] Legacy report failed", { status: error?.status });
+    res.status(502).json({ error: "Report generation failed. Your answers were not assigned fabricated scores; please retry." });
   }
 });
 
@@ -2799,7 +2720,7 @@ async function dbSaveRoom(room: GDRoom): Promise<void> {
     await GDRoom.findOneAndUpdate(
       { code: room.code },
       payload,
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: "after" }
     );
   } catch (err) {
     console.error("MongoDB Save Room failed:", err);
@@ -3364,7 +3285,7 @@ app.get("/api/gd-room/diagnose", async (req, res) => {
       dbTestError
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Service unavailable. Please retry." });
   }
 });
 
@@ -3625,7 +3546,10 @@ server.on("upgrade", (request, socket, head) => {
 
   const cleanPath = pathname.replace(/\/$/, "");
 
-  if (cleanPath === "/ws/interview") {
+  if (cleanPath === "/ws/interview" || cleanPath === "/ws/gd-room") {
+    socket.write("HTTP/1.1 410 Gone\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+  } else if (false) {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit("connection", ws, request);
     });
@@ -3646,6 +3570,13 @@ server.on("upgrade", (request, socket, head) => {
   }
 });
 
+
+app.use("/api", (error: any, _req: any, res: any, _next: any) => {
+  if (res.headersSent) return res.end();
+  const status = error?.type === "entity.too.large" ? 413 : error instanceof SyntaxError ? 400 : 503;
+  console.error("[api] Request failed", { status, code: error?.code });
+  res.status(status).json({ error: status === 413 ? "The upload exceeds the size limit." : status === 400 ? "Invalid request JSON." : "Service unavailable. Please retry." });
+});
 
 // Serve Vite or Static files depending on environment
 async function initServer() {
@@ -3670,14 +3601,14 @@ async function initServer() {
     });
   }
 
-  if (!process.env.VERCEL) {
-    server.listen(PORT, "localhost", () => {
+  if (!process.env.VERCEL && process.env.TEST_MODE !== "true") {
+    server.listen(PORT, process.env.HOST || "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
   }
 }
 
-initServer().catch((err) => {
+if (process.env.TEST_MODE !== "true") initServer().catch((err) => {
   console.error("Server boot error:", err);
 });
 

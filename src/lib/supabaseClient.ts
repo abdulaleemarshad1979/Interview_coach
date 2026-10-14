@@ -38,8 +38,8 @@ class LocalAuthClient {
         localStorage.setItem("auth_user", JSON.stringify(data.user));
         const session = { access_token: token, user: data.user };
         this.notify("INITIAL_SESSION", session);
-      } else {
-        // Token expired or invalid, clear session
+      } else if (res.status === 401 || res.status === 403) {
+        // Only an invalid session clears auth; temporary service failures preserve it.
         this.clearSession();
       }
     } catch (err) {

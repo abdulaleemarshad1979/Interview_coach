@@ -1,0 +1,11 @@
+node_modules
+.git
+.env*
+!.env.example
+dist
+test-results
+playwright-report
+coverage
+docs/voice-benchmark
+docs/benchmark-results
+*.log
