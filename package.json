@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-vision-assets.mjs",
     "dev": "node --env-file-if-exists=.env --import tsx server.ts",
+    "prebuild": "node scripts/copy-vision-assets.mjs",
     "build": "vite build --outDir dist/client && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "vercel-build": "npm run build",
     "start": "node --max-http-header-size=163840 dist/server.cjs",
@@ -23,6 +25,7 @@
     "staff:provision": "node --env-file-if-exists=.env --import tsx scripts/provision-staff.ts"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.1.0",
     "@supabase/supabase-js": "^2.110.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",

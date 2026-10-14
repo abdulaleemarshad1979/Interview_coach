@@ -8,6 +8,7 @@ import { getVoiceOptions, setVoiceOptions, speakNaturalAI, stopNaturalSpeech, ty
 import { MicrophoneCapture, listMicrophoneDevices, transcribeRecordedSpeech } from '../lib/speechCapture';
 import InterviewConfiguration from './InterviewConfiguration';
 import EvidenceReport from './EvidenceReport';
+import CameraObserver from './CameraObserver';
 
 interface Props { studentProfile: StudentProfile; analysisResult: FullAnalysisResult | null; sessionId?: string | null; onNavigate: (view: string) => void }
 type PendingAction = { action: 'start' | 'messages' | 'complete'; requestId: string; questionId?: string; text?: string };
@@ -159,6 +160,7 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
     {session && !session.report && <>
       <div className="coach-session-bar"><span className="coach-status">{session.state.replaceAll('_', ' ')}</span><span aria-label="Time remaining">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')} remaining</span><span>{session.turns.filter(turn => turn.role === 'candidate').length} answers saved</span></div>
       {remaining === 0 && session.currentQuestion && <div className="coach-notice">The session time has ended. You can submit your final answer, then generate your report.</div>}
+      <CameraObserver />
       <div className="coach-room-grid"><section className="coach-panel coach-question"><p className="coach-eyebrow">Your interviewer</p><h2>{currentUtterance || 'Ready when you are'}</h2>
         {session.currentQuestion?.groundedIn && <p className="coach-muted">Following up on your answer: “{session.currentQuestion.groundedIn}”</p>}
         {(busy || session.isProcessing) && <div className="coach-notice" role="status"><p>{status || 'Preparing the next turn…'}</p>{preview && <p className="coach-preview">{preview}</p>}<button className="coach-button" onClick={() => void cancelRequest()}>Cancel request</button></div>}

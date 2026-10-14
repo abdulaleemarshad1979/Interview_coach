@@ -28,7 +28,7 @@ Choose technical, HR, behavioral, resume, project, system design, coding, or mix
 
 Record a complete answer or type it. Review the transcription before submitting. Silence detection does not cut off or submit an answer. Choose a microphone after granting permission. Playback is serial, cancellable, and sentence-aware, with an explicit provider choice. Groq Orpheus profiles are Hannah, Autumn and Diana. Browser speech is device-dependent and must be explicitly selected or permitted as a fallback.
 
-History supports resuming, report retrieval and authorized deletion. Interrupted answers are saved and retried without duplicate transcript entries. Session time does not restart on resume. Scores are calculated only from validated dimensions with actual transcript excerpts; unsupported observations remain unscored. No personality, honesty, psychological, gaze or camera-based assessment is inferred.
+History supports resuming, report retrieval and authorized deletion. Interrupted answers are saved and retried without duplicate transcript entries. Session time does not restart on resume. The optional camera observer shows a live preview and uses a locally hosted [MediaPipe Face Landmarker model](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker) for on-device face framing guidance; no video or landmarks are uploaded. Scores are calculated only from validated dimensions with actual transcript excerpts; unsupported observations remain unscored. No personality, honesty, psychological, gaze or camera-based assessment is inferred.
 
 ## Discussions
 

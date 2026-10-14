@@ -59,7 +59,8 @@ test('follow-ups must cite latest candidate evidence and refer to its actual con
   const goSession = fixture(); goSession.turns[1].text = 'I used Go to build an API.';
   const goQuestion = { ...decision(), utterance: 'How did you handle Go goroutine cancellation?', question: { ...decision().question, text: 'How did you handle Go goroutine cancellation?' }, grounding: { turnId: 'a1', quote: 'used Go' }, memory: { summary: 'Candidate uses Go.', claims: [], followUpOpportunities: [] } };
   assert.doesNotThrow(() => validateDecision(goQuestion, goSession, false));
-  assert.throws(() => validateDecision({ ...decision(), utterance: `Are you ready? ${decision().utterance}` }, session, false));
+  assert.equal(validateDecision({ ...decision(), utterance: `Are you ready? ${decision().utterance}` }, session, false).utterance, decision().question.text);
+  assert.equal(validateDecision({ ...decision(), utterance: 'Could you explain your JWT refresh approach?' }, session, false).utterance, decision().question.text);
   session.memory.followUpCount = 2;
   assert.throws(() => validateDecision(decision(), session, false));
 });

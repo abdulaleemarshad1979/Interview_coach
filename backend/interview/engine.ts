@@ -105,13 +105,17 @@ export function validateDecision(value: unknown, session: InterviewSession, isSt
   if (!['ASK', 'FOLLOW_UP', 'TRANSITION', 'CLOSE'].includes(action) || (isStart && action !== 'ASK') || (!isStart && session.state === 'INTRODUCTION' && !['ASK', 'CLOSE'].includes(action)) || (forceClose && action !== 'CLOSE')) {
     throw new ServiceError(502, 'INVALID_AI_RESPONSE', 'The AI returned an invalid interview action. Please retry.', true);
   }
-  const utterance = text(result.utterance, 'interviewer message', 1800);
+  let utterance = text(result.utterance, 'interviewer message', 1800);
   let question: InterviewDecision['question'] = null;
   let grounding: InterviewDecision['grounding'] = null;
   if (action !== 'CLOSE') {
     const proposed = object(result.question);
     const questionText = text(proposed.text, 'question', 1200);
-    if (!utterance.includes(questionText) || (questionText.match(/\?/g) || []).length > 1 || (utterance.match(/\?/g) || []).length > 1) throw new ServiceError(502, 'INVALID_AI_RESPONSE', 'The interviewer must ask one question that matches the displayed question.', true);
+    if ((questionText.match(/\?/g) || []).length > 1) throw new ServiceError(502, 'INVALID_AI_RESPONSE', 'The interviewer returned more than one question. Please retry.', true);
+    // Models sometimes paraphrase the structured question in their spoken text. The
+    // structured question is the saved source of truth, so speak it verbatim instead
+    // of failing the entire turn and leaving a new interview stuck in PREPARING.
+    if (!utterance.includes(questionText) || (utterance.match(/\?/g) || []).length > 1) utterance = questionText;
     const normalized = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
     if (session.turns.some(turn => turn.role === 'interviewer' && normalized(turn.text).includes(normalized(questionText)))) {
       throw new ServiceError(502, 'REPEATED_QUESTION', 'The AI repeated an earlier question. Please retry.', true);

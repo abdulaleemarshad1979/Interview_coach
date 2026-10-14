@@ -1,4 +1,5 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 const password = 'browser-test-password';
 let nextRollNumber = 8000;
@@ -26,10 +27,36 @@ test('college portal login, saved interview and explicit missing-provider failur
   await page.getByRole('button', { name: 'Start interview', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Groq is not configured');
   await expect(page.getByText('0 answers saved')).toBeVisible();
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await expect.poll(() => page.getByLabel('Your live camera preview').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0);
+  await expect(page.getByText('Camera on · no face in frame')).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Turn camera off' }).click();
+  await expect(page.getByText('Camera is off')).toBeVisible();
   await page.getByRole('button', { name: 'Session history', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Backend engineer', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Begin questions' })).toBeVisible();
+});
+
+test('camera observer tracks a visible face using local model assets', async ({ page, request }) => {
+  const account = await createAccount(request, 'Camera candidate');
+  await signIn(page, account.rollNo);
+  await page.getByRole('button', { name: 'Live Interview', exact: true }).click();
+  await page.getByRole('button', { name: 'Start interview', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start camera' })).toBeVisible();
+  const image = `data:image/png;base64,${readFileSync('assets/abdul_profile.png').toString('base64')}`;
+  await page.evaluate(async (source) => {
+    const portrait = await createImageBitmap(await (await fetch(source)).blob());
+    const canvas = document.createElement('canvas');
+    canvas.width = 640; canvas.height = 480;
+    const context = canvas.getContext('2d')!;
+    const paint = () => context.drawImage(portrait, 0, -80, 640, 640);
+    paint(); window.setInterval(paint, 100);
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => canvas.captureStream(10) });
+  }, image);
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await expect(page.getByText('Face tracked · centered in frame')).toBeVisible({ timeout: 30000 });
+  await expect.poll(() => page.locator('.coach-camera-preview canvas').evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBeGreaterThan(0);
 });
 
 test('invitation routes a signed-in participant directly to the join lobby', async ({ page, request }) => {
