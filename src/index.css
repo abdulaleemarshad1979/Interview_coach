@@ -36,10 +36,34 @@
 .coach-status { color: #004f9f; font-weight: 600; font-size: .75rem; letter-spacing: .06em; }
 .coach-question h2 { font-size: 1.4rem; line-height: 1.6; white-space: pre-wrap; }
 .coach-camera-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+.coach-camera-sub { font-size: .8rem; color: #64748b; margin-top: .15rem; }
 .coach-camera-preview { position: relative; width: min(100%, 560px); aspect-ratio: 16 / 9; overflow: hidden; border-radius: .65rem; background: #0f172a; }
+.coach-camera-stage { position: absolute; inset: 0; width: 100%; height: 100%; }
 .coach-camera-preview video, .coach-camera-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 .coach-camera-preview canvas { pointer-events: none; }
 .coach-camera-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .75rem; color: #cbd5e1; }
+.coach-hud-overlay { position: absolute; top: .65rem; left: .65rem; right: .65rem; display: flex; justify-content: space-between; align-items: center; pointer-events: none; z-index: 10; }
+.coach-hud-badges { display: flex; gap: .35rem; flex-wrap: wrap; }
+.coach-hud-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 9999px; font-size: .65rem; font-weight: 600; letter-spacing: .02em; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); }
+.coach-hud-pill.emerald { color: #34d399; border: 1px solid rgba(52, 211, 153, 0.35); }
+.coach-hud-pill.sky { color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); }
+.coach-hud-pill.purple { color: #c084fc; border: 1px solid rgba(192, 132, 252, 0.35); }
+.coach-hud-pill.muted { color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); }
+.coach-hud-pill .coach-hud-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.coach-hud-zoom { font-size: .65rem; font-weight: 600; padding: 2px 8px; border-radius: 9999px; background: rgba(15, 23, 42, 0.75); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.15); backdrop-filter: blur(4px); }
+.coach-camera-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; margin-top: .65rem; width: min(100%, 560px); }
+.coach-zoom-controls { display: inline-flex; align-items: center; gap: .4rem; }
+.coach-toolbar-label { font-size: .75rem; font-weight: 600; color: #64748b; display: inline-flex; align-items: center; gap: 3px; }
+.coach-zoom-group { display: inline-flex; align-items: center; background: #f1f5f9; border-radius: .5rem; padding: 2px; gap: 2px; }
+.coach-zoom-btn { border: none; background: transparent; padding: 3px 8px; font-size: .75rem; font-weight: 500; color: #475569; border-radius: .35rem; cursor: pointer; transition: all .15s ease; display: inline-flex; align-items: center; }
+.coach-zoom-btn:hover { color: #0f172a; }
+.coach-zoom-btn.active { background: #ffffff; color: #004f9f; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.coach-mesh-toggle { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #e2e8f0; background: #ffffff; padding: 3px 8px; font-size: .75rem; font-weight: 500; color: #475569; border-radius: .35rem; cursor: pointer; transition: all .15s ease; }
+.coach-mesh-toggle:hover { border-color: #cbd5e1; color: #0f172a; }
+.coach-mesh-toggle.active { border-color: #bae6fd; background: #f0f9ff; color: #0369a1; }
+.coach-camera-compact { padding: 1rem; border-radius: .75rem; }
+.coach-camera-compact .coach-camera-preview { width: 100%; }
+.coach-camera-compact .coach-camera-toolbar { width: 100%; }
 .coach-preview { color: #64748b; font-style: italic; }
 .coach-page details summary { cursor: pointer; font-weight: 600; padding: .5rem 0; }
 .coach-page details[open] summary { margin-bottom: 1rem; }

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, Square, Volume2, VolumeX, ArrowLeft, RotateCcw } from 'lucide-react';
+import { Mic, Square, Volume2, VolumeX, ArrowLeft, RotateCcw, Users } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { mutateInterview, readApiJson } from '../lib/interviewClient';
 import type { InterviewConfig, InterviewSession } from '../lib/interviewTypes';
@@ -75,10 +75,17 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
   const say = async (text: string) => {
     stopNaturalSpeech(); setError('');
     try {
-      const result = await speakNaturalAI(text, () => alive.current && setSpeaking(true), () => alive.current && setSpeaking(false));
+      const result = await speakNaturalAI(text, () => alive.current && setSpeaking(true), () => alive.current && setSpeaking(false), { ...voice, allowBrowserFallback: true });
       if (result.status === 'failed') throw new Error(result.error || 'Playback unavailable');
     }
-    catch (failure) { if (alive.current) setError(`Voice playback failed: ${(failure as Error).message}. Use Replay or choose browser speech in voice settings.`); }
+    catch (failure) {
+      try {
+        const fallback = await speakNaturalAI(text, () => alive.current && setSpeaking(true), () => alive.current && setSpeaking(false), { ...voice, provider: 'browser' });
+        if (fallback.status === 'failed') throw failure;
+      } catch {
+        if (alive.current) setError(`Voice playback failed: ${(failure as Error).message}. Use Replay or choose browser speech in voice settings.`);
+      }
+    }
     finally { if (alive.current) setSpeaking(false); }
   };
   useEffect(() => {
@@ -152,7 +159,11 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
   const currentUtterance = session?.turns.filter(turn => turn.role === 'interviewer').at(-1)?.text || '';
   return <div className="coach-page">
     <div className="coach-heading"><div><p className="coach-eyebrow">Interview Coach</p><h1>{session ? session.config.targetRole : 'Prepare for your next conversation'}</h1><p>{session ? `${session.config.mode.replace('-', ' ')} interview · ${session.config.experienceLevel}` : 'Practice real answers. Get meaningful follow-up questions.'}</p></div>
-      <button className="coach-button" onClick={() => onNavigate('history')}><ArrowLeft size={16} />Session history</button></div>
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button className="coach-button" type="button" onClick={() => onNavigate('group-discussion')}><Users size={16} />Group discussion</button>
+        <button className="coach-button" type="button" onClick={() => onNavigate('history')}><ArrowLeft size={16} />Session history</button>
+      </div>
+    </div>
     {error && <div className="coach-error" role="alert">{error}</div>}
     {retry && session && !busy && !session.isProcessing && <div className="coach-notice"><p>{session.pendingAnswer ? 'Your answer is saved. Resume generation to continue from it.' : 'This turn can be retried without duplicating your transcript.'}</p><button className="coach-button" onClick={() => void refresh(session.id).then(fresh => run(retry, fresh)).catch(failure => setError(failure.message))}><RotateCcw size={16} />Retry saved turn</button></div>}
     {!session && <InterviewConfiguration config={config} onChange={setConfig} voice={voice} onVoiceChange={updateVoice} busy={busy} onStart={() => void start()} />}

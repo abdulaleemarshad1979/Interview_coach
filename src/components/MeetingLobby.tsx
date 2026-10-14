@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Check, Clock3, KeyRound, Loader2, ShieldCheck, U
 import { StudentProfile } from "../types";
 import { formatMeetingId, meetingRequest, postMeeting, type MeetingSnapshot, type MeetingStatus } from "../lib/meetingApi";
 import LiveMeeting from "./LiveMeeting";
+import CameraObserver from "./CameraObserver";
 
 interface MeetingLobbyProps {
   studentProfile: StudentProfile;
@@ -112,6 +113,7 @@ export default function MeetingLobby({ studentProfile, onNavigate }: MeetingLobb
         </form>
       </section>
       <aside className="space-y-5">
+        <CameraObserver compact title="Camera & framing check" subtitle="Test face, eyes, and cheekbone tracking before your discussion" />
         <section className="rounded-2xl border border-slate-200 bg-slate-900 p-6 text-white"><div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-white/10"><Users size={22} /></div><h2 className="text-xl font-semibold">A room for better conversations</h2><div className="mt-5 space-y-4 text-sm text-slate-300">{["Share an invitation with your group.", "Check your microphone and camera controls.", "Discuss the topic and build on each other’s ideas.", "Review feedback with actual transcript evidence."].map((item) => <p key={item} className="flex items-start gap-3"><Check size={17} className="mt-0.5 shrink-0 text-blue-300" />{item}</p>)}</div></section>
         <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="flex items-center gap-2 text-base font-semibold"><Clock3 size={18} /> Your discussions</h2>{loading ? <p className="mt-5 text-sm text-slate-500">Loading your history…</p> : recent.length === 0 ? <p className="mt-5 text-sm leading-6 text-slate-500">You haven’t joined a discussion yet. Start a room or use an invitation from your host.</p> : <div className="mt-4 space-y-2">{recent.map((item) => <button key={item.room.code} disabled={busy} onClick={() => void resume(item)} className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 text-left hover:border-blue-300 hover:bg-blue-50/50"><div className="min-w-0"><p className="truncate text-sm font-medium">{item.room.title}</p><p className="mt-1 font-mono text-xs text-slate-500">{formatMeetingId(item.room.code)}</p><p className="mt-1 text-xs text-slate-500">{item.room.status === "OPEN" ? item.me.status === "WAITING" ? "Waiting for admission" : "Discussion open" : "View retained report"}</p></div><Video size={18} className="shrink-0 text-slate-500" /></button>)}</div>}</section>
       </aside>

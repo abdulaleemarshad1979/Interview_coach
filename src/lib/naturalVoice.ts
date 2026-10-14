@@ -48,7 +48,7 @@ export type VoiceAudioPlayer = (
 ) => Promise<void>;
 
 const OPTION_KEY = "interview_voice_options_v1";
-const DEFAULT_OPTIONS: VoiceOptions = { voice: "hannah", rate: 1, provider: "groq", allowBrowserFallback: false };
+const DEFAULT_OPTIONS: VoiceOptions = { voice: "hannah", rate: 1, provider: "groq", allowBrowserFallback: true };
 let memoryOptions = { ...DEFAULT_OPTIONS };
 
 function normalizeOptions(value: Partial<VoiceOptions>, previous = DEFAULT_OPTIONS): VoiceOptions {
@@ -370,8 +370,8 @@ export function getVoicePlaybackState(): VoicePlaybackState { return voiceEngine
 export function subscribeVoicePlaybackState(listener: (state: VoicePlaybackState) => void): () => void { return voiceEngine.subscribe(listener); }
 export async function stopNaturalSpeech(): Promise<void> { voiceEngine.stop(); }
 /** A new question interrupts preceding speech; use enqueueNaturalAI to append deliberate announcements. */
-export function speakNaturalAI(text: string, onStart?: () => void, onEnd?: () => void): Promise<VoicePlaybackResult> {
-  return voiceEngine.speak(text, getVoiceOptions(), onStart, onEnd);
+export function speakNaturalAI(text: string, onStart?: () => void, onEnd?: () => void, options = getVoiceOptions()): Promise<VoicePlaybackResult> {
+  return voiceEngine.speak(text, options, onStart, onEnd);
 }
 export function enqueueNaturalAI(text: string, onStart?: () => void, onEnd?: () => void): Promise<VoicePlaybackResult> {
   return voiceEngine.enqueue(text, getVoiceOptions(), onStart, onEnd);
