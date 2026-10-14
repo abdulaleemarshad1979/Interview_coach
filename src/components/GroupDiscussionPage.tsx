@@ -1351,7 +1351,7 @@ export default function GroupDiscussionPage({ studentProfile, onNavigate }: Grou
         <div className="flex items-center space-x-3">
           <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm flex items-center justify-center">
             <img
-              src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg"
+              src="/branding/site-logo.svg"
               alt="Aditya University"
               className="h-10 object-contain"
             />

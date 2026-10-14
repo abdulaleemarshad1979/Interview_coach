@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { GraduationCap, LogOut, Code, User, Settings, Award } from "lucide-react";
 import { StudentProfile, FacultyProfile, AdminProfile } from "../types";
 
@@ -9,6 +9,13 @@ interface NavbarProps {
   currentView: string;
   onNavigate: (view: string) => void;
   onLogout: () => void;
+}
+
+function StudentAvatar({ src }: { src?: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return src && !failed ? <img src={src} alt="" onError={() => setFailed(true)} className="w-5 h-5 rounded-full object-cover border border-white/10" />
+    : <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-white/5"><User className="w-2.5 h-2.5 text-brand-primary" /></div>;
 }
 
 export default function Navbar({ studentProfile, facultyProfile, adminProfile, currentView, onNavigate, onLogout }: NavbarProps) {
@@ -23,13 +30,13 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
         >
           <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-100 shadow-xs">
             <img 
-              src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg" 
+              src="/branding/site-logo.svg"
               alt="Aditya University Logo" 
               className="h-9 w-24 sm:w-auto max-w-full object-contain"
             />
             <div className="hidden sm:block h-6 w-[1.5px] bg-slate-200" />
             <img 
-              src="https://www.adityauniversity.in/public/frontend/assets/images/naac-logo.svg" 
+              src="/branding/naac-logo.svg"
               alt="NAAC Logo" 
               className="hidden sm:block h-8 object-contain"
             />
@@ -159,17 +166,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
                   }`}
                   title="View & Sync College Profile"
                 >
-                  {studentProfile.profileImage ? (
-                    <img 
-                      src={studentProfile.profileImage} 
-                      alt="avatar" 
-                      className="w-5 h-5 rounded-full object-cover border border-white/10"
-                    />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-white/5 group-hover:border-brand-primary/20">
-                      <User className="w-2.5 h-2.5 text-brand-primary" />
-                    </div>
-                  )}
+                  <StudentAvatar src={studentProfile.profileImage} />
                   <span className="hidden sm:block font-mono text-[11px] max-w-24 truncate group-hover:text-white transition-colors">
                     {studentProfile.name ? studentProfile.name.split(" ")[0] : studentProfile.studentId}
                   </span>

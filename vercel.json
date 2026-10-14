@@ -27,6 +27,10 @@
       "dest": "/vision/$1"
     },
     {
+      "src": "/branding/(.*)",
+      "dest": "/branding/$1"
+    },
+    {
       "src": "/(.*)",
       "dest": "/index.html"
     }
