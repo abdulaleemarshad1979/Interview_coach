@@ -330,7 +330,7 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
     return result.choices[0]?.message?.content || "";
   } else {
     const groq = getGroqClient();
-    const defaultModel = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+    const defaultModel = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
     let model = defaultModel;
     if (options.purpose === "chat") {
       model = process.env.GROQ_MODEL_CHAT || defaultModel;
