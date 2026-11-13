@@ -14,6 +14,7 @@ import { createCampusRouter, profileReadFilter, mayReadProfile } from "./backend
 import { pageParameters } from "./backend/campusValidation";
 import { createApiLimiter, restrictOrigins } from "./backend/security";
 import { normalizeGitHubUsername, matchClaimsToGitHub } from "./backend/github";
+import { groqModelChain, withModelFallback } from "./backend/ai/provider";
 import { verifyCollegePortal, validatePortalLogin, PortalError, portalUrl } from "./backend/collegePortal";
 import { createPasswordHash, verifyPassword, PASSWORD_SCHEME, validateCredentials, configuredRoles, effectiveRoles, sanitizeMetadata, profileIdForUser, canAccessProfile, sanitizeProfile } from "./backend/authSafety";
 
@@ -354,7 +355,7 @@ async function getLLMCompletion(options: CompletionOptions): Promise<string> {
       params.temperature = options.temperature;
     }
 
-    const chatCompletion = await groq.chat.completions.create(params);
+    const chatCompletion = await withModelFallback(groqModelChain(model), (m) => groq.chat.completions.create({ ...params, model: m }));
     return chatCompletion.choices[0]?.message?.content || "";
   }
 }

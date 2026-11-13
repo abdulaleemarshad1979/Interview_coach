@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { createAIProvider } from '../backend/ai/provider.ts';
+import { createAIProvider, groqModelChain, withModelFallback } from '../backend/ai/provider.ts';
 import { safeError } from '../backend/errors.ts';
 
 async function withEnvironment(values: Record<string, string | undefined>, run: () => Promise<void>) {
@@ -66,4 +66,19 @@ test('upstream error bodies and internal secrets are never exposed in service er
 test('audio validation rejects unsupported uploads before contacting a recognizer', async () => {
   await assert.rejects(createAIProvider().transcribe({ audio: Buffer.alloc(1024), mimeType: 'text/html' }), (error: any) => error.code === 'INVALID_AUDIO');
   await assert.rejects(createAIProvider().transcribe({ audio: Buffer.alloc(10), mimeType: 'audio/webm' }), (error: any) => error.code === 'INVALID_AUDIO');
+});
+
+test('Groq model chain falls back on rate limits and retired models, never on bad requests or after streaming', async () => {
+  assert.deepEqual(groqModelChain('a', 'b, a ,c,'), ['a', 'b', 'c']);
+  assert.deepEqual(groqModelChain('a', ''), ['a']);
+  const fail = (status: number) => Object.assign(new Error('upstream'), { status });
+  const tried: string[] = [];
+  const quiet = console.warn; console.warn = () => {};
+  try {
+    assert.equal(await withModelFallback(['a', 'b', 'c'], async (m) => { tried.push(m); if (m !== 'c') throw fail(m === 'a' ? 429 : 404); return m; }), 'c');
+    assert.deepEqual(tried, ['a', 'b', 'c']);
+    await assert.rejects(withModelFallback(['a', 'b'], async () => { throw fail(400); }), { status: 400 });
+    await assert.rejects(withModelFallback(['a', 'b'], async () => { throw fail(429); }, () => false), { status: 429 });
+    await assert.rejects(withModelFallback(['a', 'b'], async () => { throw fail(503); }), { status: 503 });
+  } finally { console.warn = quiet; }
 });
