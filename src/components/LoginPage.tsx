@@ -12,6 +12,8 @@ interface LoginPageProps {
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [rollNo, setRollNo] = useState("");
+  const [staff, setStaff] = useState(false);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState("");
   const [classSection, setClassSection] = useState("");
   const [portal, setPortal] = useState<CollegePortal>("acet");
@@ -27,6 +29,15 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (staff) {
+      setLoading(true); setError(null);
+      try {
+        const result = await supabase.auth.signInWithStaff({ email, password });
+        if (result.error) setError(result.error.message);
+        else { setPassword(''); onLoginSuccess(result.data.user.id, result.data.user.email); }
+      } finally { setLoading(false); }
+      return;
+    }
     const normalizedRollNo = rollNo.trim().toUpperCase();
     if (!/^[A-Z0-9]{4,24}$/.test(normalizedRollNo)) {
       setError("Enter a valid college roll number (4–24 letters or numbers).");
@@ -83,12 +94,16 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         <div className="w-full max-w-[420px] rounded-[20px] border border-slate-200 bg-slate-50 p-8 lg:border-0 lg:bg-white lg:p-0">
           <div className="mb-8">
             <p className="text-xs font-semibold uppercase tracking-wider text-brand-primary">College portal</p>
-            <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Student sign in</h2>
-            <p className="mt-2 text-sm text-slate-600">Use your official AUS or ACET ECAP credentials.</p>
+            <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{staff ? 'Faculty & super admin' : 'Student sign in'}</h2>
+            <p className="mt-2 text-sm text-slate-600">{staff ? 'Use the staff account provisioned for Interview Coach.' : 'Use your official AUS or ACET ECAP credentials.'}</p>
+            <div className="mt-5 flex gap-3" aria-label="Account type">
+              <button type="button" disabled={loading} aria-pressed={!staff} className="text-sm font-semibold underline" onClick={() => { setStaff(false); setError(null); setPassword(''); }}>Student</button>
+              <button type="button" disabled={loading} aria-pressed={staff} className="text-sm font-semibold underline" onClick={() => { setStaff(true); setError(null); setVerificationRequired(false); setPassword(''); }}>Faculty / Super admin</button>
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-5" aria-busy={loading}>
-            <fieldset disabled={loading}>
+            {!staff && <fieldset disabled={loading}>
               <legend className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600">Select college portal</legend>
               <div className="flex rounded-[10px] border border-slate-200 bg-white p-1">
                 {(["aus", "acet"] as const).map((option) => (
@@ -103,14 +118,14 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   </button>
                 ))}
               </div>
-            </fieldset>
+            </fieldset>}
 
-            <InputField label="Student roll number" type="text" placeholder="e.g. 24P31A1234" value={rollNo}
-              onChange={updateRollNo} disabled={loading} autoComplete="username" maxLength={24} icon={User} required />
-            <InputField label="ECAP password" type="password" placeholder="Your portal password" value={password}
+            {staff ? <InputField label="Staff email" type="email" placeholder="Your staff account email" value={email} onChange={setEmail} disabled={loading} autoComplete="username" icon={User} required /> : <InputField label="Student roll number" type="text" placeholder="e.g. 24P31A1234" value={rollNo}
+              onChange={updateRollNo} disabled={loading} autoComplete="username" maxLength={24} icon={User} required />}
+            <InputField label={staff ? 'Staff password' : 'ECAP password'} type="password" placeholder="Your password" value={password}
               onChange={(value) => { setPassword(value); setError(null); }} disabled={loading} autoComplete="current-password" icon={Lock} required />
-            <InputField label="Class section (optional)" type="text" placeholder="e.g. Section A" value={classSection}
-              onChange={setClassSection} disabled={loading} maxLength={100} icon={GraduationCap} />
+            {!staff && <InputField label="Class section (optional)" type="text" placeholder="e.g. Section A" value={classSection}
+              onChange={setClassSection} disabled={loading} maxLength={100} icon={GraduationCap} />}
 
             {error && (
               <div role="alert" className="flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -118,16 +133,17 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 <div>
                   <p>{error}</p>
                   {verificationRequired && (
+                    <><p className="mt-2">Opening the college portal does not sign you into Interview Coach. AUS integration requires university-supported verification.</p>
                     <a href={`https://info.aec.edu.in/${portal}/default.aspx`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block font-semibold underline">
                       Open the official {portal.toUpperCase()} portal
-                    </a>
+                    </a></>
                   )}
                 </div>
               </div>
             )}
 
             <Button type="submit" loading={loading} disabled={loading} className="h-12 w-full rounded-[10px] bg-brand-primary text-sm font-bold text-white">
-              {loading ? "Verifying with college portal…" : "Sign in with college portal"}
+              {loading ? (staff ? 'Signing in…' : "Verifying with college portal…") : (staff ? 'Sign in to staff portal' : "Sign in with college portal")}
             </Button>
           </form>
         </div>

@@ -28,24 +28,11 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
           className="flex items-center gap-2 min-w-0 cursor-pointer group"
           id="nav-logo"
         >
-          <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-100 shadow-xs">
-            <img 
-              src="/branding/site-logo.svg"
-              alt="Aditya University Logo" 
-              className="h-9 w-24 sm:w-auto max-w-full object-contain"
-            />
-            <div className="hidden sm:block h-6 w-[1.5px] bg-slate-200" />
-            <img 
-              src="/branding/naac-logo.svg"
-              alt="NAAC Logo" 
-              className="hidden sm:block h-8 object-contain"
-            />
-          </div>
-          <div className="hidden md:block">
+          <div className="block">
             <span className="font-display font-bold text-sm tracking-tight text-slate-800 group-hover:text-brand-primary transition-colors block leading-none">
               INTERVIEW<span className="text-brand-primary font-medium">COACH</span>
             </span>
-            <span className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block mt-1">Aditya University Portal</span>
+            <span className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block mt-1">Practice. Reflect. Improve.</span>
           </div>
         </button>
 

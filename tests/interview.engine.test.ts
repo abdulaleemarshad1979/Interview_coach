@@ -126,3 +126,18 @@ test('multi-turn follow-ups retain earlier claims, cap depth, and transition nat
   assert.ok(session.memory.coveredTopics.includes('Authentication'));
   assert.ok(session.memory.candidateClaims.some(claim => claim.turnId === 'a1'));
 });
+
+test('company practice keeps server question selection and GitHub context bounded', () => {
+  const validated = validateConfig({ ...config, questionBankId: 'a'.repeat(24), companyQuestions: ['Injected client question'], githubContext: 'Project: network dashboard' });
+  assert.equal(validated.questionBankId, 'a'.repeat(24));
+  assert.equal(validated.companyQuestions, undefined);
+  assert.equal(validated.githubContext, 'Project: network dashboard');
+  assert.throws(() => validateConfig({ ...config, questionBankId: { $ne: null } }));
+  assert.throws(() => validateConfig({ ...config, githubContext: 'x'.repeat(8001) }));
+  const session = fixture();
+  session.config.companyQuestions = Array.from({ length: 50 }, (_, i) => `Company question ${i}?`);
+  session.turns.push({ id: 'bank-question', role: 'interviewer', text: 'Company question 0?', createdAt: new Date().toISOString() });
+  const context = JSON.parse(buildInterviewContext(session));
+  assert.equal(context.config.companyQuestions.length, 12);
+  assert.ok(!context.config.companyQuestions.includes('Company question 0?'));
+});

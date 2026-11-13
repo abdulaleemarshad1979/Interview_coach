@@ -5,6 +5,7 @@ import { createAIProvider, type AIProvider } from '../ai/provider';
 import { ServiceError, safeError } from '../errors';
 import { assertTransition, generateInterviewTurn, generateReport, newSession, validateConfig } from './engine';
 import { MongoInterviewStore, type InterviewOperation, type InterviewRequestRecord, type InterviewStore } from './store';
+import { CompanyQuestionBank } from '../campus';
 
 export interface InterviewRouterOptions {
   requireAuth: RequestHandler;
@@ -52,6 +53,13 @@ export function createInterviewRouter(options: InterviewRouterOptions) {
   router.post('/', async (req: AuthRequest, res) => {
     try {
       const config = validateConfig(req.body?.config);
+      if (config.questionBankId) {
+        const bank: any = await CompanyQuestionBank.findById(config.questionBankId).lean();
+        if (!bank) throw new ServiceError(404, 'QUESTION_BANK_NOT_FOUND', 'This company question bank is unavailable. Choose another.');
+        config.companyQuestions = bank.questions;
+        config.companyName = bank.company;
+        config.targetRole = bank.role;
+      }
       const session = newSession(config);
       await store.create(identity(req), session);
       res.status(201).json({ session });

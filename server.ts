@@ -10,6 +10,8 @@ import mongoose from "mongoose";
 import helmet from "helmet";
 import { createInterviewRouter } from "./backend/interview/router";
 import { createMeetingRouter } from "./backend/meetings";
+import { createCampusRouter, profileReadFilter, mayReadProfile } from "./backend/campus";
+import { pageParameters } from "./backend/campusValidation";
 import { createApiLimiter, restrictOrigins } from "./backend/security";
 import { verifyCollegePortal, validatePortalLogin, PortalError, portalUrl } from "./backend/collegePortal";
 import { createPasswordHash, verifyPassword, PASSWORD_SCHEME, validateCredentials, configuredRoles, effectiveRoles, sanitizeMetadata, profileIdForUser, canAccessProfile, sanitizeProfile } from "./backend/authSafety";
@@ -45,6 +47,7 @@ async function connectDB() {
 const ProfileSchema = new mongoose.Schema({
   id: { type: String, required: true, unique: true },
   ownerId: { type: String },
+  class_id: { type: String, default: null, index: true },
   roll_number: { type: String, default: "" },
   name: { type: String, default: "" },
   student_name: { type: String, default: "" },
@@ -102,6 +105,8 @@ const UserSchema = new mongoose.Schema({
   passwordHash: { type: String, required: true },
   passwordScheme: { type: String },
   staffProvisioned: { type: Boolean, default: false },
+  staffRole: { type: String, enum: ['faculty'] },
+  lastLoginAt: { type: Date },
   salt: { type: String, required: true },
   user_metadata: { type: Object, default: {} },
   created_at: { type: Date, default: Date.now }
@@ -384,6 +389,7 @@ app.use("/api/local-tts", requireAuth);
 
 app.use("/api/interview/sessions", createInterviewRouter({ requireAuth, connectDB }));
 app.use("/api/meetings", createMeetingRouter({ requireAuth, connectDB }));
+app.use("/api/campus", createCampusRouter({ requireAuth }));
 
 // Groq speech APIs use server-owned credentials and existing MongoDB session auth.
 app.get("/api/voice/status", requireAuth, async (_req, res) => {
@@ -581,7 +587,7 @@ app.post("/api/auth/signup", async (req, res) => {
   }
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.post(["/api/auth/login", "/api/auth/staff/login"], async (req, res) => {
   let credentials;
   try { credentials = validateCredentials(req.body?.email, req.body?.password); }
   catch (error: any) { return res.status(400).json({ error: error.message }); }
@@ -590,6 +596,10 @@ app.post("/api/auth/login", async (req, res) => {
     const { email: normalizedEmail, password } = credentials;
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
+      return res.status(400).json({ error: "Invalid login credentials" });
+    }
+
+    if (req.path === "/api/auth/staff/login" && !effectiveRoles(user).is_faculty) {
       return res.status(400).json({ error: "Invalid login credentials" });
     }
 
@@ -613,6 +623,8 @@ app.post("/api/auth/login", async (req, res) => {
       userId: user._id
     });
     await session.save();
+
+    await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
 
     res.json({
       session: { access_token: token, user: { id: user._id.toString(), email: user.email, user_metadata: { ...user.user_metadata, ...effectiveRoles(user) } } },
@@ -732,7 +744,8 @@ app.get("/api/health", (req, res) => {
 // API Endpoint: Get all profiles
 app.get("/api/profiles", requireAuth, async (req: any, res) => {
   try {
-    const profiles = await Profile.find(req.user.user_metadata?.is_faculty || req.user.user_metadata?.is_admin ? {} : { id: profileIdForUser(req.user) });
+    const { limit, offset } = pageParameters(req.query);
+    const profiles = await Profile.find(await profileReadFilter(req.user)).sort({ id: 1 }).skip(offset).limit(limit);
     res.json(profiles);
   } catch (err: any) {
     console.error("Error fetching profiles:", err);
@@ -767,7 +780,7 @@ app.post("/api/profiles/upsert", requireAuth, async (req: any, res) => {
 app.patch("/api/profiles/:id", requireAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
-    const isStaff = req.user.user_metadata?.is_faculty || req.user.user_metadata?.is_admin;
+    const isStaff = req.user.user_metadata?.is_admin;
     const existingProfile = await Profile.findOne({ id });
     if (existingProfile?.ownerId && existingProfile.ownerId !== req.user.id && !isStaff) return res.status(403).json({ error: "You cannot modify this profile." });
     if (!canAccessProfile(req.user, id, true) && !isStaff) return res.status(403).json({ error: "You cannot modify this profile." });
@@ -793,7 +806,7 @@ app.get("/api/college/student/:rollNo", requireAuth, async (req: any, res) => {
   try {
     const { rollNo } = req.params;
     const cleanRollNo = String(rollNo || "").trim().toUpperCase();
-    if (!canAccessProfile(req.user, cleanRollNo)) return res.status(403).json({ error: "This student profile is private." });
+    if (!await mayReadProfile(req.user, cleanRollNo)) return res.status(403).json({ error: "This student profile is private." });
 
     if (!cleanRollNo) {
       res.status(400).json({ error: "Roll number is required." });
@@ -829,6 +842,7 @@ app.get("/api/college/student/:rollNo", requireAuth, async (req: any, res) => {
     if (!stored || !stored.is_synced) return res.status(404).json({ error: "No verified college profile is available. Sync your profile through the college portal." });
     if (stored.ownerId && stored.ownerId !== req.user.id && !req.user.user_metadata?.is_faculty && !req.user.user_metadata?.is_admin) return res.status(403).json({ error: "This student profile is private." });
     res.json({ studentId: cleanRollNo, name: stored.name, department: stored.department, classSection: stored.class_section,
+      profileImage: stored.profile_image || stored.avatar_url || '',
       attendance: stored.attendance, collegeAssessments: stored.college_assessments || [], isSynced: true, source: "cached" });
   } catch (err: any) {
     res.status(500).json({ error: "Service unavailable. Please retry." });

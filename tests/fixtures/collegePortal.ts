@@ -24,6 +24,7 @@ export function officialPortalFixture(password: string, options: { unavailable?:
     const url = String(input); calls.push({ url, init });
     if (options.unavailable) return new Response('Runtime Error', { status: 500 });
     const path = new URL(url).pathname;
+    if (path.endsWith('/StudentPhotos/example.jpg')) return new Response(new Uint8Array([255, 216, 255, 224, 1, 2, 3]), { headers: { 'Content-Type': 'image/jpeg' } });
     if (path.endsWith('/default.aspx') && init.method !== 'POST') return new Response(loginHtml, { headers: { 'Set-Cookie': 'ASP.NET_SessionId=fixture-session; Path=/; HttpOnly' } });
     if (path.endsWith('/default.aspx')) {
       const fields = new URLSearchParams(String(init.body));

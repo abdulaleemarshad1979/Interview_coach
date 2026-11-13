@@ -33,8 +33,10 @@ export function configuredRoles(email: string) {
   return { is_admin, is_faculty: is_admin || matches('FACULTY_EMAILS') };
 }
 
-export function effectiveRoles(user: { email: string; staffProvisioned?: boolean }) {
-  return user.staffProvisioned === true ? configuredRoles(user.email) : { is_admin: false, is_faculty: false };
+export function effectiveRoles(user: { email: string; staffProvisioned?: boolean; staffRole?: string }) {
+  if (user.staffProvisioned !== true) return { is_admin: false, is_faculty: false };
+  const roles = configuredRoles(user.email);
+  return { ...roles, is_faculty: roles.is_faculty || user.staffRole === 'faculty' };
 }
 
 const mutableMetadata = new Set([
@@ -56,7 +58,7 @@ export function profileIdForUser(user: { id: string; email: string; user_metadat
 
 export function canAccessProfile(user: { id: string; email: string; user_metadata?: any }, profileId: unknown, write = false): boolean {
   if (typeof profileId !== 'string' || profileId.length > 128) return false;
-  return user.user_metadata?.is_admin === true || (!write && user.user_metadata?.is_faculty === true) ||
+  return user.user_metadata?.is_admin === true ||
     profileId === user.id || profileId.toUpperCase() === profileIdForUser(user);
 }
 

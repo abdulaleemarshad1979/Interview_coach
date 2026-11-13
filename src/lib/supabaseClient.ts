@@ -115,6 +115,21 @@ class LocalAuthClient {
     }
   }
 
+  async signInWithStaff({ email, password }: { email: string; password: string }) {
+    try {
+      const response = await fetch(getApiUrl('/api/auth/staff/login'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }), signal: AbortSignal.timeout(20000),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.session?.access_token || !data.user) return { data: null, error: { message: data.error || 'Staff sign-in failed.' } };
+      localStorage.setItem('auth_token', data.session.access_token);
+      localStorage.setItem('auth_user', JSON.stringify(data.user));
+      this.notify('SIGNED_IN', data.session);
+      return { data, error: null };
+    } catch { return { data: null, error: { message: 'Staff sign-in is unavailable. Please retry.' } }; }
+  }
+
   async signOut() {
     const token = localStorage.getItem("auth_token");
     if (token) {

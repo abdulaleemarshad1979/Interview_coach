@@ -19,6 +19,7 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
     experienceLevel: 'student', technicalDomain: studentProfile.assignedInterviewTopic || studentProfile.department || 'Software engineering',
     difficulty: 'intermediate', durationMinutes: 15,
     resumeText: analysisResult ? JSON.stringify(analysisResult.parsedResume, null, 2).slice(0, 12000) : '',
+    githubContext: analysisResult?.githubAnalysis ? JSON.stringify(analysisResult.githubAnalysis, null, 2).slice(0, 8000) : '',
     companyName: studentProfile.assignedCompanyDrive?.companyName || '',
   });
   const [session, setSession] = useState<InterviewSession | null>(null);

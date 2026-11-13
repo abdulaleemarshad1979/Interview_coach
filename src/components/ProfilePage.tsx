@@ -174,7 +174,7 @@ export default function ProfilePage({
           <form onSubmit={handleSubmit} className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-6">
             <h3 className="text-lg font-display font-semibold text-white flex items-center border-b border-white/5 pb-3">
               <GraduationCap className="w-5 h-5 text-brand-primary mr-2" />
-              University Profile Information
+              College Profile Information
             </h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -254,7 +254,7 @@ export default function ProfilePage({
             {/* Save Buttons & Alerts */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-white/5">
               <p className="text-[11px] text-gray-500 leading-relaxed text-left sm:max-w-xs">
-                Saving updates will synchronize details with both the browser cache and the Aditya Supabase cluster.
+                Save your profile and GitHub details to Interview Coach.
               </p>
               
               <div className="flex items-center space-x-3 w-full sm:w-auto">
@@ -296,7 +296,7 @@ export default function ProfilePage({
                 className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-xl flex items-center space-x-2"
               >
                 <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Success! Profile updated and synchronized with Supabase portal variables.</span>
+                <span>Profile saved successfully.</span>
               </motion.div>
             )}
 
@@ -307,7 +307,7 @@ export default function ProfilePage({
                 className="p-3 bg-blue-50 border border-blue-200 text-brand-primary text-xs rounded-xl flex items-center space-x-2"
               >
                 <Check className="w-4 h-4 text-brand-primary shrink-0" />
-                <span>Successfully synced student details with Campus Connect University Database!</span>
+                <span>College profile synchronized successfully.</span>
               </motion.div>
             )}
           </form>
@@ -387,7 +387,9 @@ export default function ProfilePage({
               <div className="relative w-24 h-24 rounded-full border-2 border-brand-primary overflow-hidden bg-slate-800 flex items-center justify-center shadow-lg">
                 {resolvedProfileImg ? (
                   <img 
-                    src={resolvedProfileImg} 
+                    src={resolvedProfileImg}
+                    referrerPolicy="no-referrer"
+                    onError={() => setProfileImage('')}
                     alt={name} 
                     className="w-full h-full object-cover"
                   />
@@ -544,9 +546,9 @@ export default function ProfilePage({
       {isSyncModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div className="bg-brand-card/95 border border-white/10 rounded-2xl p-6 w-full max-w-sm relative text-left shadow-2xl">
-            <h3 className="text-lg font-display font-semibold text-white mb-2">Sync with Aditya Student Portal</h3>
+            <h3 className="text-lg font-display font-semibold text-white mb-2">Sync with your college portal</h3>
             <p className="text-xs text-gray-400 mb-4">
-              Enter your password for the Aditya automation portal (<span className="text-brand-primary font-mono text-[10px]">info.aec.edu.in</span>) to synchronize your name, photo, attendance, and branch.
+              Enter your password for your official college portal (<span className="text-brand-primary font-mono text-[10px]">info.aec.edu.in</span>) to synchronize your name, photo, attendance, and branch.
             </p>
             
             <form onSubmit={handleManualSync} className="space-y-4">
