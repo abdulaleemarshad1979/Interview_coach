@@ -11,11 +11,13 @@ interface NavbarProps {
   onLogout: () => void;
 }
 
-function StudentAvatar({ src }: { src?: string }) {
+function StudentAvatar({ src, name }: { src?: string; name?: string }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
-  return src && !failed ? <img src={src} alt="" onError={() => setFailed(true)} className="w-5 h-5 rounded-full object-cover border border-white/10" />
-    : <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-white/5"><User className="w-2.5 h-2.5 text-brand-primary" /></div>;
+  if (src && !failed) return <img src={src} alt="" onError={() => setFailed(true)} className="w-5 h-5 rounded-full object-cover border border-white/10" />;
+  const initials = (name || '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+  const bg = initials ? `hsl(${[...( name || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % 360}, 60%, 45%)` : '#1e293b';
+  return <div className="w-5 h-5 rounded-full flex items-center justify-center border border-white/10 text-[8px] font-bold text-white" style={{ background: bg }}>{initials || <User className="w-2.5 h-2.5 text-brand-primary" />}</div>;
 }
 
 export default function Navbar({ studentProfile, facultyProfile, adminProfile, currentView, onNavigate, onLogout }: NavbarProps) {
@@ -153,7 +155,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
                   }`}
                   title="View & Sync College Profile"
                 >
-                  <StudentAvatar src={studentProfile.profileImage} />
+                  <StudentAvatar src={studentProfile.profileImage} name={studentProfile.name} />
                   <span className="hidden sm:block font-mono text-[11px] max-w-24 truncate group-hover:text-white transition-colors">
                     {studentProfile.name ? studentProfile.name.split(" ")[0] : studentProfile.studentId}
                   </span>

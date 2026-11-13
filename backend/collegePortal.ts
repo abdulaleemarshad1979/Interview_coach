@@ -1,6 +1,39 @@
 import crypto from 'node:crypto';
 import { load } from 'cheerio';
 
+// ---------------------------------------------------------------------------
+// Cloudflare Turnstile solver via 2captcha (opt-in).
+// Set TWOCAPTCHA_API_KEY in your environment to enable automated AUS login.
+// Sign up at https://2captcha.com — $3 credit handles thousands of solves.
+// ---------------------------------------------------------------------------
+async function solveTurnstile(sitekey: string, pageUrl: string): Promise<string | null> {
+  const apiKey = process.env.TWOCAPTCHA_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const createRes = await fetch('https://api.2captcha.com/createTask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientKey: apiKey, task: { type: 'TurnstileTaskProxyless', websiteURL: pageUrl, websiteKey: sitekey } }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const { taskId, status: createStatus } = await createRes.json() as any;
+    if (createStatus !== 'ready' && !taskId) return null;
+    // Poll up to 60 s (Turnstile typically solves in 5–15 s)
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 3000));
+      const pollRes = await fetch('https://api.2captcha.com/getTaskResult', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientKey: apiKey, taskId }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const { status, solution } = await pollRes.json() as any;
+      if (status === 'ready') return solution?.token ?? null;
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
 export type CollegePortal = 'acet' | 'aus';
 export class PortalError extends Error {
   constructor(public code: string, message: string, public status = 502) { super(message); }
@@ -24,7 +57,7 @@ export function encryptPortalPassword(password: string) {
 
 export function portalUrl(portal: CollegePortal) { return `https://info.aec.edu.in/${portal}/default.aspx`; }
 
-export function buildPortalLoginForm(html: string, rollNo: string, password: string, portal: CollegePortal) {
+export async function buildPortalLoginForm(html: string, rollNo: string, password: string, portal: CollegePortal, pageUrl = '') {
   const $ = load(html);
   const form = $('form').filter((_, el) => $(el).find(portal === 'acet' ? '[name="txtId2"]' : '[name="txtUserId"]').length > 0).first();
   if (!form.length) throw new PortalError('PORTAL_FORM_CHANGED', 'The college login page is unavailable or has changed. Please try again later.');
@@ -40,9 +73,18 @@ export function buildPortalLoginForm(html: string, rollNo: string, password: str
   if (!form.find(`[name="${passwordField}"]`).length || !fields.has(hiddenPassword) || !fields.has('__VIEWSTATE')) {
     throw new PortalError('PORTAL_FORM_CHANGED', 'The college login form has changed. Please try again later.');
   }
-  // Turnstile is scoped to the official portal. A widget on our hostname cannot replace it.
+  // Turnstile is scoped to the official portal; solve it via 2captcha when configured.
   if (form.find('[name="cf-turnstile-response"], .cf-turnstile').length && !fields.get('cf-turnstile-response')) {
-    throw new PortalError('PORTAL_VERIFICATION_REQUIRED', `${portal.toUpperCase()} requires browser verification on the official college portal. Automated sign-in is currently unavailable.`, 503);
+    const sitekey = form.find('.cf-turnstile').attr('data-sitekey') || '';
+    const token = sitekey && pageUrl ? await solveTurnstile(sitekey, pageUrl) : null;
+    if (!token) {
+      throw new PortalError(
+        'PORTAL_VERIFICATION_REQUIRED',
+        `${portal.toUpperCase()} requires CAPTCHA verification. Add a TWOCAPTCHA_API_KEY environment variable to enable automated login (sign up free at 2captcha.com).`,
+        503,
+      );
+    }
+    fields.set('cf-turnstile-response', token);
   }
   const encrypted = encryptPortalPassword(password);
   fields.set(portal === 'acet' ? 'txtId2' : 'txtUserId', rollNo);
@@ -139,8 +181,12 @@ export function parsePortalProfileHtml(rawHtml: string, rollNo: string, portal: 
   const name = values.name || values['student name'];
   const returnedRoll = values['roll no'] || values['roll number'] || values['rollno'];
   if (!name || (returnedRoll && returnedRoll.toUpperCase() !== rollNo)) throw new PortalError('PORTAL_PROFILE_INVALID', 'The college portal did not return the requested student profile.');
-  const image = $('img[src]').toArray().map(el => $(el).attr('src')!).find(src => /StudentPhotos\//i.test(src));
-  const imageUrl = image ? new URL(image, `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx`).href : '';
+  // Broaden photo detection: match StudentPhotos/, student_photo, profile_pic, /Photo/ patterns.
+  const imgSrcs = $('img[src]').toArray().map(el => $(el).attr('src')!).filter(Boolean);
+  const image = imgSrcs.find(src => /StudentPhotos\/|student.?photo|profile.?pic|\/Photo\//i.test(src))
+    ?? imgSrcs.find(src => new RegExp(rollNo, 'i').test(src));  // fallback: image URL contains the roll number
+  const profilePageBase = `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx`;
+  const imageUrl = image ? (() => { try { return new URL(image, profilePageBase).href; } catch { return ''; } })() : '';
   const totalCells = $('tr').filter((_, el) => $(el).children('td').first().text().trim().toUpperCase() === 'TOTAL').first().children('td');
   const attendanceValue = totalCells.length >= 4 ? parseFloat(totalCells.last().text()) : NaN;
   return { studentId: rollNo, portal, name, department: values.branch || values.department || '',
@@ -168,7 +214,7 @@ export async function verifyCollegePortal(rollNo: string, password: string, port
   const loginUrl = portalUrl(portal);
   const initial = await request(loginUrl);
   checkPortalResponse(initial, portal);
-  const form = buildPortalLoginForm(initial.body, rollNo, password, portal);
+  const form = await buildPortalLoginForm(initial.body, rollNo, password, portal, loginUrl);
   const dashboard = await request(form.action, { method: 'POST', body: form.body, headers: { 'Content-Type': 'application/x-www-form-urlencoded', Referer: loginUrl, Origin: 'https://info.aec.edu.in' } });
   checkPortalResponse(dashboard, portal);
   const $ = load(dashboard.body);
