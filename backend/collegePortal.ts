@@ -185,14 +185,15 @@ export function parsePortalProfileHtml(rawHtml: string, rollNo: string, portal: 
   const returnedRoll = values['roll no'] || values['roll number'] || values['rollno'];
   if (!name || (returnedRoll && returnedRoll.toUpperCase() !== rollNo)) throw new PortalError('PORTAL_PROFILE_INVALID', 'The college portal did not return the requested student profile.');
   // Broaden photo detection: match StudentPhotos/, student_photo, profile_pic, /Photo/ patterns.
-  const imgSrcs = $('img[src]').toArray().map(el => $(el).attr('src')!).filter(Boolean);
+  // AjaxPro returns JS-escaped markup, so src can arrive as \'http://…/x.jpg\' with literal quotes and backslashes.
+  const imgSrcs = $('img[src]').toArray().map(el => $(el).attr('src')!.trim().replace(/^[\\'"]+|[\\'"]+$/g, '')).filter(Boolean);
   const image = imgSrcs.find(src => /StudentPhotos\/|student.?photo|profile.?pic|\/Photo\//i.test(src))
     ?? imgSrcs.find(src => new RegExp(rollNo, 'i').test(src));  // fallback: image URL contains the roll number
   const profilePageBase = `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx`;
   const imageUrl = image?.startsWith('data:image/') ? image
     : image ? (() => { try { return new URL(image.trim().replace(/^http:\/\/info\.aec\.edu\.in\//i, 'https://info.aec.edu.in/'), profilePageBase).href; } catch { return ''; } })()
     // No <img> in the profile markup: try the conventional per-portal photo path; cachePortalPhoto validates the bytes.
-    : `https://info.aec.edu.in/${portal}/StudentPhotos/${encodeURIComponent(rollNo)}.jpg`;
+    : `https://info.aec.edu.in/${portal}/student_photos/${encodeURIComponent(rollNo)}.jpg`;
   const totalCells = $('tr').filter((_, el) => $(el).children('td').first().text().trim().toUpperCase() === 'TOTAL').first().children('td');
   const attendanceValue = totalCells.length >= 4 ? parseFloat(totalCells.last().text()) : NaN;
   return { studentId: rollNo, portal, name, department: values.branch || values.department || '',
