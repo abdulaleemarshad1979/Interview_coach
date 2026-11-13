@@ -409,20 +409,20 @@ app.get("/api/voice/status", requireAuth, async (_req, res) => {
 
 app.post("/api/voice/synthesize", requireAuth, async (req, res) => {
   const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
-  const allowedVoices = ["hannah", "autumn", "diana"];
-  const requestedVoice = String(req.body?.voice || process.env.GROQ_TTS_VOICE || "hannah");
+  const allowedVoices = ["Jade-PlayAI", "Aaliyah-PlayAI", "Constance-PlayAI", "Fritz-PlayAI"];
+  const requestedVoice = String(req.body?.voice || process.env.GROQ_TTS_VOICE || "Jade-PlayAI");
   if (!text || text.length > 200) {
     return res.status(400).json({ error: "Speech text must contain 1–200 characters." });
   }
   if (!allowedVoices.includes(requestedVoice)) {
-    return res.status(400).json({ error: "Unsupported female voice." });
+    return res.status(400).json({ error: "Unsupported voice. Use Jade-PlayAI, Aaliyah-PlayAI, Constance-PlayAI, or Fritz-PlayAI." });
   }
   if (!process.env.GROQ_API_KEY) {
     return res.status(503).json({ error: "Groq TTS is not configured." });
   }
   try {
     const audio = await getGroqClient().audio.speech.create({
-      model: process.env.GROQ_TTS_MODEL || "canopylabs/orpheus-v1-english",
+      model: process.env.GROQ_TTS_MODEL || "playai-tts",
       voice: requestedVoice,
       input: text,
       response_format: "wav",

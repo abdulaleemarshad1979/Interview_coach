@@ -81,7 +81,7 @@ test('actual Mongo interview persistence survives provider failure without fabri
   const loaded = await request(app).get(`/api/interview/sessions/${session.id}`).set('Authorization', auth);
   assert.equal(loaded.status, 200); assert.equal(loaded.body.session.report, null);
   assert.equal(loaded.body.session.turns.filter((turn: any) => turn.role === 'interviewer').length, 0);
-  assert.equal((await request(app).post('/api/voice/synthesize').set('Authorization', auth).send({ text: 'Tell me about a recent project.', voice: 'hannah' })).status, 503);
+  assert.equal((await request(app).post('/api/voice/synthesize').set('Authorization', auth).send({ text: 'Tell me about a recent project.', voice: 'Jade-PlayAI' })).status, 503);
   assert.equal((await request(app).delete(`/api/interview/sessions/${session.id}`).set('Authorization', auth)).status, 204);
   assert.equal((await request(app).get(`/api/interview/sessions/${session.id}`).set('Authorization', auth)).status, 404);
 });

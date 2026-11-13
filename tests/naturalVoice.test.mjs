@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { VoicePlaybackEngine } from "../src/lib/naturalVoice.ts";
 
-const options = { voice: "hannah", rate: 1, provider: "groq", allowBrowserFallback: false };
+const options = { voice: "Jade-PlayAI", rate: 1, provider: "groq", allowBrowserFallback: false };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const sound = text => ({ kind: "audio", blob: new Blob([text], { type: "audio/wav" }) });
@@ -56,7 +56,7 @@ test("queued announcements play serially and snapshot the selected identity", as
   releases[1]();
   await second;
   assert.equal(maximum, 1);
-  assert.deepEqual(identities, ["hannah", "hannah"]);
+  assert.deepEqual(identities, ["Jade-PlayAI", "Jade-PlayAI"]);
 });
 
 test("stop settles active and pending promises even when a provider never responds", async () => {

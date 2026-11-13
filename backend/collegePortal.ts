@@ -204,7 +204,7 @@ export async function cachePortalPhoto<T extends { profileImage: string }>(profi
     const valid = (mime === 'image/jpeg' && b.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) ||
       (mime === 'image/png' && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) ||
       (mime === 'image/webp' && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP');
-    if (image.status === 200 && b.length <= 256 * 1024 && valid) return { ...profile, profileImage: `data:${mime};base64,${b.toString('base64')}` };
+    if (image.status === 200 && b.length <= 1024 * 1024 && valid) return { ...profile, profileImage: `data:${mime};base64,${b.toString('base64')}` };
   } catch { /* A photo outage must not reject an otherwise verified account. */ }
   return { ...profile, profileImage: '' };
 }
