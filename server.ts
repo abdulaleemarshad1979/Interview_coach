@@ -429,7 +429,7 @@ app.post("/api/voice/synthesize", requireAuth, async (req, res) => {
       voice: req.body?.voice ? orpheusVoices[requestedVoice] : (process.env.GROQ_TTS_VOICE || "hannah"),
       input: text,
       response_format: "wav",
-    });
+    }, { timeout: 12000, maxRetries: 0 }); // the browser client retries; server retries only stack delay
     const bytes = Buffer.from(await audio.arrayBuffer());
     res.setHeader("Content-Type", "audio/wav");
     res.setHeader("Content-Length", String(bytes.length));
@@ -438,7 +438,11 @@ app.post("/api/voice/synthesize", requireAuth, async (req, res) => {
   } catch (error: any) {
     const status = error?.status === 429 ? 429 : 502;
     console.error("[voice] TTS provider failed", { status: error?.status || 0, model, message: String(error?.message || "").slice(0, 300) });
-    return res.status(status).json({ error: "Speech generation temporarily unavailable." });
+    // Provider codes such as model_terms_required or invalid_api_key are actionable and contain no secrets.
+    const code = String(error?.error?.error?.code || error?.error?.code || "").slice(0, 60);
+    const hint = code === "model_terms_required" ? ` Accept the ${model} terms in the Groq console (console.groq.com/playground?model=${model}).`
+      : error?.status === 401 ? " The server's GROQ_API_KEY is invalid." : "";
+    return res.status(status).json({ error: `Groq speech failed${code ? ` (${code})` : error?.status ? ` (HTTP ${error.status})` : ""}.${hint}`, code: code || "TTS_PROVIDER_FAILED" });
   }
 });
 
@@ -460,7 +464,7 @@ app.post("/api/voice/transcribe", requireAuth, async (req, res) => {
       const transcript = await getGroqClient().audio.transcriptions.create({
         file: upload, model: process.env.GROQ_STT_MODEL || "whisper-large-v3-turbo",
         language: "en", response_format: "json", temperature: 0,
-      });
+      }, { timeout: 25000, maxRetries: 1 }); // stays inside the client's 45 s limit instead of 3 x 30 s
       res.setHeader("Cache-Control", "private, no-store");
       return res.json({ text: transcript.text || "", source: "groq" });
     }

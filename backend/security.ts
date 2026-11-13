@@ -17,7 +17,7 @@ class MongoRateStore {
     await this.connectDB();
     const resetTime = new Date((Math.floor(Date.now() / this.windowMs) + 1) * this.windowMs);
     const counter = await RateCounter.findOneAndUpdate({ _id: this.key(key) },
-      { $inc: { hits: 1 }, $setOnInsert: { expiresAt: resetTime } }, { upsert: true, new: true });
+      { $inc: { hits: 1 }, $setOnInsert: { expiresAt: resetTime } }, { upsert: true, returnDocument: 'after' });
     return { totalHits: counter.hits, resetTime };
   }
   async decrement(key: string) { await RateCounter.updateOne({ _id: this.key(key), hits: { $gt: 0 } }, { $inc: { hits: -1 } }); }

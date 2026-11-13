@@ -1,16 +1,14 @@
-# CI runs `npm audit`; security PRs keep it green when new advisories are published.
+# Security updates only (repo setting "Dependabot security updates"); they keep CI's
+# `npm audit` green. Routine version bumps are disabled: majors routinely break the build.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: daily
-    open-pull-requests-limit: 10
-    groups:
-      security:
-        applies-to: security-updates
-        patterns: ["*"]
+    open-pull-requests-limit: 0
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 0

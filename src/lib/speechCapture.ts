@@ -193,7 +193,7 @@ export class MicrophoneCapture {
       this.analyser.fftSize = 1024;
       this.input.connect(this.analyser);
       const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"].find(type => MediaRecorder.isTypeSupported(type));
-      const recorder = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 64000 });
+      const recorder = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 32000 /* Opus speech is clear at 32 kbps; halves upload time */ });
       this.recorder = recorder;
       recorder.ondataavailable = event => {
         if (generation !== this.generation || !["recording", "stopping"].includes(this.state.status) || !event.data.size) return;

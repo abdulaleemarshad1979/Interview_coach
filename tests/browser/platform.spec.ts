@@ -21,7 +21,8 @@ async function signIn(page: Page, rollNo: string, path = '/') {
 test('college portal login, saved interview and explicit missing-provider failure', async ({ page, request }) => {
   const account = await createAccount(request, 'Interview candidate');
   await signIn(page, account.rollNo);
-  await expect.poll(() => page.getByAltText('Aditya University Logo').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.getByRole('button', { name: 'Interview Coach home' })).toBeVisible();
+  await expect(page.getByAltText('Aditya University Logo')).toHaveCount(0);
   await page.getByRole('button', { name: 'Live Interview', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Prepare for your next conversation' })).toBeVisible();
   await page.getByLabel('Target role', { exact: true }).fill('Backend engineer');
