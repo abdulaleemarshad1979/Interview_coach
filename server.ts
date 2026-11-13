@@ -429,7 +429,7 @@ app.post("/api/voice/synthesize", requireAuth, async (req, res) => {
       voice: req.body?.voice ? orpheusVoices[requestedVoice] : (process.env.GROQ_TTS_VOICE || "hannah"),
       input: text,
       response_format: "wav",
-    });
+    }, { timeout: 12000, maxRetries: 0 }); // the browser client retries; server retries only stack delay
     const bytes = Buffer.from(await audio.arrayBuffer());
     res.setHeader("Content-Type", "audio/wav");
     res.setHeader("Content-Length", String(bytes.length));
@@ -464,7 +464,7 @@ app.post("/api/voice/transcribe", requireAuth, async (req, res) => {
       const transcript = await getGroqClient().audio.transcriptions.create({
         file: upload, model: process.env.GROQ_STT_MODEL || "whisper-large-v3-turbo",
         language: "en", response_format: "json", temperature: 0,
-      });
+      }, { timeout: 25000, maxRetries: 1 }); // stays inside the client's 45 s limit instead of 3 x 30 s
       res.setHeader("Cache-Control", "private, no-store");
       return res.json({ text: transcript.text || "", source: "groq" });
     }
