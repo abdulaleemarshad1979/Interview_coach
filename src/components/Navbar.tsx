@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { GraduationCap, LogOut, Code, User, Settings, Award } from "lucide-react";
 import { StudentProfile, FacultyProfile, AdminProfile } from "../types";
+import { getApiUrl } from "../lib/api";
 
 interface NavbarProps {
   studentProfile: StudentProfile | null;
@@ -14,7 +15,7 @@ interface NavbarProps {
 function StudentAvatar({ src, name }: { src?: string; name?: string }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
-  if (src && !failed) return <img src={src} alt="" onError={() => setFailed(true)} className="w-5 h-5 rounded-full object-cover border border-white/10" />;
+  if (src && !failed) return <img src={src.startsWith("/") ? getApiUrl(src) : src} alt={name ? `${name} profile photo` : "Profile photo"} width={20} height={20} decoding="async" onError={() => setFailed(true)} className="w-5 h-5 rounded-full object-cover border border-white/10" />;
   const initials = (name || '').split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
   const bg = initials ? `hsl(${[...( name || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % 360}, 60%, 45%)` : '#1e293b';
   return <div className="w-5 h-5 rounded-full flex items-center justify-center border border-white/10 text-[8px] font-bold text-white" style={{ background: bg }}>{initials || <User className="w-2.5 h-2.5 text-brand-primary" />}</div>;
@@ -31,7 +32,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
           id="nav-logo"
         >
           {studentProfile?.portal && (
-            <img src="/branding/site-logo.svg" alt="Aditya University Logo" className="h-7 w-auto object-contain" />
+            <img src="/branding/site-logo.svg" alt="Aditya University Logo" width={79} height={28} fetchPriority="high" className="h-7 w-auto object-contain" />
           )}
           <div className="block">
             <span className="font-display font-bold text-sm tracking-tight text-slate-800 group-hover:text-brand-primary transition-colors block leading-none">

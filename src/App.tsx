@@ -18,10 +18,43 @@ const ProfilePage = lazy(() => import("./components/ProfilePage"));
 import { getApiUrl, apiFetch } from "./lib/api";
 
 
+const SEO: Record<string, [string, string]> = {
+  landing: ["Interview Coach | AI Mock Interviews & Group Discussion Practice", "Practise technical interviews and group discussions with an AI interviewer that asks follow-up questions and scores content and delivery with evidence."],
+  login: ["Sign in | Interview Coach", "Sign in with your college portal to start AI mock interviews and group discussion practice."],
+  dashboard: ["Dashboard | Interview Coach", "Your interview practice overview, recent sessions and next steps."],
+  analyze: ["Resume & GitHub analysis | Interview Coach", "Analyse your resume and GitHub projects to tailor interview questions."],
+  interview: ["AI mock interview | Interview Coach", "Answer by voice, get follow-up questions based on your own words and receive an evidence-based report."],
+  history: ["Interview history | Interview Coach", "Resume sessions and revisit evidence-based feedback."],
+  "group-discussion": ["Group discussion practice | Interview Coach", "Practise group discussions with an AI panel or classmates and get scored feedback."],
+  profile: ["Your profile | Interview Coach", "Manage your student profile, GitHub link and resume."],
+};
+
+/** The app is a single-URL SPA, so each view updates the document title and description for browsers, shares and crawlers. */
+function useSeo(view: string) {
+  useEffect(() => {
+    const [title, description] = SEO[view] || SEO.landing;
+    document.title = title;
+    document.querySelector('meta[name="description"]')?.setAttribute("content", description);
+  }, [view]);
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<string>(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("meeting") ? "group-discussion" : "landing");
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  useSeo(currentView);
+  // "Report" opens the newest completed interview (the legacy scorecard view is always empty now that
+  // reports are generated per session); with none yet, show history so the next step is obvious.
+  const openLatestReport = async () => {
+    try {
+      const res = await apiFetch("/api/interview/sessions?limit=20");
+      const data = res.ok ? await res.json() : { sessions: [] };
+      const latest = (data.sessions as Array<{ id: string; state: string }>).find(item => item.state === "COMPLETED");
+      if (latest) { setActiveSessionId(latest.id); setCurrentView("interview"); return; }
+    } catch { /* fall through to history */ }
+    setCurrentView("history");
+  };
   const navigate = (view: string) => {
+    if (view === "report") { void openLatestReport(); return; }
     if (view === "interview") setActiveSessionId(null);
     setCurrentView(view);
   };
@@ -64,12 +97,15 @@ export default function App() {
             classSection: currentProfile?.classSection || collegeData.classSection,
             githubUsername: currentProfile?.githubUsername || collegeData.githubUsername,
             resumeFileName: currentProfile?.resumeFileName || collegeData.resumeFileName,
-            profileImage: currentProfile?.profileImage || collegeData.profileImage,
+            // Inline base64 photos from older sessions are replaced by the served photo URL.
+            profileImage: (currentProfile?.profileImage && !currentProfile.profileImage.startsWith("data:") ? currentProfile.profileImage : collegeData.profileImage) || "",
           };
           
           setStudentProfile(mergedProfile);
-          localStorage.setItem(`studentProfile_${rollNo}`, JSON.stringify(mergedProfile));
-          localStorage.setItem("studentProfile", JSON.stringify(mergedProfile));
+          try {
+            localStorage.setItem(`studentProfile_${rollNo}`, JSON.stringify(mergedProfile));
+            localStorage.setItem("studentProfile", JSON.stringify(mergedProfile));
+          } catch { /* storage full or blocked: the server copy remains authoritative */ }
 
           // Also try saving/updating Supabase user metadata if signed in
           await supabase.auth.updateUser({
@@ -114,6 +150,20 @@ export default function App() {
     } catch (e) {
       console.error("Failed to sync profile from college database", e);
     }
+  };
+
+  // DB-first background sync: the server checks its stored profile and refreshes the photo from the
+  // portal's public photo URL. No password is needed; if no record exists the user signs in normally.
+  const syncPublicPhoto = async (rollNo: string) => {
+    const key = `photo_sync_${rollNo}`;
+    try { if (Date.now() - Number(localStorage.getItem(key) || 0) < 6 * 3600000) return; } catch { /* storage unavailable */ }
+    try {
+      const res = await apiFetch("/api/college/sync-public", { method: "POST", body: "{}" });
+      if (!res.ok) return;
+      const data = await res.json();
+      try { localStorage.setItem(key, String(Date.now())); } catch { /* ignore */ }
+      if (data.profileImage) setStudentProfile(prev => prev && prev.studentId === rollNo && prev.profileImage !== data.profileImage ? { ...prev, profileImage: data.profileImage } : prev);
+    } catch { /* offline: try again next load */ }
   };
 
   const checkAndClearStudentCache = (userId: string) => {
@@ -243,6 +293,7 @@ export default function App() {
               const storedProfile = JSON.parse(storedProfileStr);
               if (storedProfile.studentId === userRollNo) {
                 Object.assign(profile, storedProfile);
+                if (!profile.profileImage || profile.profileImage.startsWith("data:")) profile.profileImage = session.user.user_metadata?.profile_image;
               }
             } catch (e) {}
           }
@@ -253,6 +304,7 @@ export default function App() {
           setCurrentView((prev) => (prev === "landing" || prev === "login" ? "dashboard" : prev));
           restoreStudentDataFromMetadata(session.user, userRollNo);
           syncCollegeProfile(userRollNo, profile);
+          void syncPublicPhoto(userRollNo);
         }
       }
     });

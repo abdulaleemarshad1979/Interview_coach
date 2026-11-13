@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, Clock3, KeyRound, Loader2, ShieldCheck, Users, Video } from "lucide-react";
 import { StudentProfile } from "../types";
 import { formatMeetingId, meetingRequest, postMeeting, type MeetingSnapshot, type MeetingStatus } from "../lib/meetingApi";
-import LiveMeeting from "./LiveMeeting";
-import CameraObserver from "./CameraObserver";
+const LiveMeeting = lazy(() => import("./LiveMeeting")); // pulls in livekit-client (~500 kB): load only when a room opens
+const CameraObserver = lazy(() => import("./CameraObserver"));
+const AiPanelDiscussion = lazy(() => import("./AiPanelDiscussion"));
 
 interface MeetingLobbyProps {
   studentProfile: StudentProfile;
@@ -36,6 +37,7 @@ export default function MeetingLobby({ studentProfile, onNavigate }: MeetingLobb
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [aiPanel, setAiPanel] = useState(false);
 
   const loadRecent = useCallback(async (signal?: AbortSignal) => {
     const result = await meetingRequest<{ data: Array<Pick<MeetingSnapshot, "room" | "me">> }>("/", { signal });
@@ -73,7 +75,8 @@ export default function MeetingLobby({ studentProfile, onNavigate }: MeetingLobb
     } catch (failure: any) { setError(failure.message); }
     finally { setBusy(false); }
   };
-  if (snapshot) return <LiveMeeting initialSnapshot={snapshot} onLeave={() => { setSnapshot(null); void loadRecent().catch((failure) => setError(failure.message)); }} />;
+  if (aiPanel) return <Suspense fallback={<p role="status" className="p-8 text-sm text-slate-500">Loading the AI panel…</p>}><AiPanelDiscussion initialTopic={topic} onExit={() => setAiPanel(false)} /></Suspense>;
+  if (snapshot) return <Suspense fallback={<p role="status" className="p-8 text-sm text-slate-500">Joining the room…</p>}><LiveMeeting initialSnapshot={snapshot} onLeave={() => { setSnapshot(null); void loadRecent().catch((failure) => setError(failure.message)); }} /></Suspense>;
 
   return <div className="mx-auto max-w-6xl space-y-7 p-4 text-slate-900 sm:p-6 lg:p-8">
     <button onClick={() => onNavigate("dashboard")} className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-slate-600 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-blue-600"><ArrowLeft size={16} /> Dashboard</button>
@@ -82,7 +85,11 @@ export default function MeetingLobby({ studentProfile, onNavigate }: MeetingLobb
       <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600"><ShieldCheck size={15} /> Signed-in participants only</span>
     </header>
     {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div>}
-    {!loading && status && !status.configured && <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">Live meetings are awaiting administrator setup. You can still view any retained discussion reports. New meetings become available when the meeting service is connected.</div>}
+    {!loading && status && !status.configured && <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">Live meetings are awaiting administrator setup. You can still view any retained discussion reports. Meanwhile, you can practise right now with the AI panel below.</div>}
+    <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-5">
+      <div><h2 className="text-base font-semibold">Practise with an AI panel</h2><p className="mt-1 text-sm leading-6 text-slate-600">Three AI participants discuss your topic with you by voice. No meeting service or other students needed.</p></div>
+      <button type="button" onClick={() => setAiPanel(true)} className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800">Start AI-panel discussion</button>
+    </section>
     {invitedCode && !/^[A-Fa-f0-9]{12}$/.test(invitedCode.replace(/[-\s]/g, "")) && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">This invitation uses an older room format. Ask your host or faculty member to create a new discussion and share its invitation link.</div>}
     <div className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
@@ -115,7 +122,7 @@ export default function MeetingLobby({ studentProfile, onNavigate }: MeetingLobb
         </form>
       </section>
       <aside className="space-y-5">
-        <CameraObserver compact title="Camera & framing check" subtitle="Test face, eyes, and cheekbone tracking before your discussion" />
+        <Suspense fallback={null}><CameraObserver compact title="Camera & framing check" subtitle="Test face, eyes, and cheekbone tracking before your discussion" /></Suspense>
         <section className="rounded-2xl border border-slate-200 bg-slate-900 p-6 text-white"><div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-white/10"><Users size={22} /></div><h2 className="text-xl font-semibold">A room for better conversations</h2><div className="mt-5 space-y-4 text-sm text-slate-300">{["Share an invitation with your group.", "Check your microphone and camera controls.", "Discuss the topic and build on each other’s ideas.", "Review feedback with actual transcript evidence."].map((item) => <p key={item} className="flex items-start gap-3"><Check size={17} className="mt-0.5 shrink-0 text-blue-300" />{item}</p>)}</div></section>
         <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="flex items-center gap-2 text-base font-semibold"><Clock3 size={18} /> Your discussions</h2>{loading ? <p className="mt-5 text-sm text-slate-500">Loading your history…</p> : recent.length === 0 ? <p className="mt-5 text-sm leading-6 text-slate-500">You haven’t joined a discussion yet. Start a room or use an invitation from your host.</p> : <div className="mt-4 space-y-2">{recent.map((item) => <button key={item.room.code} disabled={busy} onClick={() => void resume(item)} className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 text-left hover:border-blue-300 hover:bg-blue-50/50"><div className="min-w-0"><p className="truncate text-sm font-medium">{item.room.title}</p><p className="mt-1 font-mono text-xs text-slate-500">{formatMeetingId(item.room.code)}</p><p className="mt-1 text-xs text-slate-500">{item.room.status === "OPEN" ? item.me.status === "WAITING" ? "Waiting for admission" : "Discussion open" : "View retained report"}</p></div><Video size={18} className="shrink-0 text-slate-500" /></button>)}</div>}</section>
       </aside>

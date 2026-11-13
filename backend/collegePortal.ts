@@ -195,16 +195,22 @@ export function parsePortalProfileHtml(rawHtml: string, rollNo: string, portal: 
     profileImage: imageUrl.startsWith('https://info.aec.edu.in/') ? imageUrl : '', isSynced: true };
 }
 
-export async function cachePortalPhoto<T extends { profileImage: string }>(profile: T, request: (url: string) => Promise<{ status: number; bytes: Buffer; contentType: string }>): Promise<T> {
+export const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+/** Accepts only real JPEG/PNG/WebP bytes; a login/error HTML page served with a 200 is rejected. */
+export function validImage(mime: string, b: Buffer) {
+  return (mime === 'image/jpeg' && b.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) ||
+    (mime === 'image/png' && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) ||
+    (mime === 'image/webp' && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP');
+}
+
+export async function cachePortalPhoto<T extends { profileImage: string }>(profile: T, request: (url: string) => Promise<{ status: number; bytes: Buffer; contentType: string }>): Promise<T & { profileImageSource?: string }> {
   if (!profile.profileImage) return profile;
   try {
     const image = await request(profile.profileImage);
     const mime = image.contentType.split(';')[0].toLowerCase();
-    const b = image.bytes;
-    const valid = (mime === 'image/jpeg' && b.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) ||
-      (mime === 'image/png' && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) ||
-      (mime === 'image/webp' && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP');
-    if (image.status === 200 && b.length <= 1024 * 1024 && valid) return { ...profile, profileImage: `data:${mime};base64,${b.toString('base64')}` };
+    if (image.status === 200 && image.bytes.length <= MAX_PHOTO_BYTES && validImage(mime, image.bytes)) {
+      return { ...profile, profileImageSource: profile.profileImage, profileImage: `data:${mime};base64,${image.bytes.toString('base64')}` };
+    }
   } catch { /* A photo outage must not reject an otherwise verified account. */ }
   return { ...profile, profileImage: '' };
 }

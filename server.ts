@@ -13,7 +13,10 @@ import { createMeetingRouter } from "./backend/meetings";
 import { createCampusRouter, profileReadFilter, mayReadProfile } from "./backend/campus";
 import { pageParameters } from "./backend/campusValidation";
 import { createApiLimiter, restrictOrigins } from "./backend/security";
+import { buildGithubContext } from "./backend/github";
+import { createDiscussionRouter } from "./backend/discussion/router";
 import { verifyCollegePortal, validatePortalLogin, PortalError, portalUrl } from "./backend/collegePortal";
+import { decodeDataUri, fetchPublicPhoto, isPhotoUrl, readPhoto, storePhoto, storedPhotoSource } from "./backend/photos";
 import { createPasswordHash, verifyPassword, PASSWORD_SCHEME, validateCredentials, configuredRoles, effectiveRoles, sanitizeMetadata, profileIdForUser, canAccessProfile, sanitizeProfile } from "./backend/authSafety";
 
 // Cached lazy MongoDB connector — safe for Vercel serverless cold starts.
@@ -69,6 +72,8 @@ const ProfileSchema = new mongoose.Schema({
   updated_at: { type: Date, default: Date.now }
 }, { minimize: false });
 
+ProfileSchema.index({ ownerId: 1 });
+ProfileSchema.index({ is_synced: 1, is_faculty: 1, id: 1 });
 const Profile = mongoose.model("Profile", ProfileSchema);
 
 const GDRoomSchema = new mongoose.Schema({
@@ -135,6 +140,14 @@ if (typeof globalThis.WebSocket === "undefined") {
   (globalThis as any).WebSocket = WebSocket;
 }
 
+// Short-lived token -> user cache: each API call otherwise costs two Mongo reads (session, then user).
+// Entries expire in 15 s and are dropped on logout / metadata changes, so revocation stays near-immediate.
+const AUTH_CACHE_MS = 15000;
+const authCache = new Map<string, { user: any; exp: number }>();
+function dropAuthCache(match: { token?: string; userId?: string }) {
+  for (const [token, entry] of authCache) if (token === match.token || entry.user.id === match.userId) authCache.delete(token);
+}
+
 async function requireAuth(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization;
 
@@ -144,10 +157,13 @@ async function requireAuth(req: any, res: any, next: any) {
 
   const token = authHeader.split(" ")[1];
 
+  const cached = authCache.get(token);
+  if (cached && cached.exp > Date.now()) { req.user = cached.user; return next(); }
   try {
     await connectDB();
     const session = await Session.findOne({ token, createdAt: { $gt: new Date(Date.now() - 7 * 86400000) } }).populate("userId");
     if (!session || !session.userId) {
+      authCache.delete(token);
       return res.status(401).json({ error: "Invalid or expired session. Please sign in again." });
     }
     const user = session.userId as any;
@@ -156,6 +172,8 @@ async function requireAuth(req: any, res: any, next: any) {
       email: user.email,
       user_metadata: { ...user.user_metadata, ...effectiveRoles(user) }
     };
+    if (authCache.size >= 1000) authCache.delete(authCache.keys().next().value!);
+    authCache.set(token, { user: req.user, exp: Date.now() + AUTH_CACHE_MS });
     next();
   } catch (err: any) {
     return res.status(503).json({ error: "Authentication service unavailable. Please retry." });
@@ -387,8 +405,9 @@ app.use("/api/gd-room", (_req, res) => res.status(410).json({ error: "This legac
 app.use("/api/local-stt", requireAuth);
 app.use("/api/local-tts", requireAuth);
 
-app.use("/api/interview/sessions", createInterviewRouter({ requireAuth, connectDB }));
+app.use("/api/interview/sessions", createInterviewRouter({ requireAuth, connectDB, github: (ownerId, username) => buildGithubContext(ownerId, username) }));
 app.use("/api/meetings", createMeetingRouter({ requireAuth, connectDB }));
+app.use("/api/discussions", createDiscussionRouter({ requireAuth, connectDB }));
 app.use("/api/campus", createCampusRouter({ requireAuth }));
 
 // Groq speech APIs use server-owned credentials and existing MongoDB session auth.
@@ -649,15 +668,22 @@ app.get("/api/auth/me", async (req, res) => {
       return res.status(401).json({ error: "Invalid session" });
     }
     const user = session.userId as any;
-    res.json({
-      user: { id: user._id.toString(), email: user.email, user_metadata: { ...user.user_metadata, ...effectiveRoles(user) } }
-    });
+    const metadata = { ...user.user_metadata, ...effectiveRoles(user) };
+    // Older accounts stored the photo inline (~1 MB per response); move it to the photo store once.
+    const legacy = decodeDataUri(metadata.profile_image);
+    if (legacy && metadata.roll_number) {
+      metadata.profile_image = (await storePhoto(String(metadata.roll_number).toUpperCase(), legacy.mime, legacy.bytes)).url;
+      await User.updateOne({ _id: user._id }, { $set: { "user_metadata.profile_image": metadata.profile_image } });
+      await Profile.updateOne({ id: String(metadata.roll_number).toUpperCase(), ownerId: user._id.toString() }, { $set: { profile_image: metadata.profile_image, avatar_url: metadata.profile_image } });
+    } else if (typeof metadata.profile_image === "string" && metadata.profile_image.startsWith("data:")) metadata.profile_image = "";
+    res.json({ user: { id: user._id.toString(), email: user.email, user_metadata: metadata } });
   } catch (err: any) {
     res.status(500).json({ error: "Service unavailable. Please retry." });
   }
 });
 
 app.post("/api/auth/update-metadata", requireAuth, async (req: any, res) => {
+  dropAuthCache({ userId: req.user.id });
   try {
     const userId = req.user.id;
     const { data } = req.body;
@@ -673,6 +699,7 @@ app.post("/api/auth/update-metadata", requireAuth, async (req: any, res) => {
     };
     user.markModified("user_metadata");
     await user.save();
+    dropAuthCache({ userId: req.user.id });
 
     // Keep corresponding Profile in sync
     const rollNo = user.user_metadata?.roll_number || user.email.split("@")[0].toUpperCase();
@@ -725,6 +752,7 @@ app.post("/api/auth/logout", async (req, res) => {
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const token = authHeader.split(" ")[1];
       await Session.deleteOne({ token });
+      dropAuthCache({ token });
     }
     res.json({ success: true });
   } catch (err: any) {
@@ -745,7 +773,7 @@ app.get("/api/health", (req, res) => {
 app.get("/api/profiles", requireAuth, async (req: any, res) => {
   try {
     const { limit, offset } = pageParameters(req.query);
-    const profiles = await Profile.find(await profileReadFilter(req.user)).sort({ id: 1 }).skip(offset).limit(limit);
+    const profiles = await Profile.find(await profileReadFilter(req.user)).sort({ id: 1 }).skip(offset).limit(limit).lean();
     res.json(profiles);
   } catch (err: any) {
     console.error("Error fetching profiles:", err);
@@ -865,6 +893,11 @@ async function persistCollegeProfile(user: any, profile: any, classSection?: str
   if (existing?.ownerId && existing.ownerId !== user._id.toString()) {
     throw new PortalError("PROFILE_OWNERSHIP_CONFLICT", "This college profile is linked to another account. Contact the administrator.", 409);
   }
+  // Keep the photo as a separately served blob; documents only carry its URL.
+  const decoded = decodeDataUri(profile.profileImage);
+  if (decoded) profile = { ...profile, profileImage: (await storePhoto(profile.studentId, decoded.mime, decoded.bytes, profile.profileImageSource || "")).url };
+  else if (profile.profileImage?.startsWith("data:")) profile = { ...profile, profileImage: "" };
+  delete profile.profileImageSource;
   profile = { ...profile, department: profile.department || existing?.department || user.user_metadata?.department || "",
     academicYear: profile.academicYear || user.user_metadata?.academic_year || "",
     profileImage: profile.profileImage || existing?.profile_image || user.user_metadata?.profile_image || "" };
@@ -875,6 +908,7 @@ async function persistCollegeProfile(user: any, profile: any, classSection?: str
     ...(typeof profile.attendance === "number" ? { attendance: profile.attendance } : {}), is_synced: true };
   user.markModified("user_metadata");
   await user.save();
+  dropAuthCache({ userId: user._id.toString() });
   await Profile.findOneAndUpdate({ id: profile.studentId, $or: [{ ownerId: user._id.toString() }, { ownerId: { $exists: false } }, { ownerId: null }] }, {
     $set: { ownerId: user._id.toString(), roll_number: profile.studentId, name: profile.name, student_name: profile.name,
       branch: profile.department, department: profile.department, class_section: resolvedSection, section: resolvedSection,
@@ -883,6 +917,48 @@ async function persistCollegeProfile(user: any, profile: any, classSection?: str
   }, { upsert: true, setDefaultsOnInsert: true });
   return { ...profile, classSection: resolvedSection };
 }
+
+// Capability-URL photo endpoint: <img> tags cannot send bearer tokens, and the key is unguessable.
+app.get("/api/photo/:key", async (req, res) => {
+  try {
+    await connectDB();
+    const photo = await readPhoto(req.params.key);
+    if (!photo) return res.status(404).end();
+    res.setHeader("Cache-Control", "private, max-age=86400, immutable");
+    res.setHeader("ETag", `"${photo.sha1}"`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (req.headers["if-none-match"] === `"${photo.sha1}"`) return res.status(304).end();
+    res.type(photo.contentType).send(photo.bytes);
+  } catch { res.status(503).end(); }
+});
+
+// DB-first background sync for an already signed-in student: no portal password is requested or stored.
+// If no profile exists yet the client must complete the credential login (which creates the record).
+app.post("/api/college/sync-public", requireAuth, async (req: any, res) => {
+  try {
+    const rollNo = String(req.user.user_metadata?.roll_number || "").toUpperCase();
+    if (!rollNo || req.user.user_metadata?.is_faculty) return res.status(404).json({ code: "NEEDS_PORTAL_LOGIN", error: "Sign in with your college credentials to create your profile." });
+    const profile: any = await Profile.findOne({ id: rollNo, ownerId: req.user.id }).select({ profile_image: 1, is_synced: 1, name: 1 }).lean();
+    if (!profile?.is_synced) return res.status(404).json({ code: "NEEDS_PORTAL_LOGIN", error: "Sign in with your college credentials to create your profile." });
+    let image: string = isPhotoUrl(profile.profile_image) ? profile.profile_image : "";
+    let updated = false;
+    const legacy = decodeDataUri(profile.profile_image);
+    const source = await storedPhotoSource(rollNo);
+    const fresh = source ? await fetchPublicPhoto(source) : null;
+    const next = fresh || legacy;
+    if (next) {
+      const stored = await storePhoto(rollNo, next.mime, next.bytes, source);
+      updated = stored.changed || stored.url !== profile.profile_image;
+      image = stored.url;
+    }
+    if (updated) {
+      await Profile.updateOne({ id: rollNo, ownerId: req.user.id }, { $set: { profile_image: image, avatar_url: image, updated_at: new Date() } });
+      await User.updateOne({ _id: req.user.id }, { $set: { "user_metadata.profile_image": image } });
+      dropAuthCache({ userId: req.user.id });
+    }
+    res.json({ synced: true, updated, profileImage: image });
+  } catch { res.status(503).json({ error: "Sync is temporarily unavailable.", retryable: true }); }
+});
 
 app.post("/api/college/login", async (req, res) => {
   res.setHeader("Cache-Control", "private, no-store");

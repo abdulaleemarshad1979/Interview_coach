@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://interview-coach-nu-coral.vercel.app/sitemap.xml

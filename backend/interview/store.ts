@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import type { InterviewSession, InterviewSessionSummary } from '../../src/lib/interviewTypes';
 import { remainingSeconds } from './engine';
+import { supabaseConfigured } from '../supabase/client';
+import { SupabaseInterviewStore } from './supabaseStore';
 
 export interface InterviewOperation {
   id: string;
@@ -44,14 +46,16 @@ schema.index({ ownerId: 1, updatedAt: -1 });
 schema.index({ ownerId: 1, createdAt: -1, _id: -1 });
 const InterviewDocument: mongoose.Model<any> = mongoose.models.AdaptiveInterviewSession || mongoose.model('AdaptiveInterviewSession', schema);
 
-function view(document: any): StoredInterview | null {
-  if (!document) return null;
-  const payload = document.payload as InterviewSession;
+/** Shared by every store: rebuilds the API view of a session from its persisted columns. */
+export function toStoredInterview(row: { id: string; payload: InterviewSession; version: number; updatedAt: Date | string; operation: InterviewOperation | null; requests: InterviewRequestRecord[] }): StoredInterview {
   return {
-    session: { ...payload, id: document._id, version: document.version, updatedAt: new Date(document.updatedAt).toISOString(), remainingSeconds: remainingSeconds(payload), isProcessing: Boolean(document.operation && document.operation.expiresAt > Date.now()) },
-    operation: document.operation || null,
-    requests: document.requests || [],
+    session: { ...row.payload, id: row.id, version: row.version, updatedAt: new Date(row.updatedAt).toISOString(), remainingSeconds: remainingSeconds(row.payload), isProcessing: Boolean(row.operation && row.operation.expiresAt > Date.now()) },
+    operation: row.operation || null,
+    requests: row.requests || [],
   };
+}
+function view(document: any): StoredInterview | null {
+  return document ? toStoredInterview({ id: document._id, payload: document.payload, version: document.version, updatedAt: document.updatedAt, operation: document.operation, requests: document.requests }) : null;
 }
 
 export class MongoInterviewStore implements InterviewStore {
@@ -101,4 +105,9 @@ export class MongoInterviewStore implements InterviewStore {
     const result = await InterviewDocument.deleteOne({ _id: id, ownerId });
     return result.deletedCount > 0;
   }
+}
+
+/** Supabase when configured (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY), otherwise MongoDB. */
+export function createInterviewStore(): InterviewStore {
+  return supabaseConfigured() ? new SupabaseInterviewStore() : new MongoInterviewStore();
 }

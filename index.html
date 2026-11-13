@@ -3,14 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Interview_Coach</title>
-    <!-- MediaPipe Face Mesh CDN Scripts - defer ensures they load before React mounts -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous" defer></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous" defer></script>
+    <title>Interview Coach | AI Mock Interviews &amp; Group Discussion Practice</title>
+    <meta name="description" content="Practise technical interviews and group discussions with an AI interviewer that asks follow-up questions, listens to your answers and scores your content and delivery with evidence." />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#004f9f" />
+    <link rel="canonical" href="https://interview-coach-nu-coral.vercel.app/" />
+    <link rel="icon" type="image/svg+xml" href="/branding/site-logo.svg" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Interview Coach" />
+    <meta property="og:title" content="Interview Coach | AI Mock Interviews &amp; Group Discussion Practice" />
+    <meta property="og:description" content="Adaptive AI interviews, AI-panel group discussions and evidence-based reports for university students." />
+    <meta property="og:url" content="https://interview-coach-nu-coral.vercel.app/" />
+    <meta property="og:image" content="https://interview-coach-nu-coral.vercel.app/branding/site-logo.svg" />
+    <meta property="og:image:alt" content="Interview Coach logo" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Interview Coach | AI Mock Interviews" />
+    <meta name="twitter:description" content="Practise interviews and group discussions with an AI that listens, follows up and scores with evidence." />
+    <meta name="twitter:image" content="https://interview-coach-nu-coral.vercel.app/branding/site-logo.svg" />
+    <!-- Fonts load without blocking first paint (previously CSS @import chains). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" media="print" onload="this.media='all'" />
+    <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@700,500,400&amp;display=swap" media="print" onload="this.media='all'" />
+    <noscript>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;700&amp;display=swap" />
+    </noscript>
+    <script type="application/ld+json">
+      {"@context":"https://schema.org","@type":"WebApplication","name":"Interview Coach","url":"https://interview-coach-nu-coral.vercel.app/","applicationCategory":"EducationalApplication","operatingSystem":"Any (modern web browser)","description":"AI mock interviews and group discussion practice with follow-up questions and evidence-based feedback.","offers":{"@type":"Offer","price":"0","priceCurrency":"INR"},"audience":{"@type":"EducationalAudience","educationalRole":"student"}}
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>Interview Coach needs JavaScript to run AI mock interviews and group discussions.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

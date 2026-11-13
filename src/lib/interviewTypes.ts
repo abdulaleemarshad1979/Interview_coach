@@ -18,6 +18,7 @@ export interface InterviewConfig {
   companyName?: string;
   jobDescription?: string;
   githubContext?: string;
+  githubUsername?: string;
   questionBankId?: string;
   companyQuestions?: string[];
   shareWithFaculty?: boolean;
@@ -33,12 +34,35 @@ export interface InterviewQuestion {
   groundedIn?: string;
 }
 
+/** Observable delivery signals captured while one answer was spoken. Never emotion or personality. */
+export interface DeliveryMetrics {
+  durationMs: number;
+  speechMs: number;
+  silenceMs: number;
+  longPauses: number;
+  camera?: { samples: number; faceRatio: number; eyeContactRatio: number; steadiness: number };
+}
+
 export interface InterviewTurn {
   id: string;
   role: 'interviewer' | 'candidate';
   text: string;
   questionId?: string;
   createdAt: string;
+  delivery?: DeliveryMetrics;
+}
+
+export interface DeliveryReport {
+  /** 0-100 composite of the available components; null when no delivery signal was captured. */
+  score: number | null;
+  /** Share of the overall score contributed by delivery (0 when score is null). */
+  weight: number;
+  components: { eyeContact: number | null; presence: number | null; pacing: number | null; fluency: number | null; hesitation: number | null };
+  wordsPerMinute: number | null;
+  fillersPer100Words: number | null;
+  answersWithCamera: number;
+  answersWithVoice: number;
+  notes: string[];
 }
 
 export interface InterviewEvidence {
@@ -70,6 +94,9 @@ export interface InterviewReport {
   improvements: Array<{ text: string; evidence: InterviewEvidence[] }>;
   practiceExercises: string[];
   limitations: string[];
+  /** Weighted into overallScore: overall = (1 - delivery.weight) * content + delivery.weight * delivery.score. */
+  delivery?: DeliveryReport;
+  contentScore?: number | null;
   provider: string;
   model: string;
 }

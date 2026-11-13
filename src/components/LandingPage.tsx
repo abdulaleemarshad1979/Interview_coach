@@ -35,7 +35,7 @@ export default function LandingPage({ onNavigate, isLoggedIn }: LandingPageProps
       <div className="max-w-7xl mx-auto px-6 py-16 md:py-24 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center flex-1">
         <motion.div 
           variants={containerVariants}
-          initial="hidden"
+          initial={false}
           animate="show"
           className="lg:col-span-7 space-y-8 text-left"
         >
@@ -133,9 +133,9 @@ export default function LandingPage({ onNavigate, isLoggedIn }: LandingPageProps
                 <span>•</span>
                 <span>Adaptive</span>
               </div>
-              <h3 className="text-white font-display font-medium text-base leading-snug">
+              <p className="text-white font-display font-medium text-base leading-snug">
                 "Since you built the TypeScript compiler project mentioned in your portfolio, how did you architect the type-checker to handle cyclical module imports?"
-              </h3>
+              </p>
               
               {/* Audio visualizer bar graph simulation */}
               <div className="flex items-center justify-between space-x-1.5 h-6 bg-brand-bg/50 px-4 py-1.5 rounded-lg border border-white/5">

@@ -5,16 +5,24 @@ const titles: Record<string, string> = {
   technicalAccuracy: 'Technical accuracy', reasoningQuality: 'Reasoning', communicationClarity: 'Communication clarity',
   relevance: 'Relevance', completeness: 'Completeness', problemSolving: 'Problem solving', supportedConfidence: 'Supported confidence',
 };
+const deliveryTitles: Record<string, string> = { eyeContact: 'Eye contact', presence: 'Presence & steadiness', pacing: 'Speaking pace', fluency: 'Filler words', hesitation: 'Pauses' };
 export default function EvidenceReport({ report, turns = [] }: { report: InterviewReport; turns?: InterviewTurn[] }) {
   return <section className="coach-report" aria-labelledby="report-heading">
     <div className="coach-heading"><div><p className="coach-eyebrow">Interview report</p><h1 id="report-heading">Feedback you can act on</h1></div>
       <div className="coach-score"><strong>{report.overallScore ?? '—'}</strong><span>{report.overallScore === null ? 'Insufficient evidence' : 'Overall / 100'}</span></div></div>
+    {report.contentScore != null && report.delivery?.score != null && <p className="coach-muted">Overall = {Math.round((1 - report.delivery.weight) * 100)}% answer content ({report.contentScore}) + {Math.round(report.delivery.weight * 100)}% delivery ({report.delivery.score}).</p>}
     <p>{report.summary}</p>
     <p className="coach-muted">Scores describe this transcript against the stated criteria. They do not assess personality, honesty, or psychological traits.</p>
     <div className="coach-report-grid">{Object.entries(report.dimensions).map(([key, value]) => <article className="coach-panel" key={key}>
       <div className="coach-heading"><h2>{titles[key] || key}</h2><strong>{value.score === null ? 'Not assessed' : `${value.score}/100`}</strong></div>
       <p>{value.feedback}</p>{value.evidence.map((e, index) => <blockquote key={`${e.turnId}-${index}`}><p>“{e.quote}”</p><small>{e.explanation}</small></blockquote>)}
     </article>)}</div>
+    {report.delivery && <article className="coach-panel" aria-labelledby="delivery-heading">
+      <div className="coach-heading"><h2 id="delivery-heading">Delivery &amp; expression</h2><strong>{report.delivery.score === null ? 'Not scored' : `${report.delivery.score}/100`}</strong></div>
+      <ul>{Object.entries(report.delivery.components).filter(([, value]) => value !== null).map(([key, value]) => <li key={key}>{deliveryTitles[key] || key}: {value}/100</li>)}</ul>
+      {report.delivery.wordsPerMinute !== null && <p className="coach-muted">{report.delivery.wordsPerMinute} words/min · {report.delivery.fillersPer100Words} filler words per 100 words</p>}
+      {report.delivery.notes.map((note, index) => <p key={index}>{note}</p>)}
+    </article>}
     <div className="coach-report-grid">{[['Strengths', report.strengths], ['Areas to practice', report.improvements]].map(([title, entries]) => <article className="coach-panel" key={String(title)}>
       <h2>{String(title)}</h2>{(entries as typeof report.strengths).length ? <ul>{(entries as typeof report.strengths).map((entry, index) => <li key={index}>{entry.text}{entry.evidence.map((e, i) => <blockquote key={i}>“{e.quote}”</blockquote>)}</li>)}</ul> : <p>No supported observations for this category.</p>}
     </article>)}</div>

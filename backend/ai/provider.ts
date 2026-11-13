@@ -48,8 +48,10 @@ function groqClient() {
   return client;
 }
 
-function requestSignal(signal?: AbortSignal) {
-  const deadline = AbortSignal.timeout(numericEnv('AI_REQUEST_TIMEOUT_MS', 60000, 1000, 120000));
+// Reports emit several thousand tokens, so they get a longer deadline than a single interview turn.
+function requestSignal(signal?: AbortSignal, purpose?: string) {
+  const base = numericEnv('AI_REQUEST_TIMEOUT_MS', 60000, 1000, 120000);
+  const deadline = AbortSignal.timeout(purpose === 'report' || purpose === 'discussion' ? Math.max(base, 110000) : base);
   return signal ? AbortSignal.any([signal, deadline]) : deadline;
 }
 
@@ -89,13 +91,15 @@ async function groqCompletion(options: JsonCompletionOptions): Promise<JsonCompl
   const groq = groqClient();
   const model = (options.purpose === 'report' || options.purpose === 'discussion' ? process.env.GROQ_MODEL_REPORT : process.env.GROQ_MODEL_CHAT)
     || process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-  const signal = requestSignal(options.signal);
+  const signal = requestSignal(options.signal, options.purpose);
+  // gpt-oss models spend completion tokens on hidden reasoning; low effort cuts latency sharply and avoids "length" truncation.
   const params = {
     model, messages: options.messages, response_format: { type: 'json_object' as const },
     temperature: options.purpose === 'interview' ? 0.45 : 0.2,
     max_completion_tokens: options.maxTokens || 3000,
+    ...(/gpt-oss/i.test(model) ? { reasoning_effort: (options.purpose === 'interview' || options.purpose === 'discussion' ? 'low' : 'medium') as 'low' | 'medium', include_reasoning: false } : {}),
   };
-  const requestOptions = { signal, timeout: 30000, maxRetries: 2 };
+  const requestOptions = { signal, timeout: options.purpose === 'report' ? 100000 : 30000, maxRetries: options.purpose === 'report' ? 1 : 2 };
   if (!options.onDelta) {
     const result = await groq.chat.completions.create({ ...params, stream: false }, requestOptions);
     if (result.choices[0]?.finish_reason === 'length') throw new ServiceError(502, 'INCOMPLETE_AI_RESPONSE', 'The AI response was cut off. Please retry.', true);
@@ -162,7 +166,7 @@ async function compatibleCompletion(options: JsonCompletionOptions, provider: st
   else { payload.response_format = { type: 'json_object' }; payload.max_tokens = options.maxTokens || 3000; payload.temperature = 0.3; if (options.onDelta) payload.stream_options = { include_usage: true }; }
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const signal = requestSignal(options.signal);
+  const signal = requestSignal(options.signal, options.purpose);
   const response = await retryFetch(`${baseUrl}${ollama ? '/api/chat' : '/chat/completions'}`, { method: 'POST', headers, body: JSON.stringify(payload) }, signal);
   if (!options.onDelta) {
     const result: any = await response.json();
@@ -226,7 +230,7 @@ async function transcribe(options: TranscriptionOptions): Promise<{ text: string
 export function createAIProvider(): AIProvider {
   return {
     completeJson: options => bounded(async () => {
-      const signal = requestSignal(options.signal);
+      const signal = requestSignal(options.signal, options.purpose);
       const provider = process.env.AI_PROVIDER || 'groq';
       if (!['groq', 'openai', 'litellm', 'ollama'].includes(provider)) throw new ServiceError(503, 'PROVIDER_CONFIGURATION', 'The selected AI provider is unsupported.');
       try {

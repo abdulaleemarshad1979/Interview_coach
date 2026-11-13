@@ -4,7 +4,8 @@ import type { InterviewSession } from '../../src/lib/interviewTypes';
 import { createAIProvider, type AIProvider } from '../ai/provider';
 import { ServiceError, safeError } from '../errors';
 import { assertTransition, generateInterviewTurn, generateReport, newSession, validateConfig } from './engine';
-import { MongoInterviewStore, type InterviewOperation, type InterviewRequestRecord, type InterviewStore } from './store';
+import { sanitizeDelivery } from './delivery';
+import { createInterviewStore, type InterviewOperation, type InterviewRequestRecord, type InterviewStore } from './store';
 import { CompanyQuestionBank } from '../campus';
 
 export interface InterviewRouterOptions {
@@ -12,6 +13,8 @@ export interface InterviewRouterOptions {
   connectDB: () => Promise<unknown>;
   store?: InterviewStore;
   provider?: AIProvider;
+  /** Builds repository context (new-repo delta + resume-independent project detail) for a GitHub username. */
+  github?: (ownerId: string, username: string) => Promise<string>;
 }
 type AuthRequest = Request & { user?: { id: string } };
 const activeOperations = new Map<string, { operationId: string; controller: AbortController }>();
@@ -41,7 +44,7 @@ function errorResponse(res: Response, error: unknown) {
 
 export function createInterviewRouter(options: InterviewRouterOptions) {
   const router = express.Router();
-  const store = options.store || new MongoInterviewStore();
+  const store = options.store || createInterviewStore();
   const provider = options.provider || createAIProvider();
   router.use(options.requireAuth);
   router.use(async (_req, res, next) => {
@@ -60,8 +63,14 @@ export function createInterviewRouter(options: InterviewRouterOptions) {
         config.companyName = bank.company;
         config.targetRole = bank.role;
       }
+      const ownerId = identity(req);
+      if (config.githubUsername && options.github) {
+        // Server-built context (new-repo delta first) replaces the client snapshot; client analysis is kept as a fallback.
+        const context = await options.github(ownerId, config.githubUsername).catch(() => '');
+        if (context) config.githubContext = [context, config.githubContext].filter(Boolean).join('\n\n').slice(0, 8000);
+      }
       const session = newSession(config);
-      await store.create(identity(req), session);
+      await store.create(ownerId, session);
       res.status(201).json({ session });
     } catch (error) { errorResponse(res, error); }
   });
@@ -140,7 +149,7 @@ export function createInterviewRouter(options: InterviewRouterOptions) {
       let working = structuredClone(data.session);
       if (kind === 'answer' && !record.turnId) {
         const turnId = crypto.randomUUID();
-        working.turns.push({ id: turnId, role: 'candidate', text: answerText, questionId, createdAt: new Date().toISOString() });
+        working.turns.push({ id: turnId, role: 'candidate', text: answerText, questionId, createdAt: new Date().toISOString(), delivery: sanitizeDelivery(req.body.delivery) });
         working.pendingAnswer = { requestId, questionId, turnId };
         record.turnId = turnId;
       }

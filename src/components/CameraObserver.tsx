@@ -5,10 +5,27 @@ import { FaceLandmarker, FilesetResolver, type NormalizedLandmark } from '@media
 type CameraStatus = 'off' | 'starting' | 'loading' | 'no-face' | 'centered' | 'off-center' | 'unavailable';
 type ZoomMode = 'auto' | '1x' | '1.4x' | '1.8x';
 
+/** One ~5 Hz observation. `eyeContact` = iris near the eye centre and head turned toward the camera. */
+export interface CameraSample { face: boolean; eyeContact: boolean; movement: number }
+
 interface CameraObserverProps {
   compact?: boolean;
   title?: string;
   subtitle?: string;
+  onSample?: (sample: CameraSample) => void;
+}
+
+const span = (a: NormalizedLandmark, b: NormalizedLandmark) => Math.abs(a.x - b.x) || 1e-6;
+/** Observable gaze/head-pose proxy only: no emotion or identity inference. */
+function lookingAtCamera(face: NormalizedLandmark[]): boolean {
+  if (face.length < 478) return false;
+  const iris = (corner1: number, corner2: number, centre: number) =>
+    (face[centre].x - Math.min(face[corner1].x, face[corner2].x)) / span(face[corner1], face[corner2]);
+  const gaze = (iris(33, 133, 468) + iris(362, 263, 473)) / 2;
+  const xs = face.map(point => point.x);
+  const left = Math.min(...xs), width = Math.max(...xs) - left || 1e-6;
+  const yaw = (face[1].x - left) / width;
+  return gaze > 0.38 && gaze < 0.62 && yaw > 0.4 && yaw < 0.6;
 }
 
 const labels: Record<CameraStatus, string> = {
@@ -137,7 +154,10 @@ function drawFace(
   context.stroke();
 }
 
-export default function CameraObserver({ compact = false, title, subtitle }: CameraObserverProps) {
+export default function CameraObserver({ compact = false, title, subtitle, onSample }: CameraObserverProps) {
+  const onSampleRef = useRef(onSample);
+  onSampleRef.current = onSample;
+  const lastCentre = useRef<{ x: number; y: number } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -268,6 +288,9 @@ export default function CameraObserver({ compact = false, title, subtitle }: Cam
               const faceH = Math.max(0.15, bottom - top);
               const isCentered = midX >= 0.35 && midX <= 0.65;
               setStatus(isCentered ? 'centered' : 'off-center');
+              const previous = lastCentre.current;
+              lastCentre.current = { x: midX, y: midY };
+              onSampleRef.current?.({ face: true, eyeContact: lookingAtCamera(face), movement: previous ? Math.hypot(midX - previous.x, midY - previous.y) : 0 });
 
               // Auto-framing & zoom calculation ("take importance area from zoom")
               const mode = zoomModeRef.current;
@@ -296,6 +319,8 @@ export default function CameraObserver({ compact = false, title, subtitle }: Cam
               });
             } else {
               canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+              lastCentre.current = null;
+              onSampleRef.current?.({ face: false, eyeContact: false, movement: 0 });
               setStatus('no-face');
               setTransform({ scale: 1.0, originX: 50, originY: 50, shiftY: 0 });
               setFaceMetrics({

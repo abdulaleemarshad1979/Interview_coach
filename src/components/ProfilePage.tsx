@@ -17,6 +17,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { StudentProfile, Scorecard } from "../types";
+import { getApiUrl } from "../lib/api";
 
 interface ProfilePageProps {
   studentProfile: StudentProfile;
@@ -117,7 +118,7 @@ export default function ProfilePage({
   };
 
   // Fallbacks for profile badge & display image
-  const resolvedProfileImg = profileImage || undefined;
+  const resolvedProfileImg = profileImage ? (profileImage.startsWith("/") ? getApiUrl(profileImage) : profileImage) : undefined;
   // Generate a coloured initials avatar when no photo is available
   const initials = name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
   const initialsColor = `hsl(${[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 360}, 60%, 45%)`;
@@ -393,7 +394,10 @@ export default function ProfilePage({
                     src={resolvedProfileImg}
                     referrerPolicy="no-referrer"
                     onError={() => setProfileImage('')}
-                    alt={name}
+                    alt={`${name} profile photo`}
+                    width={96}
+                    height={96}
+                    decoding="async"
                     className="w-full h-full object-cover"
                   />
                 ) : (

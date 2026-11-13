@@ -31,6 +31,14 @@
       "dest": "/branding/$1"
     },
     {
+      "src": "/(robots\\.txt|sitemap\\.xml)",
+      "dest": "/$1"
+    },
+    {
+      "src": "/(.*\\.(?:svg|png|ico|jpg|webp|woff2))",
+      "dest": "/$1"
+    },
+    {
       "src": "/(.*)",
       "dest": "/index.html"
     }
