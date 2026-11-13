@@ -26,10 +26,13 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Logo and Branding */}
         <button type="button" aria-label="Interview Coach home"
-          onClick={() => onNavigate("landing")} 
+          onClick={() => onNavigate("landing")}
           className="flex items-center gap-2 min-w-0 cursor-pointer group"
           id="nav-logo"
         >
+          {studentProfile?.portal && (
+            <img src="/branding/site-logo.svg" alt="Aditya University Logo" className="h-7 w-auto object-contain" />
+          )}
           <div className="block">
             <span className="font-display font-bold text-sm tracking-tight text-slate-800 group-hover:text-brand-primary transition-colors block leading-none">
               INTERVIEW<span className="text-brand-primary font-medium">COACH</span>
