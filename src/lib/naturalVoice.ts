@@ -2,12 +2,13 @@
 import { apiFetch } from "./api";
 import { chunkSpeech } from "./speechChunks";
 
-export type FemaleVoice = "hannah" | "autumn" | "diana";
+export type FemaleVoice = "Jade-PlayAI" | "Aaliyah-PlayAI" | "Constance-PlayAI" | "Fritz-PlayAI";
 export type VoiceProviderId = "groq" | "browser";
 export const FEMALE_VOICE_PROFILES = [
-  { id: "hannah", label: "Hannah" },
-  { id: "autumn", label: "Autumn" },
-  { id: "diana", label: "Diana" },
+  { id: "Jade-PlayAI", label: "Jade" },
+  { id: "Aaliyah-PlayAI", label: "Aaliyah" },
+  { id: "Constance-PlayAI", label: "Constance" },
+  { id: "Fritz-PlayAI", label: "Fritz" },
 ] as const;
 
 export interface VoiceOptions {
@@ -48,7 +49,7 @@ export type VoiceAudioPlayer = (
 ) => Promise<void>;
 
 const OPTION_KEY = "interview_voice_options_v1";
-const DEFAULT_OPTIONS: VoiceOptions = { voice: "hannah", rate: 1, provider: "groq", allowBrowserFallback: true };
+const DEFAULT_OPTIONS: VoiceOptions = { voice: "Jade-PlayAI", rate: 1, provider: "groq", allowBrowserFallback: true };
 let memoryOptions = { ...DEFAULT_OPTIONS };
 
 function normalizeOptions(value: Partial<VoiceOptions>, previous = DEFAULT_OPTIONS): VoiceOptions {
@@ -237,7 +238,7 @@ export class VoicePlaybackEngine {
   private queue: SpeechJob[] = [];
   private active: SpeechJob | null = null;
   private listeners = new Set<(state: VoicePlaybackState) => void>();
-  private state: VoicePlaybackState = { status: "idle", provider: "groq", voice: "hannah", queued: 0, completedChunks: 0, totalChunks: 0, fallback: false };
+  private state: VoicePlaybackState = { status: "idle", provider: "groq", voice: "Jade-PlayAI", queued: 0, completedChunks: 0, totalChunks: 0, fallback: false };
 
   constructor(
     providers: VoiceSynthesisProvider[] = [groqProvider, browserProvider],

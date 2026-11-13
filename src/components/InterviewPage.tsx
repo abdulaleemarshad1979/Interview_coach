@@ -800,7 +800,7 @@ export default function InterviewPage({
               <select id="ai-voice-profile" aria-label="Female AI interviewer voice" value={voiceOptions.voice}
                 onChange={(e) => setVoiceOptionsState(setVoiceOptions({ voice: e.target.value as VoiceOptions["voice"] }))}
                 className="rounded-lg bg-slate-900 border border-white/20 px-2 py-2 text-xs text-white">
-                <option value="hannah">Hannah</option><option value="autumn">Autumn</option><option value="diana">Diana</option>
+                <option value="Jade-PlayAI">Jade</option><option value="Aaliyah-PlayAI">Aaliyah</option><option value="Constance-PlayAI">Constance</option><option value="Fritz-PlayAI">Fritz</option>
               </select>
               <label className="text-xs text-gray-300" htmlFor="ai-voice-rate">Speed</label>
               <select id="ai-voice-rate" aria-label="AI interviewer playback speed" value={voiceOptions.rate}

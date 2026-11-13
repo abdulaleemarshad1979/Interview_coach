@@ -88,7 +88,7 @@ function tokenUsage(usage: any): TokenUsage {
 async function groqCompletion(options: JsonCompletionOptions): Promise<JsonCompletionResult> {
   const groq = groqClient();
   const model = (options.purpose === 'report' || options.purpose === 'discussion' ? process.env.GROQ_MODEL_REPORT : process.env.GROQ_MODEL_CHAT)
-    || process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+    || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
   const signal = requestSignal(options.signal);
   const params = {
     model, messages: options.messages, response_format: { type: 'json_object' as const },
