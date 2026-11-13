@@ -95,9 +95,12 @@ export async function buildPortalLoginForm(html: string, rollNo: string, passwor
   return { action: new URL(form.attr('action') || portalUrl(portal), portalUrl(portal)).href, body: fields.toString() };
 }
 
-function assertPortalUrl(url: string, portal: CollegePortal) {
+function assertPortalUrl(url: string, portal: CollegePortal, method = 'GET') {
   const parsed = new URL(url);
-  if (parsed.origin !== 'https://info.aec.edu.in' || !parsed.pathname.toLowerCase().startsWith(`/${portal}/`) || parsed.username || parsed.password) {
+  // Photos may live in a folder shared by AUS and ACET; every page and credential POST stays pinned to the selected portal.
+  const photoPath = method === 'GET' && /photo|\.(jpe?g|png|webp)$/i.test(parsed.pathname);
+  const pathAllowed = photoPath || parsed.pathname.toLowerCase().startsWith(`/${portal}/`);
+  if (parsed.origin !== 'https://info.aec.edu.in' || !pathAllowed || parsed.username || parsed.password) {
     throw new PortalError('PORTAL_REDIRECT_REJECTED', 'The college portal returned an unexpected redirect.');
   }
 }
@@ -111,7 +114,7 @@ export function createPortalClient(portal: CollegePortal, fetcher: typeof fetch 
     headers.set('User-Agent', 'InterviewCoach/1.0');
     headers.set('Accept', 'text/html,application/json;q=0.9,*/*;q=0.8');
     for (let redirects = 0; redirects <= 8; redirects++) {
-      assertPortalUrl(url, portal);
+      assertPortalUrl(url, portal, method);
       headers.delete('Cookie');
       if (cookies.size) headers.set('Cookie', [...cookies].map(([key, value]) => `${key}=${value}`).join('; '));
       try {
@@ -186,25 +189,29 @@ export function parsePortalProfileHtml(rawHtml: string, rollNo: string, portal: 
   const image = imgSrcs.find(src => /StudentPhotos\/|student.?photo|profile.?pic|\/Photo\//i.test(src))
     ?? imgSrcs.find(src => new RegExp(rollNo, 'i').test(src));  // fallback: image URL contains the roll number
   const profilePageBase = `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx`;
-  const imageUrl = image ? (() => { try { return new URL(image, profilePageBase).href; } catch { return ''; } })() : '';
+  const imageUrl = image?.startsWith('data:image/') ? image
+    : image ? (() => { try { return new URL(image.trim().replace(/^http:\/\/info\.aec\.edu\.in\//i, 'https://info.aec.edu.in/'), profilePageBase).href; } catch { return ''; } })()
+    // No <img> in the profile markup: try the conventional per-portal photo path; cachePortalPhoto validates the bytes.
+    : `https://info.aec.edu.in/${portal}/StudentPhotos/${encodeURIComponent(rollNo)}.jpg`;
   const totalCells = $('tr').filter((_, el) => $(el).children('td').first().text().trim().toUpperCase() === 'TOTAL').first().children('td');
   const attendanceValue = totalCells.length >= 4 ? parseFloat(totalCells.last().text()) : NaN;
   return { studentId: rollNo, portal, name, department: values.branch || values.department || '',
     classSection: values.section || values['class section'] || '', academicYear: values['academic year'] || '',
     ...(Number.isFinite(attendanceValue) && attendanceValue >= 0 && attendanceValue <= 100 ? { attendance: attendanceValue } : {}),
-    profileImage: imageUrl.startsWith('https://info.aec.edu.in/') ? imageUrl : '', isSynced: true };
+    profileImage: imageUrl.startsWith('https://info.aec.edu.in/') || imageUrl.startsWith('data:image/') ? imageUrl : '', isSynced: true };
 }
 
 export async function cachePortalPhoto<T extends { profileImage: string }>(profile: T, request: (url: string) => Promise<{ status: number; bytes: Buffer; contentType: string }>): Promise<T> {
   if (!profile.profileImage) return profile;
   try {
-    const image = await request(profile.profileImage);
-    const mime = image.contentType.split(';')[0].toLowerCase();
+    const inline = profile.profileImage.match(/^data:image\/[a-z+.-]+;base64,([A-Za-z0-9+/=\s]+)$/i);
+    const image = inline ? { status: 200, bytes: Buffer.from(inline[1], 'base64') } : await request(profile.profileImage);
     const b = image.bytes;
-    const valid = (mime === 'image/jpeg' && b.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) ||
-      (mime === 'image/png' && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) ||
-      (mime === 'image/webp' && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP');
-    if (image.status === 200 && b.length <= 1024 * 1024 && valid) return { ...profile, profileImage: `data:${mime};base64,${b.toString('base64')}` };
+    const mime = b.subarray(0, 3).equals(Buffer.from([255, 216, 255])) ? 'image/jpeg'
+      : b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? 'image/png'
+      : b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP' ? 'image/webp' : '';
+    if (image.status === 200 && b.length <= 1024 * 1024 && mime) return { ...profile, profileImage: `data:${mime};base64,${b.toString('base64')}` };
+    console.warn('[college] Portal photo rejected', { status: image.status, bytes: b.length, inline: !!inline });
   } catch { /* A photo outage must not reject an otherwise verified account. */ }
   return { ...profile, profileImage: '' };
 }

@@ -85,6 +85,8 @@ export interface GitHubRepoAnalysis {
 }
 
 export interface GitHubAnalysisResult {
+  username?: string;
+  recentActivity?: { pushEventsLast90Days: number; lastPushAt: string | null; reposPushedTo: string[] };
   primaryStack: string[];
   repos: GitHubRepoAnalysis[];
   qualitySignals: string[];

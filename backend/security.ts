@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 import mongoose from 'mongoose';
 import { rateLimit } from 'express-rate-limit';
 
-const RateCounter: mongoose.Model<any> = mongoose.models.ApiRateCounter || mongoose.model('ApiRateCounter', new mongoose.Schema({
+const RateCounter: mongoose.Model<any> = mongoose.models.ApiRateCounter || mongoose.model<any>('ApiRateCounter', new mongoose.Schema({
   _id: String, hits: { type: Number, default: 0 }, expiresAt: { type: Date, expires: 0 },
 }));
 

@@ -124,7 +124,8 @@ export default function LiveMeeting({ initialSnapshot, onLeave }: LiveMeetingPro
         if (disposed) return;
         await room.connect(credentials.serverUrl, credentials.token);
         if (disposed) { await room.disconnect(); return; }
-        await room.startAudio();
+        // Autoplay blocking after an async connect must not mark a live connection as failed; the Enable audio button handles it.
+        await room.startAudio().catch(() => {});
         refresh(); playback();
       } catch (failure: any) {
         if (!disposed && failure.name !== "AbortError") { setError(failure.message || "Unable to connect to the discussion. Please retry."); setConnection("disconnected"); }

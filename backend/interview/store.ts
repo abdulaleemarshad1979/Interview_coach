@@ -42,7 +42,7 @@ const schema = new mongoose.Schema({
 schema.index({ ownerId: 1, _id: -1 });
 schema.index({ ownerId: 1, updatedAt: -1 });
 schema.index({ ownerId: 1, createdAt: -1, _id: -1 });
-const InterviewDocument: mongoose.Model<any> = mongoose.models.AdaptiveInterviewSession || mongoose.model('AdaptiveInterviewSession', schema);
+const InterviewDocument: mongoose.Model<any> = mongoose.models.AdaptiveInterviewSession || mongoose.model<any>('AdaptiveInterviewSession', schema);
 
 function view(document: any): StoredInterview | null {
   if (!document) return null;
