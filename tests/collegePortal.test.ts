@@ -5,8 +5,8 @@ import { gzipSync } from 'node:zlib';
 import { buildPortalLoginForm, createPortalClient, encryptPortalPassword, parsePortalProfileHtml, validatePortalLogin, verifyCollegePortal } from '../backend/collegePortal';
 import { loginHtml, officialPortalFixture, profileHtml } from './fixtures/collegePortal';
 
-test('ACET submission preserves decoded ASP.NET state and selects only the student button', () => {
-  const form = buildPortalLoginForm(loginHtml, '24P31A9999', 'test & password', 'acet');
+test('ACET submission preserves decoded ASP.NET state and selects only the student button', async () => {
+  const form = await buildPortalLoginForm(loginHtml, '24P31A9999', 'test & password', 'acet');
   const fields = new URLSearchParams(form.body);
   assert.equal(form.action, 'https://info.aec.edu.in/acet/default.aspx');
   assert.equal(fields.get('__VIEWSTATE'), 'state&value');
@@ -19,12 +19,12 @@ test('ACET submission preserves decoded ASP.NET state and selects only the stude
   assert.equal(form.body.includes('test & password'), false);
 });
 
-test('AUS uses its actual fields and reports required Turnstile instead of bad credentials', () => {
+test('AUS uses its actual fields and reports required Turnstile instead of bad credentials', async () => {
   const aus = `<form><input name="__VIEWSTATE" type="hidden"><input name="txtUserId"><input name="txtPassword" type="password">
   <input name="hdnpwd" type="hidden"><input name="userType" type="radio" value="rbtParent" checked>
   <input name="userType" type="radio" value="rbtEmployee"><div class="cf-turnstile"></div></form>`;
-  assert.throws(() => buildPortalLoginForm(aus, 'AUS9999', 'test-password', 'aus'), { code: 'PORTAL_VERIFICATION_REQUIRED', status: 503 });
-  const fields = new URLSearchParams(buildPortalLoginForm(aus.replace('<div class="cf-turnstile"></div>', ''), 'AUS9999', 'test-password', 'aus').body);
+  await assert.rejects(buildPortalLoginForm(aus, 'AUS9999', 'test-password', 'aus'), { code: 'PORTAL_VERIFICATION_REQUIRED', status: 503 });
+  const fields = new URLSearchParams((await buildPortalLoginForm(aus.replace('<div class="cf-turnstile"></div>', ''), 'AUS9999', 'test-password', 'aus')).body);
   assert.equal(fields.get('userType'), 'rbtStudent');
   assert.equal(fields.get('txtUserId'), 'AUS9999');
   assert.equal(fields.get('btnLogin'), 'LOGIN');
