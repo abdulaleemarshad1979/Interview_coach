@@ -132,7 +132,9 @@ test('portal photos: shared folders, http links, inline data and loose content t
   const row = '<table><tr><td>Name</td><td>:</td><td>Example Student</td></tr></table>';
   assert.equal(parsePortalProfileHtml(`${row}<img src="../../StudentPhotos/X1.JPG">`, 'X1', 'aus').profileImage, 'https://info.aec.edu.in/StudentPhotos/X1.JPG');
   assert.equal(parsePortalProfileHtml(`${row}<img src="http://info.aec.edu.in/acet/StudentPhotos/X1.jpg">`, 'X1', 'acet').profileImage, 'https://info.aec.edu.in/acet/StudentPhotos/X1.jpg');
-  assert.equal(parsePortalProfileHtml(row, 'X1', 'acet').profileImage, 'https://info.aec.edu.in/acet/StudentPhotos/X1.jpg');
+  assert.equal(parsePortalProfileHtml(row, 'X1', 'acet').profileImage, 'https://info.aec.edu.in/acet/student_photos/X1.jpg');
+  // Escaped quotes as observed in production AjaxPro output.
+  assert.equal(parsePortalProfileHtml(`${row}<img src="\\'http://info.aec.edu.in/acet/student_photos/X1.jpg\\'">`, 'X1', 'acet').profileImage, 'https://info.aec.edu.in/acet/student_photos/X1.jpg');
   const jpeg = Buffer.from([255, 216, 255, 224, 9]);
   const inline = await cachePortalPhoto({ profileImage: `data:image/jpg;base64,${jpeg.toString('base64')}` }, async () => { throw new Error('no fetch'); });
   assert.equal(inline.profileImage, `data:image/jpeg;base64,${jpeg.toString('base64')}`);
