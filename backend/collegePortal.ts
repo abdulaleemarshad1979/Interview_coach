@@ -181,8 +181,12 @@ export function parsePortalProfileHtml(rawHtml: string, rollNo: string, portal: 
   const name = values.name || values['student name'];
   const returnedRoll = values['roll no'] || values['roll number'] || values['rollno'];
   if (!name || (returnedRoll && returnedRoll.toUpperCase() !== rollNo)) throw new PortalError('PORTAL_PROFILE_INVALID', 'The college portal did not return the requested student profile.');
-  const image = $('img[src]').toArray().map(el => $(el).attr('src')!).find(src => /StudentPhotos\//i.test(src));
-  const imageUrl = image ? new URL(image, `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx`).href : '';
+  // Broaden photo detection: match StudentPhotos/, student_photo, profile_pic, /Photo/ patterns.
+  const imgSrcs = $('img[src]').toArray().map(el => $(el).attr('src')!).filter(Boolean);
+  const image = imgSrcs.find(src => /StudentPhotos\/|student.?photo|profile.?pic|\/Photo\//i.test(src))
+    ?? imgSrcs.find(src => new RegExp(rollNo, 'i').test(src));  // fallback: image URL contains the roll number
+  const profilePageBase = `https://info.aec.edu.in/${portal}/Academics/StudentProfile.aspx`;
+  const imageUrl = image ? (() => { try { return new URL(image, profilePageBase).href; } catch { return ''; } })() : '';
   const totalCells = $('tr').filter((_, el) => $(el).children('td').first().text().trim().toUpperCase() === 'TOTAL').first().children('td');
   const attendanceValue = totalCells.length >= 4 ? parseFloat(totalCells.last().text()) : NaN;
   return { studentId: rollNo, portal, name, department: values.branch || values.department || '',

@@ -118,6 +118,9 @@ export default function ProfilePage({
 
   // Fallbacks for profile badge & display image
   const resolvedProfileImg = profileImage || undefined;
+  // Generate a coloured initials avatar when no photo is available
+  const initials = name.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
+  const initialsColor = `hsl(${[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % 360}, 60%, 45%)`;
 
   // Use active scorecard, or fall back to realistic dashboard values
   const activeScorecard = scorecardHistory.find(h => h.id === activeReportId) || scorecard || null;
@@ -386,15 +389,18 @@ export default function ProfilePage({
               <div className="absolute inset-0 bg-gradient-to-tr from-brand-primary to-brand-accent rounded-full blur-md opacity-30" />
               <div className="relative w-24 h-24 rounded-full border-2 border-brand-primary overflow-hidden bg-slate-800 flex items-center justify-center shadow-lg">
                 {resolvedProfileImg ? (
-                  <img 
+                  <img
                     src={resolvedProfileImg}
                     referrerPolicy="no-referrer"
                     onError={() => setProfileImage('')}
-                    alt={name} 
+                    alt={name}
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <User className="w-10 h-10 text-slate-400" />
+                  <span
+                    className="w-full h-full flex items-center justify-center text-2xl font-bold text-white select-none"
+                    style={{ background: initialsColor }}
+                  >{initials || <User className="w-10 h-10 text-slate-400" />}</span>
                 )}
               </div>
             </div>
