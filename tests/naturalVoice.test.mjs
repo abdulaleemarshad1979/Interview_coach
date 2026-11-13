@@ -129,3 +129,14 @@ test("synthesis prefetch is bounded to one chunk ahead", async () => {
   engine.stop();
   assert.equal((await playback).status, "cancelled");
 });
+
+test("a failed browser fallback keeps the primary provider's reason and markdown is not spoken", async () => {
+  const spoken = [];
+  const groq = { id: "groq", async synthesize() { throw new Error("Groq speech failed (model_terms_required)."); } };
+  const browser = { id: "browser", async synthesize(text) { spoken.push(text); return { kind: "browser", text }; } };
+  const engine = new VoicePlaybackEngine([groq, browser], async () => { throw new Error("Browser speech failed (synthesis-failed)"); });
+  const result = await engine.speak("**Tell** me about `React`.", { ...options, allowBrowserFallback: true });
+  assert.equal(result.status, "failed");
+  assert.match(result.error, /model_terms_required.*Browser fallback also failed: Browser speech failed \(synthesis-failed\)/);
+  assert.deepEqual(spoken, ["Tell me about React."]);
+});

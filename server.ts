@@ -438,7 +438,11 @@ app.post("/api/voice/synthesize", requireAuth, async (req, res) => {
   } catch (error: any) {
     const status = error?.status === 429 ? 429 : 502;
     console.error("[voice] TTS provider failed", { status: error?.status || 0, model, message: String(error?.message || "").slice(0, 300) });
-    return res.status(status).json({ error: "Speech generation temporarily unavailable." });
+    // Provider codes such as model_terms_required or invalid_api_key are actionable and contain no secrets.
+    const code = String(error?.error?.error?.code || error?.error?.code || "").slice(0, 60);
+    const hint = code === "model_terms_required" ? ` Accept the ${model} terms in the Groq console (console.groq.com/playground?model=${model}).`
+      : error?.status === 401 ? " The server's GROQ_API_KEY is invalid." : "";
+    return res.status(status).json({ error: `Groq speech failed${code ? ` (${code})` : error?.status ? ` (HTTP ${error.status})` : ""}.${hint}`, code: code || "TTS_PROVIDER_FAILED" });
   }
 });
 

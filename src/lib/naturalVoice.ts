@@ -114,9 +114,10 @@ const groqProvider: VoiceSynthesisProvider = {
           const configuredError = response.status === 503;
           const retryable = response.status === 429 || response.status === 502 || response.status === 504;
           const seconds = Number(response.headers.get("Retry-After"));
+          const detail = await response.json().then((body: any) => typeof body?.error === "string" ? body.error : "").catch(() => "");
           const retryMs = Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1000, 3000) : 400;
           throw new VoiceServiceError(
-            configuredError ? "Groq speech is unavailable. Configure the provider or select browser speech." : `Speech service returned HTTP ${response.status}.`,
+            configuredError ? "Groq speech is unavailable. Configure the provider or select browser speech." : detail || `Speech service returned HTTP ${response.status}.`,
             retryable, retryMs,
           );
         }
@@ -270,7 +271,7 @@ async function playBrowserVoice(text: string, options: VoiceOptions, signal: Abo
 
 /** Markdown symbols are read aloud literally by TTS engines. */
 export function speakableText(text: string): string {
-  return (text || "").replace(/```[\s\S]*?```/g, " ").replace(/[`*#_>~|]+/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\s+/g, " ").trim();
+  return (text || "").replace(/```[\s\S]*?```/g, " ").replace(/[`*#_>~|]+/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\s+/g, " ").replace(/\s+([.,!?;:])/g, "$1").trim();
 }
 
 interface SpeechJob {
@@ -283,6 +284,8 @@ interface SpeechJob {
   result: VoicePlaybackResult;
   settled: boolean;
   started: boolean;
+  /** Why the selected provider failed before browser fallback; kept so the fallback error does not hide it. */
+  primaryError?: string;
 }
 
 export class VoicePlaybackEngine {
@@ -378,6 +381,7 @@ export class VoicePlaybackEngine {
             if (provider!.id !== "groq" || !job.options.allowBrowserFallback) throw error;
             const fallback = this.providers.get("browser");
             if (!fallback) throw error;
+            job.primaryError ||= error instanceof Error ? error.message : String(error);
             provider = fallback;
             sound = await provider.synthesize(part, job.options, signal);
           }
@@ -410,7 +414,8 @@ export class VoicePlaybackEngine {
       this.settle(job, "completed");
     } catch (error) {
       if (signal.aborted || job.settled) return;
-      const message = error instanceof Error ? error.message : "Speech playback failed. Try replaying the question.";
+      const failure = error instanceof Error ? error.message : "Speech playback failed. Try replaying the question.";
+      const message = job.primaryError ? `${job.primaryError.replace(/[.\s]+$/, "")}. Browser fallback also failed: ${failure}` : failure;
       job.controller.abort();
       this.publish({ status: "error", error: message });
       this.settle(job, "failed", message);
