@@ -198,7 +198,7 @@ export default function LandingPage({ onNavigate, isLoggedIn }: LandingPageProps
 
       {/* Humble University footer */}
       <footer className="w-full border-t border-white/5 py-8 text-center text-xs text-gray-500 font-mono">
-        © 2026 University Career Center Tech Lab • Powered by Gemini Flash
+        © 2026 Interview Coach • Practice with purpose
       </footer>
     </div>
   );

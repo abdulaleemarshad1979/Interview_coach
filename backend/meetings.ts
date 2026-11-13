@@ -24,6 +24,7 @@ const memberSchema = new mongoose.Schema({
   role: { type: String, enum: ["HOST", "PARTICIPANT"], required: true },
   status: { type: String, enum: ["WAITING", "ADMITTED", "DENIED", "LEFT"], required: true },
   transcriptConsent: { type: Boolean, default: false },
+  reportSharingConsent: { type: Boolean, default: false },
   consentVersion: String,
   consentGrantedAt: Date,
   consentRevokedAt: Date,
@@ -93,6 +94,7 @@ const consentSchema = new mongoose.Schema({
   roomCode: { type: String, required: true, index: true },
   userId: { type: String, required: true },
   granted: { type: Boolean, required: true },
+  reportSharingConsent: { type: Boolean, default: false },
   noticeVersion: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
   expiresAt: { type: Date, required: true, index: { expires: 0 } },
@@ -298,7 +300,7 @@ export function createMeetingRouter(options: MeetingRouterOptions) {
     rubric: room.rubric, retentionDays: room.retentionDays, startedAt: room.startedAt, endedAt: room.endedAt || null, expiresAt: room.expiresAt });
   const publicMember = (member: any, own = false) => ({ identity: member.identity, displayName: member.displayName, role: member.role,
     status: member.status, handRaised: member.handRaised, transcriptConsent: member.transcriptConsent,
-    joinedAt: member.joinedAt, ...(own ? { report: member.report || null, consentVersion: member.consentVersion } : {}) });
+    joinedAt: member.joinedAt, ...(own ? { report: member.report || null, consentVersion: member.consentVersion, reportSharingConsent: member.reportSharingConsent === true } : {}) });
   const snapshot = async (room: any, member: any) => {
     const admitted = member.status === "ADMITTED" || (room.status === "ENDED" && member.status === "LEFT");
     const isHost = room.hostUserId === member.userId;
@@ -319,8 +321,8 @@ export function createMeetingRouter(options: MeetingRouterOptions) {
       events: events.reverse().map((event: any) => ({ id: event.id, type: event.type, speakerName: event.speakerName, text: event.text, createdAt: event.createdAt })),
       ...(isHost ? { reports: participants.filter((item: any) => item.report).map((item: any) => ({ identity: item.identity, displayName: item.displayName, report: item.report })) } : {}) };
   };
-  const recordConsent = async (room: any, userId: string, granted: boolean) => {
-    await MeetingConsent.create({ roomCode: room.code, userId, granted, noticeVersion: MEETING_CONSENT_VERSION, expiresAt: room.expiresAt });
+  const recordConsent = async (room: any, userId: string, granted: boolean, reportSharingConsent = false) => {
+    await MeetingConsent.create({ roomCode: room.code, userId, granted, reportSharingConsent, noticeVersion: MEETING_CONSENT_VERSION, expiresAt: room.expiresAt });
   };
 
   // Status never exposes provider credentials or needs a functioning database.
@@ -339,6 +341,7 @@ export function createMeetingRouter(options: MeetingRouterOptions) {
     const displayName = cleanText(req.body.displayName || String(user.user_metadata?.full_name || user.user_metadata?.name || user.email || "Participant"), 1, 80, "Display name");
     const waitingRoom = req.body.waitingRoom === undefined ? true : requireBoolean(req.body.waitingRoom, "Waiting room");
     const transcriptConsent = requireBoolean(req.body.transcriptConsent, "Transcription consent");
+    const reportSharingConsent = transcriptConsent && req.body.shareWithFaculty === true;
     const observerMode = req.body.observerMode || "PASSIVE";
     if (!["OFF", "PASSIVE", "ACTIVE"].includes(observerMode)) fail(400, "INVALID_INPUT", "Select a supported observer mode.");
     const retentionDays = req.body.retentionDays ?? 7;
@@ -354,9 +357,9 @@ export function createMeetingRouter(options: MeetingRouterOptions) {
     const code = crypto.randomBytes(6).toString("hex").toUpperCase();
     const expiresAt = new Date(Date.now() + retentionDays * 86_400_000);
     const room = await MeetingRoom.create({ code, title, topic, hostUserId: user.id, waitingRoom, observerMode, rubric, retentionDays, passcodeHash, passcodeSalt, expiresAt });
-    const member = await MeetingMember.create({ roomCode: code, userId: user.id, identity: identityOf(user.id), displayName, role: "HOST", status: "ADMITTED", transcriptConsent,
+    const member = await MeetingMember.create({ roomCode: code, userId: user.id, identity: identityOf(user.id), displayName, role: "HOST", status: "ADMITTED", transcriptConsent, reportSharingConsent,
       consentVersion: MEETING_CONSENT_VERSION, ...(transcriptConsent ? { consentGrantedAt: new Date() } : {}), expiresAt });
-    await recordConsent(room, user.id, transcriptConsent);
+    await recordConsent(room, user.id, transcriptConsent, reportSharingConsent);
     res.status(201).json(await snapshot(room.toObject(), member.toObject()));
   }));
   router.post("/:code/join", route(async (req, res, user) => {
@@ -372,15 +375,16 @@ export function createMeetingRouter(options: MeetingRouterOptions) {
     }
     const displayName = cleanText(req.body.displayName || existing?.displayName || String(user.user_metadata?.full_name || user.email || "Participant"), 1, 80, "Display name");
     const transcriptConsent = requireBoolean(req.body.transcriptConsent, "Transcription consent");
+    const reportSharingConsent = transcriptConsent && req.body.shareWithFaculty === true;
     const role = room.hostUserId === user.id ? "HOST" : "PARTICIPANT";
     const status = role === "HOST" || existing?.status === "ADMITTED" || !room.waitingRoom ? "ADMITTED" : "WAITING";
     const now = new Date();
     const member = await MeetingMember.findOneAndUpdate({ roomCode: room.code, userId: user.id }, {
-      $set: { displayName, role, status, transcriptConsent, consentVersion: MEETING_CONSENT_VERSION, lastSeenAt: now,
+      $set: { displayName, role, status, transcriptConsent, reportSharingConsent, consentVersion: MEETING_CONSENT_VERSION, lastSeenAt: now,
         ...(transcriptConsent ? { consentGrantedAt: existing?.transcriptConsent ? existing.consentGrantedAt : now } : { consentRevokedAt: now }), expiresAt: room.expiresAt },
       $setOnInsert: { identity: identityOf(user.id), joinedAt: now, dataRevision: 0 },
     }, { upsert: true, returnDocument: "after" }).lean() as any;
-    await recordConsent(room, user.id, transcriptConsent);
+    await recordConsent(room, user.id, transcriptConsent, reportSharingConsent);
     res.json(await snapshot(room, member));
   }));
   router.get("/:code", route(async (req, res, user) => {
@@ -419,9 +423,9 @@ export function createMeetingRouter(options: MeetingRouterOptions) {
     const room = await roomOf(req.params.code);
     await memberOf(room, user.id);
     const granted = requireBoolean(req.body.granted, "Consent");
-    await recordConsent(room, user.id, granted);
+    await recordConsent(room, user.id, granted, granted && req.body.shareWithFaculty === true);
     const now = new Date();
-    await MeetingMember.updateOne({ roomCode: room.code, userId: user.id }, { $set: { transcriptConsent: granted, consentVersion: MEETING_CONSENT_VERSION,
+    await MeetingMember.updateOne({ roomCode: room.code, userId: user.id }, { $set: { transcriptConsent: granted, reportSharingConsent: granted && req.body.shareWithFaculty === true, consentVersion: MEETING_CONSENT_VERSION,
       ...(granted ? { consentGrantedAt: now } : { consentRevokedAt: now }) } });
     if (!granted) await MeetingTranscript.deleteMany({ roomCode: room.code, userId: user.id, status: "TRANSCRIBING" });
     res.json({ granted, consentVersion: MEETING_CONSENT_VERSION });
@@ -584,7 +588,7 @@ export function createMeetingRouter(options: MeetingRouterOptions) {
     if (all) hostOnly(room, user.id);
     const filter = { roomCode: room.code, ...(all ? {} : { userId: user.id }) };
     if (all) await MeetingRoom.updateOne({ code: room.code }, { $inc: { dataRevision: 1 } });
-    await MeetingMember.updateMany(filter, { $inc: { dataRevision: 1 }, $set: { report: null, transcriptConsent: false, consentRevokedAt: new Date() } });
+    await MeetingMember.updateMany(filter, { $inc: { dataRevision: 1 }, $set: { report: null, transcriptConsent: false, reportSharingConsent: false, consentRevokedAt: new Date() } });
     await Promise.all([MeetingTranscript.deleteMany(filter), MeetingEvent.deleteMany(filter)]);
     res.json({ success: true, deleted: all ? "All discussion transcripts, chat, and reports" : "Your discussion transcripts, chat, and report" });
   }));

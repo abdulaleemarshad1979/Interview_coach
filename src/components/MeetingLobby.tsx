@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Check, Clock3, KeyRound, Loader2, ShieldCheck, U
 import { StudentProfile } from "../types";
 import { formatMeetingId, meetingRequest, postMeeting, type MeetingSnapshot, type MeetingStatus } from "../lib/meetingApi";
 import LiveMeeting from "./LiveMeeting";
+import CameraObserver from "./CameraObserver";
 
 interface MeetingLobbyProps {
   studentProfile: StudentProfile;
@@ -27,6 +28,7 @@ export default function MeetingLobby({ studentProfile, onNavigate }: MeetingLobb
   const [observerMode, setObserverMode] = useState<"OFF" | "PASSIVE" | "ACTIVE">("PASSIVE");
   const [retentionDays, setRetentionDays] = useState(7);
   const [consent, setConsent] = useState(false);
+  const [shareWithFaculty, setShareWithFaculty] = useState(false);
   const [weights, setWeights] = useState([30, 25, 25, 20]);
   const [status, setStatus] = useState<MeetingStatus | null>(null);
   const [recent, setRecent] = useState<Array<Pick<MeetingSnapshot, "room" | "me">>>([]);
@@ -53,8 +55,8 @@ export default function MeetingLobby({ studentProfile, onNavigate }: MeetingLobb
       const rubricIds = ["argumentQuality", "topicUnderstanding", "communicationClarity", "collaboration"];
       const path = mode === "CREATE" ? "/" : `/${code.replace(/[-\s]/g, "").toUpperCase()}/join`;
       const result = await postMeeting<MeetingSnapshot>(path, mode === "CREATE"
-        ? { title, topic, displayName, passcode, waitingRoom, observerMode, retentionDays, transcriptConsent: consent, rubric: rubricIds.map((id, index) => ({ id, weight: weights[index] })) }
-        : { displayName, passcode, transcriptConsent: consent });
+        ? { title, topic, displayName, passcode, waitingRoom, observerMode, retentionDays, transcriptConsent: consent, shareWithFaculty, rubric: rubricIds.map((id, index) => ({ id, weight: weights[index] })) }
+        : { displayName, passcode, transcriptConsent: consent, shareWithFaculty });
       setSnapshot(result);
     } catch (failure: any) { setError(failure.message); }
     finally { setBusy(false); }
@@ -107,11 +109,13 @@ export default function MeetingLobby({ studentProfile, onNavigate }: MeetingLobb
             <label className="flex items-start gap-3 text-sm leading-6"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1.5 h-4 w-4 shrink-0 accent-blue-700" /><span>I consent to AI transcription and analysis of <strong>my microphone</strong> for this discussion.</span></label>
             <p className="mt-2 pl-7 text-xs leading-5 text-slate-600">If the observer is enabled, consented speech is transcribed with your speaker label. Admitted participants can see live transcripts; you and the host can see your report. Audio chunks are sent to the configured speech provider and are not saved as recordings. You can withdraw consent and delete your data in the meeting. Joining without consent keeps your speech out of AI analysis.</p>
           </div>
+          <label className="flex items-start gap-3 text-sm"><input type="checkbox" checked={shareWithFaculty} disabled={!consent} onChange={e => setShareWithFaculty(e.target.checked)} />Share my assessment report with my assigned class proctors and super admin.</label>
           <button type="submit" disabled={busy || loading || !status?.configured || (mode === "CREATE" && weights.reduce((sum, weight) => sum + weight, 0) !== 100)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-3.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">{busy || loading ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} />}{mode === "CREATE" ? "Create discussion" : "Request to join"}</button>
           <p className="text-center text-xs leading-5 text-slate-500">Your microphone and camera start off. Enable them when you are ready.</p>
         </form>
       </section>
       <aside className="space-y-5">
+        <CameraObserver compact title="Camera & framing check" subtitle="Test face, eyes, and cheekbone tracking before your discussion" />
         <section className="rounded-2xl border border-slate-200 bg-slate-900 p-6 text-white"><div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-white/10"><Users size={22} /></div><h2 className="text-xl font-semibold">A room for better conversations</h2><div className="mt-5 space-y-4 text-sm text-slate-300">{["Share an invitation with your group.", "Check your microphone and camera controls.", "Discuss the topic and build on each other’s ideas.", "Review feedback with actual transcript evidence."].map((item) => <p key={item} className="flex items-start gap-3"><Check size={17} className="mt-0.5 shrink-0 text-blue-300" />{item}</p>)}</div></section>
         <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="flex items-center gap-2 text-base font-semibold"><Clock3 size={18} /> Your discussions</h2>{loading ? <p className="mt-5 text-sm text-slate-500">Loading your history…</p> : recent.length === 0 ? <p className="mt-5 text-sm leading-6 text-slate-500">You haven’t joined a discussion yet. Start a room or use an invitation from your host.</p> : <div className="mt-4 space-y-2">{recent.map((item) => <button key={item.room.code} disabled={busy} onClick={() => void resume(item)} className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 text-left hover:border-blue-300 hover:bg-blue-50/50"><div className="min-w-0"><p className="truncate text-sm font-medium">{item.room.title}</p><p className="mt-1 font-mono text-xs text-slate-500">{formatMeetingId(item.room.code)}</p><p className="mt-1 text-xs text-slate-500">{item.room.status === "OPEN" ? item.me.status === "WAITING" ? "Waiting for admission" : "Discussion open" : "View retained report"}</p></div><Video size={18} className="shrink-0 text-slate-500" /></button>)}</div>}</section>
       </aside>

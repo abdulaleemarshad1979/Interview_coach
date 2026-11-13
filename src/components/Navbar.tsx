@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { GraduationCap, LogOut, Code, User, Settings, Award } from "lucide-react";
 import { StudentProfile, FacultyProfile, AdminProfile } from "../types";
 
@@ -11,6 +11,13 @@ interface NavbarProps {
   onLogout: () => void;
 }
 
+function StudentAvatar({ src }: { src?: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return src && !failed ? <img src={src} alt="" onError={() => setFailed(true)} className="w-5 h-5 rounded-full object-cover border border-white/10" />
+    : <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-white/5"><User className="w-2.5 h-2.5 text-brand-primary" /></div>;
+}
+
 export default function Navbar({ studentProfile, facultyProfile, adminProfile, currentView, onNavigate, onLogout }: NavbarProps) {
   return (
     <header id="app-navbar" className="glass-nav sticky top-0 z-50 w-full px-3 sm:px-6 py-4 transition-all duration-300">
@@ -21,24 +28,11 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
           className="flex items-center gap-2 min-w-0 cursor-pointer group"
           id="nav-logo"
         >
-          <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-slate-100 shadow-xs">
-            <img 
-              src="https://www.adityauniversity.in/public/frontend/assets/images/site-logo.svg" 
-              alt="Aditya University Logo" 
-              className="h-9 w-24 sm:w-auto max-w-full object-contain"
-            />
-            <div className="hidden sm:block h-6 w-[1.5px] bg-slate-200" />
-            <img 
-              src="https://www.adityauniversity.in/public/frontend/assets/images/naac-logo.svg" 
-              alt="NAAC Logo" 
-              className="hidden sm:block h-8 object-contain"
-            />
-          </div>
-          <div className="hidden md:block">
+          <div className="block">
             <span className="font-display font-bold text-sm tracking-tight text-slate-800 group-hover:text-brand-primary transition-colors block leading-none">
               INTERVIEW<span className="text-brand-primary font-medium">COACH</span>
             </span>
-            <span className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block mt-1">Aditya University Portal</span>
+            <span className="text-[9px] font-mono tracking-wider text-slate-500 uppercase block mt-1">Practice. Reflect. Improve.</span>
           </div>
         </button>
 
@@ -159,17 +153,7 @@ export default function Navbar({ studentProfile, facultyProfile, adminProfile, c
                   }`}
                   title="View & Sync College Profile"
                 >
-                  {studentProfile.profileImage ? (
-                    <img 
-                      src={studentProfile.profileImage} 
-                      alt="avatar" 
-                      className="w-5 h-5 rounded-full object-cover border border-white/10"
-                    />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center border border-white/5 group-hover:border-brand-primary/20">
-                      <User className="w-2.5 h-2.5 text-brand-primary" />
-                    </div>
-                  )}
+                  <StudentAvatar src={studentProfile.profileImage} />
                   <span className="hidden sm:block font-mono text-[11px] max-w-24 truncate group-hover:text-white transition-colors">
                     {studentProfile.name ? studentProfile.name.split(" ")[0] : studentProfile.studentId}
                   </span>

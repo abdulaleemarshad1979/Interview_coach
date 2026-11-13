@@ -1,5 +1,6 @@
 node_modules/
 dist/
+public/vision/wasm/
 .env
 .env*.local
 .vercel/

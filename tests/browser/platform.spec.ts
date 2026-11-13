@@ -1,47 +1,75 @@
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 const password = 'browser-test-password';
-async function createAccount(request: APIRequestContext, name: string) {
-  const email = `${name.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now()}@example.com`;
-  const response = await request.post('/api/auth/signup', { data: { email, password, user_metadata: { student_name: name } } });
-  expect(response.status()).toBe(201);
-  return { email, body: await response.json() };
+let nextRollNumber = 8000;
+async function createAccount(_request: APIRequestContext, _name: string) {
+  return { rollNo: `24P31A${++nextRollNumber}` };
 }
-async function signIn(page: Page, email: string, path = '/') {
+async function signIn(page: Page, rollNo: string, path = '/') {
   await page.goto(path);
   if (path === '/') await page.locator('#btn-nav-login').click();
-  await page.getByRole('button', { name: 'Sign in with an Interview Coach account' }).click();
-  await page.getByLabel('Email', { exact: true }).fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(password);
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Student sign in' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in with an Interview Coach account' })).toHaveCount(0);
+  await page.getByRole('button', { name: /^acet$/i }).click();
+  await page.getByLabel('Student roll number').fill(rollNo);
+  await page.getByLabel('ECAP password').fill(password);
+  await page.getByRole('button', { name: 'Sign in with college portal' }).click();
   await expect(page.getByRole('button', { name: 'Live Interview', exact: true })).toBeVisible();
 }
 
-test('real signup/login, saved interview and explicit missing-provider failure', async ({ page, request }) => {
+test('college portal login, saved interview and explicit missing-provider failure', async ({ page, request }) => {
   const account = await createAccount(request, 'Interview candidate');
-  await signIn(page, account.email);
+  await signIn(page, account.rollNo);
+  await expect.poll(() => page.getByAltText('Aditya University Logo').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Live Interview', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Prepare for your next conversation' })).toBeVisible();
   await page.getByLabel('Target role', { exact: true }).fill('Backend engineer');
   await page.getByRole('button', { name: 'Start interview', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Groq is not configured');
   await expect(page.getByText('0 answers saved')).toBeVisible();
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await expect.poll(() => page.getByLabel('Your live camera preview').evaluate((video: HTMLVideoElement) => video.videoWidth)).toBeGreaterThan(0);
+  await expect(page.getByText('Camera on · no face in frame')).toBeVisible({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Turn camera off' }).click();
+  await expect(page.getByText('Camera is off')).toBeVisible();
   await page.getByRole('button', { name: 'Session history', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Backend engineer', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Begin questions' })).toBeVisible();
 });
 
+test('camera observer tracks a visible face using local model assets', async ({ page, request }) => {
+  const account = await createAccount(request, 'Camera candidate');
+  await signIn(page, account.rollNo);
+  await page.getByRole('button', { name: 'Live Interview', exact: true }).click();
+  await page.getByRole('button', { name: 'Start interview', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start camera' })).toBeVisible();
+  const image = `data:image/png;base64,${readFileSync('assets/abdul_profile.png').toString('base64')}`;
+  await page.evaluate(async (source) => {
+    const portrait = await createImageBitmap(await (await fetch(source)).blob());
+    const canvas = document.createElement('canvas');
+    canvas.width = 640; canvas.height = 480;
+    const context = canvas.getContext('2d')!;
+    const paint = () => context.drawImage(portrait, 0, -80, 640, 640);
+    paint(); window.setInterval(paint, 100);
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, value: async () => canvas.captureStream(10) });
+  }, image);
+  await page.getByRole('button', { name: 'Start camera' }).click();
+  await expect(page.getByText('Face tracked · centered in frame')).toBeVisible({ timeout: 30000 });
+  await expect.poll(() => page.locator('.coach-camera-preview canvas').evaluate((canvas: HTMLCanvasElement) => canvas.width)).toBeGreaterThan(0);
+});
+
 test('invitation routes a signed-in participant directly to the join lobby', async ({ page, request }) => {
   const account = await createAccount(request, 'Invited candidate');
-  await signIn(page, account.email, '/?meeting=ABCDEF123456');
+  await signIn(page, account.rollNo, '/?meeting=ABCDEF123456');
   await expect(page.getByRole('tab', { name: 'Join a discussion' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByLabel('Meeting ID', { exact: true })).toHaveValue('ABCDEF123456');
 });
 
 test('responsive configuration has no horizontal overflow at 320, 768, 1024 and 1440px', async ({ page, request }) => {
   const account = await createAccount(request, 'Responsive candidate');
-  await signIn(page, account.email);
+  await signIn(page, account.rollNo);
   await page.getByRole('button', { name: 'Live Interview', exact: true }).click();
   for (const width of [320, 768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -61,7 +89,7 @@ test('four real browser clients connect to local SFU, receive video, mute indepe
     const accounts = [];
     for (let i = 0; i < 4; i++) {
       const account = await createAccount(request, `Participant ${i + 1}`); accounts.push(account);
-      await signIn(pages[i], account.email);
+      await signIn(pages[i], account.rollNo);
       await pages[i].getByRole('button', { name: 'Group Discussion', exact: true }).click();
     }
     const host = pages[0];

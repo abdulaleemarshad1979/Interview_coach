@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { createPasswordHash, verifyPassword, PASSWORD_SCHEME, sanitizeMetadata, configuredRoles, canAccessProfile, validateCredentials } from '../backend/authSafety.ts';
+import { createPasswordHash, verifyPassword, PASSWORD_SCHEME, sanitizeMetadata, configuredRoles, effectiveRoles, canAccessProfile, validateCredentials } from '../backend/authSafety.ts';
 
 test('versioned password hashes verify and legacy hashes remain eligible for migration', async () => {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -26,8 +26,14 @@ test('students cannot read or write another profile and staff reads do not grant
   const student = { id: 'user1', email: 'roll1@aec.edu.in', user_metadata: { roll_number: 'ROLL1' } };
   assert.equal(canAccessProfile(student, 'ROLL1', true), true);
   assert.equal(canAccessProfile(student, 'ROLL2'), false);
-  assert.equal(canAccessProfile({ ...student, user_metadata: { is_faculty: true } }, 'ROLL2'), true);
+  assert.equal(canAccessProfile({ ...student, user_metadata: { is_faculty: true } }, 'ROLL2'), false);
   assert.equal(canAccessProfile({ ...student, user_metadata: { is_faculty: true } }, 'ROLL2', true), false);
   assert.throws(() => validateCredentials({ $ne: null }, 'password123', true));
   assert.throws(() => validateCredentials('user@example.com', 'short', true));
+});
+
+test('only provisioned server-owned faculty roles grant faculty access', () => {
+  assert.deepEqual(effectiveRoles({ email: 'new-faculty@example.com', staffProvisioned: true, staffRole: 'faculty' }), { is_admin: false, is_faculty: true });
+  assert.deepEqual(effectiveRoles({ email: 'student@example.com', staffProvisioned: false, staffRole: 'faculty' }), { is_admin: false, is_faculty: false });
+  assert.deepEqual(sanitizeMetadata({ staffRole: 'faculty', class_id: 'other', is_admin: true }), {});
 });

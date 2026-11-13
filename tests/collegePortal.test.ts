@@ -35,8 +35,11 @@ test('verification follows authenticated redirects and discovers the current pro
   const fixture = officialPortalFixture('current-password');
   const profile = await verifyCollegePortal('24P31A9999', 'current-password', 'acet', fixture.fetcher);
   assert.equal(profile.name, 'Example Student'); assert.equal(profile.attendance, 78.4);
-  assert.equal(profile.profileImage, 'https://info.aec.edu.in/acet/StudentPhotos/example.jpg');
-  const ajax = fixture.calls.at(-1)!;
+  assert.match(profile.profileImage, /^data:image\/jpeg;base64,/);
+  const photo = fixture.calls.at(-1)!;
+  assert.match(photo.url, /StudentPhotos\/example.jpg$/);
+  assert.match(new Headers(photo.init.headers).get('Cookie')!, /ASP.NET_SessionId=fixture-session/);
+  const ajax = fixture.calls.at(-2)!;
   assert.match(ajax.url, /changed-hash\.ashx\?_method=ShowStudentProfileNew/);
   assert.equal(new Headers(ajax.init.headers).get('Content-Type'), 'text/plain; charset=utf-8');
   assert.match(new Headers(ajax.init.headers).get('Cookie')!, /ASP.NET_SessionId=fixture-session/);
@@ -105,4 +108,21 @@ test('HTTP responses are decompressed before parsing and decoded size is bounded
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
   const oversized = createPortalClient('acet', async () => new Response('x'.repeat(2 * 1024 * 1024 + 1)));
   await assert.rejects(oversized('https://info.aec.edu.in/acet/default.aspx'), { code: 'PORTAL_RESPONSE_TOO_LARGE' });
+});
+
+test('verified profile photos are fetched inside the isolated portal session', async () => {
+  const { cachePortalPhoto } = await import('../backend/collegePortal');
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  const profile = { profileImage: 'https://info.aec.edu.in/acet/StudentPhotos/example.jpg' };
+  let calls = 0;
+  const result = await cachePortalPhoto(profile, async (url: string) => {
+    calls++; assert.equal(url, profile.profileImage);
+    return { status: 200, bytes: jpeg, contentType: 'image/jpeg' };
+  });
+  assert.equal(result.profileImage, `data:image/jpeg;base64,${jpeg.toString('base64')}`);
+  assert.equal(calls, 1);
+  const failed = await cachePortalPhoto(profile, async () => ({ status: 200, bytes: Buffer.from('<html>login</html>'), contentType: 'text/html' }));
+  assert.equal(failed.profileImage, '');
+  const outage = await cachePortalPhoto(profile, async () => { throw new Error('timeout'); });
+  assert.equal(outage.profileImage, '');
 });

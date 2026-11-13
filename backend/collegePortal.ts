@@ -99,7 +99,8 @@ export function createPortalClient(portal: CollegePortal, fetcher: typeof fetch 
           if (length > 2 * 1024 * 1024) { await reader.cancel(); throw new PortalError('PORTAL_RESPONSE_TOO_LARGE', 'The college portal returned an oversized response.'); }
           chunks.push(next.value);
         }
-        return { status: response.status, url, body: Buffer.concat(chunks).toString('utf8') };
+        const bytes = Buffer.concat(chunks);
+        return { status: response.status, url, body: bytes.toString('utf8'), bytes, contentType: response.headers.get('content-type') || '' };
       } catch (error) {
         if (error instanceof PortalError) throw error;
         throw new PortalError(signal.aborted ? 'PORTAL_TIMEOUT' : 'PORTAL_UNAVAILABLE', signal.aborted
@@ -148,6 +149,20 @@ export function parsePortalProfileHtml(rawHtml: string, rollNo: string, portal: 
     profileImage: imageUrl.startsWith('https://info.aec.edu.in/') ? imageUrl : '', isSynced: true };
 }
 
+export async function cachePortalPhoto<T extends { profileImage: string }>(profile: T, request: (url: string) => Promise<{ status: number; bytes: Buffer; contentType: string }>): Promise<T> {
+  if (!profile.profileImage) return profile;
+  try {
+    const image = await request(profile.profileImage);
+    const mime = image.contentType.split(';')[0].toLowerCase();
+    const b = image.bytes;
+    const valid = (mime === 'image/jpeg' && b.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) ||
+      (mime === 'image/png' && b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) ||
+      (mime === 'image/webp' && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP');
+    if (image.status === 200 && b.length <= 256 * 1024 && valid) return { ...profile, profileImage: `data:${mime};base64,${b.toString('base64')}` };
+  } catch { /* A photo outage must not reject an otherwise verified account. */ }
+  return { ...profile, profileImage: '' };
+}
+
 export async function verifyCollegePortal(rollNo: string, password: string, portal: CollegePortal, fetcher: typeof fetch = fetch) {
   const request = createPortalClient(portal, fetcher);
   const loginUrl = portalUrl(portal);
@@ -165,10 +180,10 @@ export async function verifyCollegePortal(rollNo: string, password: string, port
   const profilePage = await request(profileUrl); checkPortalResponse(profilePage, portal);
   const page = load(profilePage.body);
   const ajaxSource = page('script[src]').toArray().map(el => page(el).attr('src')!).find(src => /\/ajax\/StudentProfile,.*\.ashx/i.test(src));
-  if (!ajaxSource) return parsePortalProfileHtml(profilePage.body, rollNo, portal);
+  if (!ajaxSource) return cachePortalPhoto(parsePortalProfileHtml(profilePage.body, rollNo, portal), request);
   const ajaxUrl = new URL(ajaxSource, profileUrl); ajaxUrl.search = '?_method=ShowStudentProfileNew&_session=rw';
   const response = await request(ajaxUrl.href, { method: 'POST', headers: { 'X-AjaxPro-Method': 'ShowStudentProfileNew', 'Content-Type': 'text/plain; charset=utf-8', Referer: profileUrl },
     body: `RollNo=${encodeURIComponent(rollNo)}\r\nisImageDisplay=true` });
   checkPortalResponse(response, portal);
-  return parsePortalProfileHtml(response.body, rollNo, portal);
+  return cachePortalPhoto(parsePortalProfileHtml(response.body, rollNo, portal), request);
 }

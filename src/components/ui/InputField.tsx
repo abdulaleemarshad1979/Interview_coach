@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Eye, EyeOff, LucideIcon } from 'lucide-react';
 
@@ -20,16 +20,19 @@ export default function InputField({
   onChange,
   error,
   icon: Icon,
+  id,
   className = '',
   ...props
 }: InputFieldProps) {
+  const generatedId = useId();
+  const inputId = id || generatedId;
   const [showPassword, setShowPassword] = useState(false);
   const isPassword = type === 'password';
   const inputType = isPassword ? (showPassword ? 'text' : 'password') : type;
 
   return (
     <div className={`flex flex-col gap-1.5 w-full text-left ${className}`}>
-      <label className="text-[12px] font-medium text-slate-500 tracking-[0.5px] uppercase select-none font-sans">
+      <label htmlFor={inputId} className="text-[12px] font-medium text-slate-500 tracking-[0.5px] uppercase select-none font-sans">
         {label}
       </label>
       
@@ -41,6 +44,7 @@ export default function InputField({
         )}
 
         <input
+          id={inputId}
           type={inputType}
           placeholder={placeholder}
           value={value}

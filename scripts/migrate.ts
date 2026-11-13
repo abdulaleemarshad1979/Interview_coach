@@ -2,9 +2,10 @@ import mongoose from 'mongoose';
 import '../backend/interview/store';
 import '../backend/meetings';
 import '../backend/security';
+import '../backend/campus';
 
-const migrationId = '2026-10-14-interview-meetings-v1';
-const names = ['AdaptiveInterviewSession', 'MeetingRoomV2', 'MeetingMemberV2', 'MeetingTranscriptV2', 'MeetingEventV2', 'MeetingConsentV2', 'ApiRateCounter'];
+const migrationId = '2026-11-13-campus-classes-v2';
+const names = ['AdaptiveInterviewSession', 'MeetingRoomV2', 'MeetingMemberV2', 'MeetingTranscriptV2', 'MeetingEventV2', 'MeetingConsentV2', 'ApiRateCounter', 'CampusClass', 'CompanyQuestionBank', 'CampusAudit'];
 if (process.argv.includes('--dry-run')) {
   console.log(JSON.stringify({ migrationId, additiveCollections: names.map(name => mongoose.model(name).collection.name),
     changes: 'Create missing collections and declared indexes; never drop data/indexes. Existing passwords migrate on verified login. Legacy rooms/reports are preserved.' }, null, 2));

@@ -17,6 +17,10 @@ export interface InterviewConfig {
   resumeText?: string;
   companyName?: string;
   jobDescription?: string;
+  githubContext?: string;
+  questionBankId?: string;
+  companyQuestions?: string[];
+  shareWithFaculty?: boolean;
 }
 
 export interface InterviewQuestion {

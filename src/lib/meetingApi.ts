@@ -46,6 +46,7 @@ export interface MeetingMemberInfo {
   joinedAt: string;
   report?: MeetingReport | null;
   consentVersion?: string;
+  reportSharingConsent?: boolean;
   activity?: { turnCount: number; speakingSeconds: number; participationShare: number | null };
 }
 export interface MeetingSegment {

@@ -115,70 +115,19 @@ class LocalAuthClient {
     }
   }
 
-  async signInWithPassword({ email, password }: any) {
+  async signInWithStaff({ email, password }: { email: string; password: string }) {
     try {
-      const res = await fetch(getApiUrl("/api/auth/login"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const response = await fetch(getApiUrl('/api/auth/staff/login'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }), signal: AbortSignal.timeout(20000),
       });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        return {
-          data: { session: null, user: null },
-          error: { message: errData.error || "Invalid credentials." }
-        };
-      }
-
-      const data = await res.json();
-      localStorage.setItem("auth_token", data.session.access_token);
-      localStorage.setItem("auth_user", JSON.stringify(data.user));
-
-      this.notify("SIGNED_IN", data.session);
-
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.session?.access_token || !data.user) return { data: null, error: { message: data.error || 'Staff sign-in failed.' } };
+      localStorage.setItem('auth_token', data.session.access_token);
+      localStorage.setItem('auth_user', JSON.stringify(data.user));
+      this.notify('SIGNED_IN', data.session);
       return { data, error: null };
-    } catch (err: any) {
-      return {
-        data: { session: null, user: null },
-        error: { message: err.message || "Network error. Please try again." }
-      };
-    }
-  }
-
-  async signUp({ email, password, options }: any) {
-    try {
-      const res = await fetch(getApiUrl("/api/auth/signup"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          user_metadata: options?.data || {}
-        }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        return {
-          data: { session: null, user: null },
-          error: { message: errData.error || "Signup failed." }
-        };
-      }
-
-      const data = await res.json();
-      localStorage.setItem("auth_token", data.session.access_token);
-      localStorage.setItem("auth_user", JSON.stringify(data.user));
-
-      this.notify("SIGNED_IN", data.session);
-
-      return { data, error: null };
-    } catch (err: any) {
-      return {
-        data: { session: null, user: null },
-        error: { message: err.message || "Network error. Please try again." }
-      };
-    }
+    } catch { return { data: null, error: { message: 'Staff sign-in is unavailable. Please retry.' } }; }
   }
 
   async signOut() {

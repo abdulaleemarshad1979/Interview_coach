@@ -1,0 +1,12 @@
+import React from 'react';
+import type { MeetingReport } from '../lib/meetingApi';
+export default function DiscussionReport({ report, name }: { report: MeetingReport; name: string }) {
+  return <div className="space-y-5 text-sm leading-6">
+    <div><h3 className="text-lg font-semibold text-slate-900">{name}</h3><p className="mt-2 text-slate-600">{report.summary}</p></div>
+    <div className="flex flex-wrap gap-3"><span className="rounded-lg bg-blue-50 px-3 py-2 font-semibold text-blue-800">{report.overallScore === null ? "Insufficient evidence to score" : `${report.overallScore}/100`}</span><span className="rounded-lg bg-slate-100 px-3 py-2 text-slate-600">{report.turnCount} speech segments · ~{report.speakingSeconds}s voice activity</span></div>
+    {report.strongestArguments.length > 0 && <div><h4 className="font-semibold text-slate-900">Strongest arguments</h4>{report.strongestArguments.map((item, index) => <blockquote key={`${item.segmentId}-${index}`} className="mt-2 border-l-2 border-blue-400 pl-3 text-slate-600">“{item.quote}”<span className="mt-1 block font-mono text-[10px] text-slate-400">Evidence {item.segmentId.slice(0, 8)}</span></blockquote>)}</div>}
+    {report.criteria.map((criterion) => <div key={criterion.id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start justify-between gap-3"><h4 className="font-semibold text-slate-900">{criterion.label}</h4><span className="shrink-0 text-xs text-slate-500">{criterion.score === null ? "Unscored" : `${criterion.score}/5`} · {criterion.weight}%</span></div><p className="mt-2 text-xs text-slate-600">{criterion.explanation}</p>{criterion.evidence.map((item, index) => <blockquote key={`${item.segmentId}-${index}`} className="mt-2 border-l-2 border-slate-300 pl-2 text-xs text-slate-600">“{item.quote}”</blockquote>)}</div>)}
+    {[{ title: "Areas to practice", items: report.improvements }, { title: "Practice exercises", items: report.exercises }, { title: "Evidence limitations", items: report.uncertainties }].filter((group) => group.items.length).map((group) => <div key={group.title}><h4 className="font-semibold text-slate-900">{group.title}</h4><ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-slate-600">{group.items.map((item, index) => <li key={index}>{item}</li>)}</ul></div>)}
+    <p className="border-t border-slate-200 pt-3 text-xs text-slate-500">{report.attribution} {report.durationSource} {report.model ? `Analysis: ${report.model}.` : "No AI assessment was generated without transcript evidence."}</p>
+  </div>;
+}

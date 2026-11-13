@@ -2,25 +2,33 @@
   "version": 2,
   "builds": [
     {
-      "src": "server.ts",
+      "src": "api/index.cjs",
       "use": "@vercel/node"
     },
     {
       "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
-        "distDir": "dist"
+        "distDir": "dist/client"
       }
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "server.ts"
+      "dest": "api/index.cjs"
     },
     {
       "src": "/assets/(.*)",
       "dest": "/assets/$1"
+    },
+    {
+      "src": "/vision/(.*)",
+      "dest": "/vision/$1"
+    },
+    {
+      "src": "/branding/(.*)",
+      "dest": "/branding/$1"
     },
     {
       "src": "/(.*)",

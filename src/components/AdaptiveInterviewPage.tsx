@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Mic, Square, Volume2, VolumeX, ArrowLeft, RotateCcw } from 'lucide-react';
+import { Mic, Square, Volume2, VolumeX, ArrowLeft, RotateCcw, Users } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { mutateInterview, readApiJson } from '../lib/interviewClient';
 import type { InterviewConfig, InterviewSession } from '../lib/interviewTypes';
@@ -8,6 +8,7 @@ import { getVoiceOptions, setVoiceOptions, speakNaturalAI, stopNaturalSpeech, ty
 import { MicrophoneCapture, listMicrophoneDevices, transcribeRecordedSpeech } from '../lib/speechCapture';
 import InterviewConfiguration from './InterviewConfiguration';
 import EvidenceReport from './EvidenceReport';
+import CameraObserver from './CameraObserver';
 
 interface Props { studentProfile: StudentProfile; analysisResult: FullAnalysisResult | null; sessionId?: string | null; onNavigate: (view: string) => void }
 type PendingAction = { action: 'start' | 'messages' | 'complete'; requestId: string; questionId?: string; text?: string };
@@ -18,6 +19,7 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
     experienceLevel: 'student', technicalDomain: studentProfile.assignedInterviewTopic || studentProfile.department || 'Software engineering',
     difficulty: 'intermediate', durationMinutes: 15,
     resumeText: analysisResult ? JSON.stringify(analysisResult.parsedResume, null, 2).slice(0, 12000) : '',
+    githubContext: analysisResult?.githubAnalysis ? JSON.stringify(analysisResult.githubAnalysis, null, 2).slice(0, 8000) : '',
     companyName: studentProfile.assignedCompanyDrive?.companyName || '',
   });
   const [session, setSession] = useState<InterviewSession | null>(null);
@@ -74,10 +76,17 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
   const say = async (text: string) => {
     stopNaturalSpeech(); setError('');
     try {
-      const result = await speakNaturalAI(text, () => alive.current && setSpeaking(true), () => alive.current && setSpeaking(false));
+      const result = await speakNaturalAI(text, () => alive.current && setSpeaking(true), () => alive.current && setSpeaking(false), { ...voice, allowBrowserFallback: true });
       if (result.status === 'failed') throw new Error(result.error || 'Playback unavailable');
     }
-    catch (failure) { if (alive.current) setError(`Voice playback failed: ${(failure as Error).message}. Use Replay or choose browser speech in voice settings.`); }
+    catch (failure) {
+      try {
+        const fallback = await speakNaturalAI(text, () => alive.current && setSpeaking(true), () => alive.current && setSpeaking(false), { ...voice, provider: 'browser' });
+        if (fallback.status === 'failed') throw failure;
+      } catch {
+        if (alive.current) setError(`Voice playback failed: ${(failure as Error).message}. Use Replay or choose browser speech in voice settings.`);
+      }
+    }
     finally { if (alive.current) setSpeaking(false); }
   };
   useEffect(() => {
@@ -151,7 +160,11 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
   const currentUtterance = session?.turns.filter(turn => turn.role === 'interviewer').at(-1)?.text || '';
   return <div className="coach-page">
     <div className="coach-heading"><div><p className="coach-eyebrow">Interview Coach</p><h1>{session ? session.config.targetRole : 'Prepare for your next conversation'}</h1><p>{session ? `${session.config.mode.replace('-', ' ')} interview · ${session.config.experienceLevel}` : 'Practice real answers. Get meaningful follow-up questions.'}</p></div>
-      <button className="coach-button" onClick={() => onNavigate('history')}><ArrowLeft size={16} />Session history</button></div>
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button className="coach-button" type="button" onClick={() => onNavigate('group-discussion')}><Users size={16} />Group discussion</button>
+        <button className="coach-button" type="button" onClick={() => onNavigate('history')}><ArrowLeft size={16} />Session history</button>
+      </div>
+    </div>
     {error && <div className="coach-error" role="alert">{error}</div>}
     {retry && session && !busy && !session.isProcessing && <div className="coach-notice"><p>{session.pendingAnswer ? 'Your answer is saved. Resume generation to continue from it.' : 'This turn can be retried without duplicating your transcript.'}</p><button className="coach-button" onClick={() => void refresh(session.id).then(fresh => run(retry, fresh)).catch(failure => setError(failure.message))}><RotateCcw size={16} />Retry saved turn</button></div>}
     {!session && <InterviewConfiguration config={config} onChange={setConfig} voice={voice} onVoiceChange={updateVoice} busy={busy} onStart={() => void start()} />}
@@ -159,6 +172,7 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
     {session && !session.report && <>
       <div className="coach-session-bar"><span className="coach-status">{session.state.replaceAll('_', ' ')}</span><span aria-label="Time remaining">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')} remaining</span><span>{session.turns.filter(turn => turn.role === 'candidate').length} answers saved</span></div>
       {remaining === 0 && session.currentQuestion && <div className="coach-notice">The session time has ended. You can submit your final answer, then generate your report.</div>}
+      <CameraObserver />
       <div className="coach-room-grid"><section className="coach-panel coach-question"><p className="coach-eyebrow">Your interviewer</p><h2>{currentUtterance || 'Ready when you are'}</h2>
         {session.currentQuestion?.groundedIn && <p className="coach-muted">Following up on your answer: “{session.currentQuestion.groundedIn}”</p>}
         {(busy || session.isProcessing) && <div className="coach-notice" role="status"><p>{status || 'Preparing the next turn…'}</p>{preview && <p className="coach-preview">{preview}</p>}<button className="coach-button" onClick={() => void cancelRequest()}>Cancel request</button></div>}

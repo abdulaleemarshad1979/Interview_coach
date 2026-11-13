@@ -71,7 +71,7 @@ test('student login cannot overwrite a provisioned staff account or a profile ow
   const user: any = await mongoose.model<any>('User').findOne({ email: '24p31a9999@aec.edu.in' });
   await mongoose.model<any>('User').updateOne({ _id: user._id }, { staffProvisioned: true });
   const staff = await withPortal('test-password', () => post('/api/college/login').send({ rollNo: '24P31A9999', password: 'test-password', portal: 'acet' }));
-  assert.equal(staff.status, 403); assert.equal(staff.body.code, 'STAFF_LOGIN_REQUIRED');
+  assert.equal(staff.status, 403); assert.equal(staff.body.code, 'PORTAL_ACCOUNT_CONFLICT');
   await mongoose.model<any>('User').updateOne({ _id: user._id }, { staffProvisioned: false });
   await mongoose.model<any>('Profile').updateOne({ id: '24P31A9999' }, { ownerId: 'another-user' });
   const conflict = await withPortal('test-password', () => post('/api/college/login').send({ rollNo: '24P31A9999', password: 'test-password', portal: 'acet' }));

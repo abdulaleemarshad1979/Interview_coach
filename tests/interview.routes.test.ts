@@ -18,6 +18,7 @@ function providerFixture() {
   let calls = 0;
   let failNext = false;
   let invalidReport = false;
+  let paraphraseStart = false;
   let gate: (() => Promise<void>) | undefined;
   const provider: AIProvider = {
     async completeJson(options: JsonCompletionOptions) {
@@ -38,7 +39,7 @@ function providerFixture() {
         const close = data.remainingSeconds === 0;
         const follow = !start && !close && data.state !== 'INTRODUCTION' && latest?.text.includes('JWT') && data.memory.followUpCount < 2;
         const question = start ? 'What experience led you to backend engineering?' : follow ? 'How do you handle JWT expiration and refresh?' : data.previousQuestions.some((text: string) => text.includes('authentication')) ? 'How do you choose a database index for a slow query?' : 'How did you implement authentication in your project?';
-        value = { utterance: close ? 'The interview has reached its time limit. I will prepare your report.' : question, action: close ? 'CLOSE' : start || data.state === 'INTRODUCTION' ? 'ASK' : follow ? 'FOLLOW_UP' : 'TRANSITION', question: close ? null : { text: question, topic: start ? 'Background' : follow || question.includes('authentication') ? 'Authentication' : 'Databases', difficulty: 'intermediate' }, grounding: follow ? { turnId: latest.id, quote: 'JWT' } : null, memory: { summary: latest ? `Candidate answered about ${data.currentQuestion?.topic}.` : '', claims: latest ? [{ text: 'Provided a project example.', turnId: latest.id, quote: latest.text.slice(0, 40) }] : [], followUpOpportunities: [] } };
+        value = { utterance: close ? 'The interview has reached its time limit. I will prepare your report.' : start && paraphraseStart ? 'Could you tell me what brought you into backend work?' : question, action: close ? 'CLOSE' : start || data.state === 'INTRODUCTION' ? 'ASK' : follow ? 'FOLLOW_UP' : 'TRANSITION', question: close ? null : { text: question, topic: start ? 'Background' : follow || question.includes('authentication') ? 'Authentication' : 'Databases', difficulty: 'intermediate' }, grounding: follow ? { turnId: latest.id, quote: 'JWT' } : null, memory: { summary: latest ? `Candidate answered about ${data.currentQuestion?.topic}.` : '', claims: latest ? [{ text: 'Provided a project example.', turnId: latest.id, quote: latest.text.slice(0, 40) }] : [], followUpOpportunities: [] } };
       }
       const raw = JSON.stringify(value);
       if (options.onDelta) { for (let i = 0; i < raw.length; i += 24) options.onDelta(raw.slice(i, i + 24)); }
@@ -46,7 +47,7 @@ function providerFixture() {
     },
     transcribe: async () => ({ text: 'Synthetic transcription fixture', source: 'synthetic-test-provider' }),
   };
-  return { provider, get calls() { return calls; }, fail: () => { failNext = true; }, invalidEvidence: (value: boolean) => { invalidReport = value; }, block: (fn?: () => Promise<void>) => { gate = fn; } };
+  return { provider, get calls() { return calls; }, fail: () => { failNext = true; }, paraphraseFirstQuestion: () => { paraphraseStart = true; }, invalidEvidence: (value: boolean) => { invalidReport = value; }, block: (fn?: () => Promise<void>) => { gate = fn; } };
 }
 function appFixture(provider: AIProvider) {
   const app = express(); app.use(express.json());
@@ -87,6 +88,12 @@ test('authenticated MongoDB interview persists answers, grounded follow-ups, his
   assert.equal(history.body.sessions.length, 1);
   await auth(request(app).delete(`/sessions/${session.id}`)).expect(204);
   await auth(request(app).get(`/sessions/${session.id}`)).expect(404);
+});
+test('a paraphrased AI introduction starts the interview with the canonical saved question', async () => {
+  const fixture = providerFixture(); fixture.paraphraseFirstQuestion();
+  const session = await createAndStart(appFixture(fixture.provider));
+  assert.equal(session.state, 'INTRODUCTION');
+  assert.equal(session.turns.at(-1)?.text, session.currentQuestion?.text);
 });
 test('failed AI answer can be retried idempotently without duplicating transcript or completion', async () => {
   const fixture = providerFixture(); const app = appFixture(fixture.provider);
