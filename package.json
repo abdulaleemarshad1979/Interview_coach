@@ -35,7 +35,7 @@
     "groq-sdk": "^1.6.0",
     "helmet": "^8.3.0",
     "livekit-client": "^2.22.4",
-    "livekit-server-sdk": "^2.19.1",
+    "livekit-server-sdk": "^2.19.3",
     "lucide-react": "^0.546.0",
     "mongoose": "^9.7.4",
     "motion": "^12.23.24",
