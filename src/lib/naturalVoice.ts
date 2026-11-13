@@ -193,15 +193,56 @@ const playVoiceAudio: VoiceAudioPlayer = (sound, options, signal, onStart) => {
   });
 };
 
-function playBrowserVoice(text: string, options: VoiceOptions, signal: AbortSignal, onStart: () => void): Promise<void> {
-  return new Promise((resolve, reject) => {
+/** Chrome returns [] from getVoices() until voiceschanged fires; wait briefly instead of speaking with no voice. */
+function loadBrowserVoices(timeoutMs = 1500): Promise<SpeechSynthesisVoice[]> {
+  const synthesis = window.speechSynthesis;
+  const current = synthesis.getVoices();
+  if (current.length) return Promise.resolve(current);
+  return new Promise(resolve => {
+    const done = () => { clearTimeout(timer); synthesis.removeEventListener("voiceschanged", done); resolve(synthesis.getVoices()); };
+    const timer = setTimeout(done, timeoutMs);
+    synthesis.addEventListener("voiceschanged", done);
+  });
+}
+
+function pickEnglishVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  const english = voices.filter(voice => /^en[-_](IN|US|GB)/i.test(voice.lang));
+  const pool = english.length ? english : voices.filter(voice => voice.lang.toLowerCase().startsWith("en"));
+  // These are device voices; no claim is made that they match the selected Orpheus profile.
+  return pool.find(voice => /jenny|aria|samantha|karen|zira|female|google us english|google uk english female/i.test(voice.name))
+    || pool.find(voice => voice.localService) || pool[0] || null;
+}
+
+// Chrome garbage-collects in-flight utterances and then never fires onend; hold references until settled.
+const liveUtterances = new Set<SpeechSynthesisUtterance>();
+
+/** Call synchronously inside a click handler so later (post-network) speech is not blocked by autoplay policy. */
+export function primeSpeech(): void {
+  try {
+    if (typeof window === "undefined" || !window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") return;
     const synthesis = window.speechSynthesis;
+    synthesis.getVoices();
+    if (synthesis.paused) synthesis.resume();
+    if (synthesis.speaking || synthesis.pending) return;
+    const warmup = new SpeechSynthesisUtterance(" ");
+    warmup.volume = 0;
+    synthesis.speak(warmup);
+  } catch { /* Priming is best-effort; playback still reports its own errors. */ }
+}
+
+async function playBrowserVoice(text: string, options: VoiceOptions, signal: AbortSignal, onStart: () => void): Promise<void> {
+  const synthesis = window.speechSynthesis;
+  const voice = pickEnglishVoice(await loadBrowserVoices());
+  requireActive(signal);
+  // Clear a stuck queue (or the silent warm-up); Chrome drops a speak() issued in the same tick as cancel().
+  if (synthesis.speaking || synthesis.pending) { synthesis.cancel(); await waitForRetry(60, signal); }
+  if (synthesis.paused) synthesis.resume();
+  return new Promise((resolve, reject) => {
     const utterance = new SpeechSynthesisUtterance(text);
-    const voices = synthesis.getVoices().filter(voice => voice.lang.toLowerCase().startsWith("en"));
-    // These are device voices; no claim is made that they match the selected Orpheus profile.
-    utterance.voice = voices.find(voice => /jenny|aria|samantha|karen|zira|female/i.test(voice.name)) || voices[0] || null;
-    utterance.lang = utterance.voice?.lang || "en-US";
+    if (voice) utterance.voice = voice;
+    utterance.lang = voice?.lang || "en-US";
     utterance.rate = options.rate;
+    liveUtterances.add(utterance);
     let finished = false;
     const timeout = setTimeout(() => finish(new Error("Browser speech did not finish. Try replaying the question.")), Math.max(20000, text.length * 150));
     const finish = (error?: Error) => {
@@ -210,15 +251,26 @@ function playBrowserVoice(text: string, options: VoiceOptions, signal: AbortSign
       clearTimeout(timeout);
       signal.removeEventListener("abort", cancel);
       utterance.onstart = utterance.onend = utterance.onerror = null;
+      liveUtterances.delete(utterance);
       if (error) { synthesis.cancel(); reject(error); } else resolve();
     };
     const cancel = () => finish(abortError());
     signal.addEventListener("abort", cancel, { once: true });
     utterance.onstart = onStart;
     utterance.onend = () => finish();
-    utterance.onerror = () => finish(new Error("Browser speech failed. Try replaying the question."));
+    utterance.onerror = event => {
+      const code = (event as SpeechSynthesisErrorEvent).error;
+      finish(new Error(code === "not-allowed"
+        ? "Browser blocked speech until you interact with the page. Select Replay question"
+        : `Browser speech failed (${code || "unknown"}). Try Replay question`));
+    };
     synthesis.speak(utterance);
   });
+}
+
+/** Markdown symbols are read aloud literally by TTS engines. */
+export function speakableText(text: string): string {
+  return (text || "").replace(/```[\s\S]*?```/g, " ").replace(/[`*#_>~|]+/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\s+/g, " ").trim();
 }
 
 interface SpeechJob {
@@ -284,7 +336,7 @@ export class VoicePlaybackEngine {
     return new Promise(resolve => {
       const snapshot = normalizeOptions(options);
       const job: SpeechJob = {
-        text: text?.trim() || "", options: snapshot, onStart, onEnd, resolve,
+        text: speakableText(text), options: snapshot, onStart, onEnd, resolve,
         controller: new AbortController(), settled: false, started: false,
         result: { status: "completed", provider: snapshot.provider, fallbackUsed: false, playedChunks: 0, synthesisLatencyMs: [] },
       };

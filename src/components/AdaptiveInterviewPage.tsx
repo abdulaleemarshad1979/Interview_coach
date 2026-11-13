@@ -4,7 +4,7 @@ import { apiFetch } from '../lib/api';
 import { mutateInterview, readApiJson } from '../lib/interviewClient';
 import type { InterviewConfig, InterviewSession } from '../lib/interviewTypes';
 import type { FullAnalysisResult, StudentProfile } from '../types';
-import { getVoiceOptions, setVoiceOptions, speakNaturalAI, stopNaturalSpeech, type VoiceOptions } from '../lib/naturalVoice';
+import { getVoiceOptions, primeSpeech, setVoiceOptions, speakNaturalAI, stopNaturalSpeech, type VoiceOptions } from '../lib/naturalVoice';
 import { MicrophoneCapture, listMicrophoneDevices, transcribeRecordedSpeech } from '../lib/speechCapture';
 import InterviewConfiguration from './InterviewConfiguration';
 import EvidenceReport from './EvidenceReport';
@@ -84,7 +84,7 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
         const fallback = await speakNaturalAI(text, () => alive.current && setSpeaking(true), () => alive.current && setSpeaking(false), { ...voice, provider: 'browser' });
         if (fallback.status === 'failed') throw failure;
       } catch {
-        if (alive.current) setError(`Voice playback failed: ${(failure as Error).message}. Use Replay or choose browser speech in voice settings.`);
+        if (alive.current) setError(`Voice playback failed: ${(failure as Error).message.replace(/[.\s]+$/, '')}. The question is shown on screen and you can answer now; use Replay question to retry audio.`);
       }
     }
     finally { if (alive.current) setSpeaking(false); }
@@ -167,7 +167,7 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
     </div>
     {error && <div className="coach-error" role="alert">{error}</div>}
     {retry && session && !busy && !session.isProcessing && <div className="coach-notice"><p>{session.pendingAnswer ? 'Your answer is saved. Resume generation to continue from it.' : 'This turn can be retried without duplicating your transcript.'}</p><button className="coach-button" onClick={() => void refresh(session.id).then(fresh => run(retry, fresh)).catch(failure => setError(failure.message))}><RotateCcw size={16} />Retry saved turn</button></div>}
-    {!session && <InterviewConfiguration config={config} onChange={setConfig} voice={voice} onVoiceChange={updateVoice} busy={busy} onStart={() => void start()} />}
+    {!session && <InterviewConfiguration config={config} onChange={setConfig} voice={voice} onVoiceChange={updateVoice} busy={busy} onStart={() => { primeSpeech(); void start(); }} />}
     {session?.report && <EvidenceReport report={session.report} turns={session.turns} />}
     {session && !session.report && <>
       <div className="coach-session-bar"><span className="coach-status">{session.state.replaceAll('_', ' ')}</span><span aria-label="Time remaining">{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')} remaining</span><span>{session.turns.filter(turn => turn.role === 'candidate').length} answers saved</span></div>
@@ -176,7 +176,7 @@ export default function AdaptiveInterviewPage({ studentProfile, analysisResult, 
       <div className="coach-room-grid"><section className="coach-panel coach-question"><p className="coach-eyebrow">Your interviewer</p><h2>{currentUtterance || 'Ready when you are'}</h2>
         {session.currentQuestion?.groundedIn && <p className="coach-muted">Following up on your answer: “{session.currentQuestion.groundedIn}”</p>}
         {(busy || session.isProcessing) && <div className="coach-notice" role="status"><p>{status || 'Preparing the next turn…'}</p>{preview && <p className="coach-preview">{preview}</p>}<button className="coach-button" onClick={() => void cancelRequest()}>Cancel request</button></div>}
-        <div className="coach-actions"><button className="coach-button" disabled={!currentUtterance || busy || recording} onClick={() => speaking ? (stopNaturalSpeech(), setSpeaking(false)) : void say(currentUtterance)}>{speaking ? <VolumeX size={17} /> : <Volume2 size={17} />}{speaking ? 'Stop voice' : 'Replay question'}</button>
+        <div className="coach-actions"><button className="coach-button" disabled={!currentUtterance || busy || recording} onClick={() => speaking ? (stopNaturalSpeech(), setSpeaking(false)) : (primeSpeech(), void say(currentUtterance))}>{speaking ? <VolumeX size={17} /> : <Volume2 size={17} />}{speaking ? 'Stop voice' : 'Replay question'}</button>
           <label className="coach-inline-label"><input type="checkbox" checked={autoSpeak} onChange={event => { setAutoSpeak(event.target.checked); if (!event.target.checked) { stopNaturalSpeech(); setSpeaking(false); } }} />Speak new questions</label></div>
         <details><summary>Voice settings</summary><div className="coach-form-grid"><label>Voice<select value={voice.voice} onChange={event => updateVoice({ voice: event.target.value as VoiceOptions['voice'] })}>{[['Jade-PlayAI','Jade'],['Aaliyah-PlayAI','Aaliyah'],['Constance-PlayAI','Constance'],['Fritz-PlayAI','Fritz']].map(([value,label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>Provider<select value={voice.provider || 'groq'} onChange={event => updateVoice({ provider: event.target.value as VoiceOptions['provider'] })}><option value="groq">Groq PlayAI</option><option value="browser">Browser speech</option></select></label></div></details>
       </section><section className="coach-panel"><p className="coach-eyebrow">Your response</p><h2>Take a moment, then answer</h2>

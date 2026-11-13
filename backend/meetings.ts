@@ -176,7 +176,11 @@ function configuredMedia(): MeetingMediaAdapter {
   };
   return {
     url,
-    ensureRoom: async (roomName) => { await service.createRoom({ name: roomName, maxParticipants: 20, emptyTimeout: 600 }); },
+    ensureRoom: async (roomName) => {
+      // LiveKit auto-creates rooms on first join; createRoom only applies limits, so its failure must not block tokens.
+      try { await service.createRoom({ name: roomName, maxParticipants: 20, emptyTimeout: 600 }); }
+      catch (error: any) { console.warn("[meetings] LiveKit createRoom failed; relying on auto-create", { status: error?.status, code: error?.code, message: String(error?.message || "").slice(0, 200) }); }
+    },
     issueToken: (roomName, identity, displayName) => issueMeetingToken(key, secret, roomName, identity, displayName),
     endRoom: async (roomName) => {
       // Cloud supports strict token revocation. Self-hosted servers still need short token TTLs.
@@ -268,7 +272,8 @@ export function createMeetingRouter(options: MeetingRouterOptions) {
     catch (error: any) {
       if (res.headersSent) return;
       if (error instanceof MeetingError || error instanceof ServiceError) return void res.status(error.status).json({ error: error.message, code: error.code });
-      console.error("Meeting request failed", { path: req.route?.path, name: error?.name, code: error?.code });
+      console.error("Meeting request failed", { path: req.route?.path, name: error?.name, code: error?.code, status: error?.status, message: String(error?.message || "").slice(0, 300) });
+      if (error instanceof ServerError) return void res.status(502).json({ error: "The media server rejected the request. Check the LiveKit URL and API credentials.", code: "MEDIA_PROVIDER_FAILED" });
       res.status(503).json({ error: "The discussion service is temporarily unavailable. Please retry.", code: "MEETING_SERVICE_FAILED" });
     }
   };

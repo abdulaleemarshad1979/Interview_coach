@@ -206,7 +206,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
       const data = await response.json();
 
       if (response.ok) {
-        onAnalysisSuccess(data, githubUsername.trim(), file.name);
+        onAnalysisSuccess(data, data.githubAnalysis?.username || githubUsername.trim(), file.name);
       } else {
         setError(data.error || "Analysis failed. Please check your inputs or try again.");
       }
@@ -463,7 +463,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
                   <p className="text-xs text-brand-primary font-mono mt-0.5 uppercase">Integration Audit Completed Successfully</p>
                 </div>
                 <p className="text-sm text-gray-300 leading-relaxed">
-                  Your portfolio alignment has been diagnosed. Gemini mapped your claimed frameworks, academic achievements, and projects against codebases scanned on GitHub under the alias <span className="text-brand-primary font-mono">@{studentProfile.githubUsername}</span>.
+                  Your portfolio alignment has been diagnosed. AI mapped your claimed frameworks, academic achievements, and projects against codebases scanned on GitHub under the alias <span className="text-brand-primary font-mono">@{analysisResult.githubAnalysis.username || studentProfile.githubUsername}</span>.
                 </p>
 
                 {/* Big Action CTA */}

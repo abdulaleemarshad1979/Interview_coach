@@ -126,3 +126,20 @@ test('verified profile photos are fetched inside the isolated portal session', a
   const outage = await cachePortalPhoto(profile, async () => { throw new Error('timeout'); });
   assert.equal(outage.profileImage, '');
 });
+
+test('portal photos: shared folders, http links, inline data and loose content types are accepted', async () => {
+  const { parsePortalProfileHtml, cachePortalPhoto, createPortalClient } = await import('../backend/collegePortal');
+  const row = '<table><tr><td>Name</td><td>:</td><td>Example Student</td></tr></table>';
+  assert.equal(parsePortalProfileHtml(`${row}<img src="../../StudentPhotos/X1.JPG">`, 'X1', 'aus').profileImage, 'https://info.aec.edu.in/StudentPhotos/X1.JPG');
+  assert.equal(parsePortalProfileHtml(`${row}<img src="http://info.aec.edu.in/acet/StudentPhotos/X1.jpg">`, 'X1', 'acet').profileImage, 'https://info.aec.edu.in/acet/StudentPhotos/X1.jpg');
+  assert.equal(parsePortalProfileHtml(row, 'X1', 'acet').profileImage, 'https://info.aec.edu.in/acet/StudentPhotos/X1.jpg');
+  const jpeg = Buffer.from([255, 216, 255, 224, 9]);
+  const inline = await cachePortalPhoto({ profileImage: `data:image/jpg;base64,${jpeg.toString('base64')}` }, async () => { throw new Error('no fetch'); });
+  assert.equal(inline.profileImage, `data:image/jpeg;base64,${jpeg.toString('base64')}`);
+  const octet = await cachePortalPhoto({ profileImage: 'https://info.aec.edu.in/StudentPhotos/X1.jpg' }, async () => ({ status: 200, bytes: jpeg, contentType: 'application/octet-stream' }));
+  assert.match(octet.profileImage, /^data:image\/jpeg;base64,/);
+  const request = createPortalClient('aus', async () => new Response(jpeg));
+  await assert.doesNotReject(request('https://info.aec.edu.in/StudentPhotos/X1.jpg'));
+  await assert.rejects(request('https://info.aec.edu.in/acet/StudentMaster.aspx'), { code: 'PORTAL_REDIRECT_REJECTED' });
+  await assert.rejects(request('https://info.aec.edu.in/StudentPhotos/x.jpg', { method: 'POST' }), { code: 'PORTAL_REDIRECT_REJECTED' });
+});
