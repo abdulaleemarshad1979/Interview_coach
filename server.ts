@@ -13,7 +13,7 @@ import { createMeetingRouter } from "./backend/meetings";
 import { createCampusRouter, profileReadFilter, mayReadProfile } from "./backend/campus";
 import { pageParameters } from "./backend/campusValidation";
 import { createApiLimiter, restrictOrigins } from "./backend/security";
-import { normalizeGitHubUsername } from "./backend/github";
+import { normalizeGitHubUsername, matchClaimsToGitHub } from "./backend/github";
 import { verifyCollegePortal, validatePortalLogin, PortalError, portalUrl } from "./backend/collegePortal";
 import { createPasswordHash, verifyPassword, PASSWORD_SCHEME, validateCredentials, configuredRoles, effectiveRoles, sanitizeMetadata, profileIdForUser, canAccessProfile, sanitizeProfile } from "./backend/authSafety";
 
@@ -1065,7 +1065,7 @@ GitHub Profile: ${JSON.stringify(github.profile)}
 Top Languages: ${github.topLanguages.join(", ") || "None detected"}
 Recent Activity: ${JSON.stringify(github.recentActivity)}
 Fetched Repositories Data (15 most recently updated; README excerpts for the newest 6):
-${JSON.stringify(github.repos.map(({ url, ...repo }) => repo), null, 2)}
+${JSON.stringify(github.repos.map(({ url, ...repo }) => repo))}
 
 Respond with STRICT JSON matching this schema:
 {
@@ -1101,17 +1101,6 @@ Respond with STRICT JSON matching this schema:
   },
   "githubAnalysis": {
     "primaryStack": ["Tech name"],
-    "repos": [
-      {
-        "name": "Repo Name",
-        "description": "Repo description",
-        "languages": ["Language name"],
-        "primaryLanguage": "Primary Language",
-        "stars": 0,
-        "forks": 0,
-        "url": "URL"
-      }
-    ],
     "qualitySignals": ["Signal description"],
     "weakAreas": ["Weak area description"]
   },
@@ -1140,7 +1129,16 @@ Respond with STRICT JSON matching this schema:
     const parsed = rawResult.parsedResume || {};
     const gh = rawResult.githubAnalysis || {};
     const cross = rawResult.crossReference || {};
-    const score = Number(cross.alignmentScore);
+    // Models sometimes return "75%" or "75/100".
+    const score = parseFloat(String(cross.alignmentScore ?? ""));
+    let crossReference = { alignmentScore: Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0,
+      provenClaims: strings(cross.provenClaims), unprovenClaims: strings(cross.unprovenClaims), suggestions: strings(cross.suggestions) };
+    if (!crossReference.provenClaims.length && !crossReference.unprovenClaims.length) {
+      // Model skipped the audit: fall back to matching resume skills against GitHub evidence instead of showing 0%.
+      crossReference = { ...crossReference, ...matchClaimsToGitHub(strings(parsed.skills), github.repos) };
+      if (!crossReference.suggestions.length && crossReference.unprovenClaims.length)
+        crossReference.suggestions = ["Push a public project that uses each unproven skill, and mention it in the README."];
+    }
     const result = {
       parsedResume: { name: String(parsed.name || ""), email: String(parsed.email || ""), education: list(parsed.education), skills: strings(parsed.skills),
         projects: list(parsed.projects), experience: list(parsed.experience), achievements: strings(parsed.achievements) },
@@ -1152,8 +1150,7 @@ Respond with STRICT JSON matching this schema:
         weakAreas: strings(gh.weakAreas),
         recentActivity: github.recentActivity,
       },
-      crossReference: { alignmentScore: Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 0,
-        provenClaims: strings(cross.provenClaims), unprovenClaims: strings(cross.unprovenClaims), suggestions: strings(cross.suggestions) },
+      crossReference,
     };
     res.json(result);
   } catch (error: any) {

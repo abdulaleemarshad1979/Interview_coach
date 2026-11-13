@@ -44,6 +44,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
   const [stageIndex, setStageIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [questionGenerating, setQuestionGenerating] = useState(false);
+  const [rerun, setRerun] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const stageTimerRef = useRef<any>(null);
@@ -154,42 +155,10 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
         throw new Error("You must be logged in to analyze your profile.");
       }
 
-      // 2. Upload file to Supabase Storage bucket 'resumes'
-      const fileExt = file.name.split(".").pop();
-      const filePath = `${session.user.id}/${Date.now()}.${fileExt}`;
-      
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("resumes")
-        .upload(filePath, file, {
-          cacheControl: "3600",
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.error("Storage Upload Error:", uploadError);
-        throw new Error(`Supabase Storage upload failed: ${uploadError.message}. Make sure a bucket named 'resumes' is created in your Supabase dashboard.`);
-      }
-
-      // 3. Create a signed URL for secure backend access (valid for 5 minutes)
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from("resumes")
-        .createSignedUrl(filePath, 300);
-
-      if (signedUrlError) {
-        console.error("Create Signed URL Error:", signedUrlError);
-        throw signedUrlError;
-      }
-
-      const fileUrl = signedUrlData.signedUrl;
-
-      // Convert to base64 for fallback or local compatibility
-      const base64PDF = await fileToBase64(file);
-      
+      // The server reads the PDF from the request body only; no storage upload needed.
       const payload = {
         githubUsername: githubUsername.trim(),
-        resumeBase64: base64PDF,
-        resumeUrl: fileUrl,
-        resumePath: filePath,
+        resumeBase64: await fileToBase64(file),
         resumeFileName: file.name,
         resumeMimeType: file.type
       };
@@ -206,6 +175,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
       const data = await response.json();
 
       if (response.ok) {
+        setRerun(false);
         onAnalysisSuccess(data, data.githubAnalysis?.username || githubUsername.trim(), file.name);
       } else {
         setError(data.error || "Analysis failed. Please check your inputs or try again.");
@@ -302,7 +272,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
               </p>
             </div>
           </motion.div>
-        ) : !analysisResult ? (
+        ) : !analysisResult || rerun ? (
           /* Initial Configuration Form */
           <motion.form 
             key="analysis-setup"
@@ -467,7 +437,7 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
                 </p>
 
                 {/* Big Action CTA */}
-                <div className="pt-4">
+                <div className="pt-4 flex flex-wrap items-center gap-3">
                   <button
                     onClick={handleGenerateQuestions}
                     disabled={questionGenerating}
@@ -484,6 +454,13 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
                         <ArrowRight className="w-4 h-4 text-brand-bg" />
                       </>
                     )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setRerun(true); setError(null); }}
+                    className="px-5 py-4 border border-white/10 text-gray-300 font-semibold rounded-xl hover:border-brand-primary/40 cursor-pointer"
+                  >
+                    Re-run Analysis
                   </button>
                 </div>
               </div>
@@ -527,7 +504,9 @@ export default function AnalyzePage({ studentProfile, analysisResult, onAnalysis
                           </li>
                         ))}
                         {analysisResult.crossReference.unprovenClaims.length === 0 && (
-                          <li className="text-xs text-gray-500 italic">Excellent! All major portfolio claims align.</li>
+                          <li className="text-xs text-gray-500 italic">
+                            {analysisResult.crossReference.provenClaims.length ? "Excellent! All major portfolio claims align." : "No claims could be checked. Re-run the analysis."}
+                          </li>
                         )}
                       </ul>
                     </div>
