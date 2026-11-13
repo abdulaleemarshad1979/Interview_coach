@@ -112,7 +112,7 @@ export function createPortalClient(portal: CollegePortal, fetcher: typeof fetch 
     let url = initialUrl, method = init.method || 'GET', body = init.body;
     const headers = new Headers(init.headers);
     headers.set('User-Agent', 'InterviewCoach/1.0');
-    headers.set('Accept', 'text/html,application/json;q=0.9,*/*;q=0.8');
+    if (!headers.has('Accept')) headers.set('Accept', 'text/html,application/json;q=0.9,*/*;q=0.8');
     for (let redirects = 0; redirects <= 8; redirects++) {
       assertPortalUrl(url, portal, method);
       headers.delete('Cookie');
@@ -211,7 +211,9 @@ export async function cachePortalPhoto<T extends { profileImage: string }>(profi
       : b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? 'image/png'
       : b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP' ? 'image/webp' : '';
     if (image.status === 200 && b.length <= 1024 * 1024 && mime) return { ...profile, profileImage: `data:${mime};base64,${b.toString('base64')}` };
-    console.warn('[college] Portal photo rejected', { status: image.status, bytes: b.length, inline: !!inline });
+    console.warn('[college] Portal photo rejected', { status: image.status, bytes: b.length, inline: !!inline,
+      // Roll number redacted; the path shape is what diagnoses a wrong photo URL.
+      path: inline ? 'data:' : new URL(profile.profileImage).pathname.replace(/[A-Z0-9]{8,}/gi, '{roll}'), head: inline ? '' : b.subarray(0, 120).toString('utf8').replace(/\s+/g, ' ') });
   } catch { /* A photo outage must not reject an otherwise verified account. */ }
   return { ...profile, profileImage: '' };
 }
@@ -233,10 +235,12 @@ export async function verifyCollegePortal(rollNo: string, password: string, port
   const profilePage = await request(profileUrl); checkPortalResponse(profilePage, portal);
   const page = load(profilePage.body);
   const ajaxSource = page('script[src]').toArray().map(el => page(el).attr('src')!).find(src => /\/ajax\/StudentProfile,.*\.ashx/i.test(src));
-  if (!ajaxSource) return cachePortalPhoto(parsePortalProfileHtml(profilePage.body, rollNo, portal), request);
+  // Portals serve photos like a browser <img>: same-session cookies plus the profile page as Referer.
+  const photoRequest = (url: string) => request(url, { headers: { Referer: profileUrl, Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' } });
+  if (!ajaxSource) return cachePortalPhoto(parsePortalProfileHtml(profilePage.body, rollNo, portal), photoRequest);
   const ajaxUrl = new URL(ajaxSource, profileUrl); ajaxUrl.search = '?_method=ShowStudentProfileNew&_session=rw';
   const response = await request(ajaxUrl.href, { method: 'POST', headers: { 'X-AjaxPro-Method': 'ShowStudentProfileNew', 'Content-Type': 'text/plain; charset=utf-8', Referer: profileUrl },
     body: `RollNo=${encodeURIComponent(rollNo)}\r\nisImageDisplay=true` });
   checkPortalResponse(response, portal);
-  return cachePortalPhoto(parsePortalProfileHtml(response.body, rollNo, portal), request);
+  return cachePortalPhoto(parsePortalProfileHtml(response.body, rollNo, portal), photoRequest);
 }
