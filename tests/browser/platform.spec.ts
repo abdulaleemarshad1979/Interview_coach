@@ -38,6 +38,9 @@ test('college portal login, saved interview and explicit missing-provider failur
   await expect(page.getByRole('heading', { name: 'Backend engineer', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Begin questions' })).toBeVisible();
+  await page.getByRole('button', { name: 'Profile', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Interview history' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Backend engineer', exact: true })).toBeVisible();
 });
 
 test('camera observer tracks a visible face using local model assets', async ({ page, request }) => {

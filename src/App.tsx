@@ -647,6 +647,7 @@ export default function App() {
             scorecard={scorecard}
             analysisResult={analysisResult}
             onNavigate={navigate}
+            onOpenSession={id => { setActiveSessionId(id); setCurrentView("interview"); }}
           />
         ) : (
           <LoginPage onLoginSuccess={handleLoginSuccess} />
@@ -708,6 +709,7 @@ export default function App() {
             studentProfile={studentProfile}
             scorecard={scorecard}
             scorecardHistory={scorecardHistory}
+            onOpenSession={id => { setActiveSessionId(id); setCurrentView("interview"); }}
             onSyncPortalDetails={async (password: string) => {
               const { data: { user } } = await supabase.auth.getUser();
               const portal = user?.user_metadata?.college_portal || studentProfile.portal;
