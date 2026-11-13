@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assertTransition, buildInterviewContext, generateInterviewTurn, newSession,
-  partialUtterance, remainingSeconds, validateConfig, validateDecision, validateEvidence, validateReport,
+  partialUtterance, remainingSeconds, validateConfig, validateDecision, questionPlan, validateEvidence, validateReport,
 } from '../backend/interview/engine.ts';
 import { INTERVIEW_DIMENSIONS, type InterviewSession } from '../src/lib/interviewTypes.ts';
 import { parseProviderJson, type AIProvider } from '../backend/ai/provider.ts';
@@ -101,8 +101,8 @@ test('deadline closes questioning and difficulty changes are bounded', async () 
   const provider: AIProvider = { completeJson: async () => ({ value: close, usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 }, provider: 'test-fixture', model: 'test-fixture' }), transcribe: async () => ({ text: '', source: 'test-fixture' }) };
   const next = await generateInterviewTurn(session, provider);
   assert.equal(next.state, 'CLOSING'); assert.equal(next.currentQuestion, null); assert.equal(next.usage.totalTokens, 30);
-  const easy = fixture(); easy.memory.difficulty = 'beginner';
-  assert.throws(() => validateDecision({ ...decision(), question: { ...decision().question, difficulty: 'advanced' } }, easy, false));
+  assert.equal(validateDecision({ ...decision(), question: { ...decision().question, difficulty: 'advanced' } }, fixture(), false).question?.difficulty, questionPlan(fixture().turns.filter(turn => turn.role === 'candidate').length).difficulty);
+  assert.throws(() => validateDecision({ ...decision(), question: { ...decision().question, difficulty: 'expert' } }, fixture(), false));
 });
 
 test('multi-turn follow-ups retain earlier claims, cap depth, and transition naturally', async () => {
