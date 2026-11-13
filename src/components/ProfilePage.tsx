@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import InterviewHistoryPage from "./InterviewHistoryPage";
 import { motion } from "motion/react";
 import { 
   User, 
@@ -25,6 +26,7 @@ interface ProfilePageProps {
   onSyncPortalDetails: (password: string) => Promise<boolean>;
   onProfileUpdate: (updatedProfile: StudentProfile) => void;
   onNavigate: (view: string) => void;
+  onOpenSession: (id: string) => void;
 }
 
 const normalizeBranch = (dept: string) => {
@@ -42,7 +44,9 @@ export default function ProfilePage({
   scorecard,
   scorecardHistory,
   onSyncPortalDetails,
-  onProfileUpdate
+  onProfileUpdate,
+  onNavigate,
+  onOpenSession
 }: ProfilePageProps) {
   
   // Local state for profile form fields
@@ -315,6 +319,8 @@ export default function ProfilePage({
             )}
           </form>
 
+          <InterviewHistoryPage onSelect={onOpenSession} onNavigate={onNavigate} />
+
           {/* Previous Reports History Card */}
           <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-4">
             <h3 className="text-lg font-display font-semibold text-white flex items-center border-b border-white/5 pb-3">
@@ -375,7 +381,7 @@ export default function ProfilePage({
                 </table>
               </div>
             ) : (
-              <p className="text-xs text-gray-400 py-2">No previous assessment history found. Complete a live interview to generate reports.</p>
+              <p className="text-xs text-gray-400 py-2">No older-format reports. Your interviews are listed in Interview history above.</p>
             )}
           </div>
         </div>

@@ -1,4 +1,7 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { apiFetch } from "../lib/api";
+import { readApiJson } from "../lib/interviewClient";
+import type { InterviewReport, InterviewSessionSummary } from "../lib/interviewTypes";
 import { motion } from "motion/react";
 import { 
   Play, 
@@ -23,9 +26,27 @@ interface DashboardPageProps {
   scorecard: Scorecard | null;
   analysisResult: FullAnalysisResult | null;
   onNavigate: (view: string) => void;
+  onOpenSession: (id: string) => void;
 }
 
-export default function DashboardPage({ studentProfile, scorecard, analysisResult, onNavigate }: DashboardPageProps) {
+export default function DashboardPage({ studentProfile, scorecard, analysisResult, onNavigate, onOpenSession }: DashboardPageProps) {
+  // Latest scored interview saved on the server; legacy local scorecards are only a fallback.
+  const [latest, setLatest] = useState<{ session: InterviewSessionSummary; report: InterviewReport | null } | null>(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const { sessions } = await readApiJson<{ sessions: InterviewSessionSummary[] }>(await apiFetch("/api/interview/sessions?limit=20"));
+        const session = sessions.find((s) => s.overallScore !== null);
+        if (!session) return;
+        const report = await apiFetch(`/api/interview/sessions/${encodeURIComponent(session.id)}/report`)
+          .then((r) => readApiJson<{ report: InterviewReport }>(r)).then((r) => r.report).catch(() => null);
+        if (live) setLatest({ session, report });
+      } catch { /* dashboard still renders from local data */ }
+    })();
+    return () => { live = false; };
+  }, []);
+
   // Resolve assigned proctor
   const resolvedProctorName = (() => {
     const cached = localStorage.getItem(`assigned_proctor_${studentProfile.studentId}`);
@@ -104,9 +125,10 @@ export default function DashboardPage({ studentProfile, scorecard, analysisResul
           <div>
             <div className="text-xs text-gray-500 font-mono uppercase">Overall Grade</div>
             <div className="text-xl font-display font-bold text-white mt-1">
-              {scorecard ? `${scorecard.overallScore}/100` : "No Data"}
+              {latest ? `${latest.session.overallScore}/100` : scorecard ? `${scorecard.overallScore}/100` : "No Data"}
             </div>
-            {scorecard && <span className="text-[10px] text-brand-primary font-mono uppercase">{scorecard.candidateLevel}</span>}
+            {latest ? <span className="text-[10px] text-brand-primary font-mono uppercase">{latest.session.targetRole}</span>
+              : scorecard && <span className="text-[10px] text-brand-primary font-mono uppercase">{scorecard.candidateLevel}</span>}
           </div>
         </div>
 
@@ -190,7 +212,39 @@ export default function DashboardPage({ studentProfile, scorecard, analysisResul
             </div>
           )}
 
-          {scorecard ? (
+          {latest ? (
+            <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-display font-bold text-white">Latest Interview Report</h3>
+                  <p className="text-xs text-gray-400 font-mono uppercase mt-0.5">
+                    {latest.session.targetRole} · {latest.session.mode.replace("-", " ")} · {new Date(latest.session.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <button onClick={() => onOpenSession(latest.session.id)} className="flex items-center space-x-1.5 text-xs text-brand-primary hover:underline font-mono uppercase cursor-pointer">
+                  <span>Read Full Report</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="p-5 bg-brand-bg border border-white/5 rounded-xl grid grid-cols-1 sm:grid-cols-12 gap-6 items-center">
+                <div className="sm:col-span-4 flex flex-col items-center">
+                  <span className="font-display font-bold text-4xl text-white">{latest.session.overallScore}<span className="text-base text-gray-400">/100</span></span>
+                  <div className="text-[10px] font-mono text-gray-400 uppercase mt-2">{latest.session.answerCount} answers</div>
+                </div>
+                <div className="sm:col-span-8 space-y-3">
+                  <p className="text-sm text-gray-300 leading-relaxed">{latest.report?.summary || "Open the full report for feedback on each answer."}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(latest.report?.strengths || []).slice(0, 2).map((st, idx) => (
+                      <span key={idx} className="px-2 py-1 bg-brand-primary/5 text-brand-primary border border-brand-primary/10 text-[10px] rounded font-mono truncate max-w-[220px]">✓ {st.text}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => onNavigate("profile")} className="text-xs text-gray-400 hover:text-brand-primary font-mono uppercase cursor-pointer">
+                See all interviews in your profile →
+              </button>
+            </div>
+          ) : scorecard ? (
             <div className="bg-brand-card/25 border border-white/5 p-6 rounded-2xl space-y-6">
               <div className="flex items-center justify-between">
                 <div>

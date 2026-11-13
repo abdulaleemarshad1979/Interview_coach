@@ -961,7 +961,7 @@ class GitHubFetchError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 
-// Public GitHub evidence: profile, 15 recently updated repos, languages, README excerpts, and recent pushes.
+// Public GitHub evidence: profile, all public repos (newest first), languages, README excerpts, and recent pushes.
 async function fetchGitHubProfile(username: string) {
   const headers: Record<string, string> = { "User-Agent": "interview-coach-app", Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
@@ -976,7 +976,8 @@ async function fetchGitHubProfile(username: string) {
   };
   const [user, repoList, events] = await Promise.all([
     get(`/users/${username}`).then(r => r.json()),
-    get(`/users/${username}/repos?sort=updated&per_page=15&type=owner`).then(r => r.json()),
+    // shortcut: first 100 repos only, paginate if students exceed that.
+    get(`/users/${username}/repos?sort=updated&per_page=100&type=owner`).then(r => r.json()),
     get(`/users/${username}/events/public?per_page=30`).then(r => r.json()).catch(() => []),
   ]);
   const optional = async <T>(work: () => Promise<T>, fallback: T) => { try { return await work(); } catch { return fallback; } };
@@ -984,7 +985,8 @@ async function fetchGitHubProfile(username: string) {
     name: r.name,
     description: r.description || "No description provided.",
     primaryLanguage: r.language || "Unknown",
-    languages: await optional(async () => Object.keys(await (await get(`/repos/${username}/${r.name}/languages`)).json()), r.language ? [r.language] : []),
+    // Per-repo language lookups only for the 15 newest repos to bound API calls.
+    languages: index < 15 ? await optional(async () => Object.keys(await (await get(`/repos/${username}/${r.name}/languages`)).json()), r.language ? [r.language] : []) : (r.language ? [r.language] : []),
     stars: r.stargazers_count || 0,
     forks: r.forks_count || 0,
     url: r.html_url,
@@ -1064,7 +1066,7 @@ GitHub Username: ${githubUsername}
 GitHub Profile: ${JSON.stringify(github.profile)}
 Top Languages: ${github.topLanguages.join(", ") || "None detected"}
 Recent Activity: ${JSON.stringify(github.recentActivity)}
-Fetched Repositories Data (15 most recently updated; README excerpts for the newest 6):
+Fetched Repositories Data (all public repositories, newest first; README excerpts for the newest 6):
 ${JSON.stringify(github.repos.map(({ url, ...repo }) => repo))}
 
 Respond with STRICT JSON matching this schema:
