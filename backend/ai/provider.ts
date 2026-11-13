@@ -85,17 +85,45 @@ function tokenUsage(usage: any): TokenUsage {
   };
 }
 
+// Groq rate limits are per model, so a busy or retired model falls through to the next one.
+export function groqModelChain(primary: string, fallbacks = process.env.GROQ_FALLBACK_MODELS
+  ?? 'openai/gpt-oss-20b,llama-3.3-70b-versatile,meta-llama/llama-4-scout-17b-16e-instruct,llama-3.1-8b-instant'): string[] {
+  return [...new Set([primary, ...fallbacks.split(',')].map((m) => m.trim()).filter(Boolean))];
+}
+
+export function isModelFallbackError(error: unknown): boolean {
+  return [404, 429, 500, 502, 503, 504].includes(Number((error as { status?: number })?.status));
+}
+
+/** Runs `attempt` on each model until one succeeds; `canFallBack` stops after partial streamed output. */
+export async function withModelFallback<T>(models: string[], attempt: (model: string, isLast: boolean) => Promise<T>, canFallBack = () => true): Promise<T> {
+  for (let i = 0; ; i++) {
+    try { return await attempt(models[i], i === models.length - 1); }
+    catch (error) {
+      if (i === models.length - 1 || !isModelFallbackError(error) || !canFallBack()) throw error;
+      console.warn('[ai] Model unavailable, falling back', { model: models[i], next: models[i + 1], status: (error as any)?.status });
+    }
+  }
+}
+
 async function groqCompletion(options: JsonCompletionOptions): Promise<JsonCompletionResult> {
-  const groq = groqClient();
-  const model = (options.purpose === 'report' || options.purpose === 'discussion' ? process.env.GROQ_MODEL_REPORT : process.env.GROQ_MODEL_CHAT)
+  const primary = (options.purpose === 'report' || options.purpose === 'discussion' ? process.env.GROQ_MODEL_REPORT : process.env.GROQ_MODEL_CHAT)
     || process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+  let streamed = false;
+  const onDelta = options.onDelta && ((text: string) => { streamed = true; options.onDelta!(text); });
+  return withModelFallback(groqModelChain(primary), (model, isLast) => groqModelCompletion({ ...options, onDelta }, model, isLast), () => !streamed);
+}
+
+async function groqModelCompletion(options: JsonCompletionOptions, model: string, isLast: boolean): Promise<JsonCompletionResult> {
+  const groq = groqClient();
   const signal = requestSignal(options.signal);
   const params = {
     model, messages: options.messages, response_format: { type: 'json_object' as const },
     temperature: options.purpose === 'interview' ? 0.45 : 0.2,
     max_completion_tokens: options.maxTokens || 3000,
   };
-  const requestOptions = { signal, timeout: 30000, maxRetries: 2 };
+  // Fewer in-model retries when another model can take over immediately.
+  const requestOptions = { signal, timeout: 30000, maxRetries: isLast ? 2 : 1 };
   if (!options.onDelta) {
     const result = await groq.chat.completions.create({ ...params, stream: false }, requestOptions);
     if (result.choices[0]?.finish_reason === 'length') throw new ServiceError(502, 'INCOMPLETE_AI_RESPONSE', 'The AI response was cut off. Please retry.', true);
@@ -208,11 +236,11 @@ async function transcribe(options: TranscriptionOptions): Promise<{ text: string
   const signal = requestSignal(options.signal);
   const ext = options.mimeType.includes('wav') ? 'wav' : options.mimeType.includes('ogg') ? 'ogg' : options.mimeType.includes('mp4') || options.mimeType.includes('m4a') ? 'm4a' : options.mimeType.includes('mpeg') || options.mimeType.includes('mp3') ? 'mp3' : 'webm';
   if (process.env.GROQ_API_KEY) {
-    const result = await groqClient().audio.transcriptions.create({
+    const models = groqModelChain(process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo', process.env.GROQ_STT_FALLBACK_MODELS ?? 'whisper-large-v3');
+    const result = await withModelFallback(models, async (model, isLast) => groqClient().audio.transcriptions.create({
       file: await toFile(options.audio, `speech.${ext}`, { type: options.mimeType }),
-      model: process.env.GROQ_STT_MODEL || 'whisper-large-v3-turbo',
-      language: 'en', response_format: 'json', temperature: 0,
-    }, { signal, timeout: 30000, maxRetries: 2 });
+      model, language: 'en', response_format: 'json', temperature: 0,
+    }, { signal, timeout: 30000, maxRetries: isLast ? 2 : 1 }));
     return { text: String(result.text || '').slice(0, 24000), source: 'groq' };
   }
   if (!process.env.LOCAL_STT_URL) throw new ServiceError(503, 'STT_NOT_CONFIGURED', 'No speech recognizer is configured.');
